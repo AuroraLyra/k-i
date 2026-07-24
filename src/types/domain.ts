@@ -1,6 +1,6 @@
 export type ChatMode = 'online' | 'offline';
 
-import type { ChatCommerceAttachment, ChatShopShareAttachment, ShopCartItem, ShopMoment, ShopOrder, ShopProduct, ShopStorefront, ShopWishlistItem, WalletAccount, WalletTransaction } from './commerce';
+import type { CharacterEconomySnapshot, ChatCommerceAttachment, ChatShopShareAttachment, ShopCartItem, ShopMoment, ShopOrder, ShopProduct, ShopStorefront, ShopWishlistItem, WalletAccount, WalletTransaction } from './commerce';
 import type { MemoryAssertion, MemoryEdge, MemoryEmbeddingCache, MemoryEntity, MemoryEpisode, MemoryStateSnapshot, MemoryTheme } from './memory';
 
 export type AppTab = 'home' | 'voom' | 'music' | 'fanfic' | 'wallet';
@@ -939,14 +939,6 @@ export interface SmallTheater {
 
 export type FanficTopicSource = 'built-in' | 'trend' | 'ai' | 'custom';
 
-export interface FanficCreativeDna {
-  userTraits: string[];
-  characterTraits: string[];
-  chemistry: string[];
-  narrativeBoundaries: string[];
-  forbiddenCarryovers: string[];
-}
-
 export interface FanficSupportingCharacter {
   name: string;
   role: string;
@@ -956,6 +948,9 @@ export interface FanficSupportingCharacter {
 
 export interface FanficStoryBible {
   premise: string;
+  coreHook: string;
+  storyEngine: string;
+  stakes: string;
   era: string;
   locations: string[];
   worldRules: string[];
@@ -991,18 +986,12 @@ export interface FanficTopic {
   expiresAt?: number;
 }
 
-export interface FanficOutlineChapter {
-  order: number;
-  title: string;
-  premise: string;
-  emotionalBeat: string;
-  cliffhanger: string;
-}
-
 export type FanficBookStatus = 'serializing' | 'completed' | 'paused';
+export type FanficWorkType = 'user-character-au-fanfic';
 
 export interface FanficBook {
   id: string;
+  workType: FanficWorkType;
   userId: string;
   characterId: string;
   userName: string;
@@ -1025,9 +1014,7 @@ export interface FanficBook {
   coverPrompt: string;
   coverPalette: string[];
   status: FanficBookStatus;
-  creativeDna: FanficCreativeDna;
   storyBible: FanficStoryBible;
-  outline: FanficOutlineChapter[];
   continuity: string[];
   profileFingerprint: string;
   lastReadChapterId?: string;
@@ -1071,6 +1058,8 @@ export interface FanficChapter {
 }
 
 export type FanficCommentScope = 'book' | 'chapter';
+export type FanficCommentAuthorType = 'author' | 'reader' | 'character' | 'user';
+export type FanficCommentOrigin = 'generated' | 'manual';
 
 export interface FanficComment {
   id: string;
@@ -1078,7 +1067,9 @@ export interface FanficComment {
   chapterId?: string;
   hotspotId?: string;
   scope: FanficCommentScope;
-  authorType: 'generated' | 'user';
+  authorType: FanficCommentAuthorType;
+  origin: FanficCommentOrigin;
+  authorId?: string;
   authorName: string;
   avatarSeed: string;
   content: string;
@@ -1609,6 +1600,7 @@ export interface PromptContext {
   replyInstruction?: string;
   activeProfileTheme?: Pick<ProfileTheme, 'id' | 'name' | 'prompt' | 'regex' | 'css' | 'template' | 'source' | 'builtIn'>;
   musicListening?: MusicListeningContext;
+  characterEconomy?: CharacterEconomySnapshot;
 }
 
 export interface GenerateReplyInput extends PromptContext {

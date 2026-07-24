@@ -1,7 +1,7 @@
 <template>
   <section v-if="book && chapter" class="screen no-tabs reader-page" :class="[`theme-${readerTheme}`, { 'controls-hidden': controlsHidden }]">
     <header class="reader-header">
-      <button type="button" aria-label="返回小说详情" @click="goBook"><ChevronLeft :size="21" /></button>
+      <button type="button" aria-label="返回同人文详情" @click="goBook"><ChevronLeft :size="21" /></button>
       <span><small>{{ book.title }}</small><strong>第 {{ chapter.order }} 章</strong></span>
       <button type="button" aria-label="阅读设置" @click="showSettings = !showSettings"><Type :size="19" /></button>
     </header>
@@ -25,7 +25,7 @@
             <p :data-paragraph-id="paragraph.id">{{ paragraph.text }}</p>
             <button v-for="hotspot in hotspotsAt(index)" :key="hotspot.id" class="hotspot-anchor" type="button" @click.stop="openHotspot(hotspot.id)">
               <span><MessageCircleHeart :size="15" /></span>
-              <span><small>{{ hotspot.label || '读者沸腾处' }}</small><strong>{{ hotspotCommentCount(hotspot.id) }} 条评论正在讨论这一刻</strong></span>
+              <span><small>{{ hotspot.label || '读者沸腾处' }}</small><strong>{{ hotspotCommentLabel(hotspot.id) }}</strong></span>
               <ChevronRight :size="15" />
             </button>
           </template>
@@ -37,13 +37,18 @@
           <section class="chapter-stats"><span><MessageCircle :size="14" /> {{ chapterComments.length }} 条章评</span><span><Heart :size="14" /> {{ totalLikes }} 次共鸣</span></section>
         </footer>
 
+        <section v-if="generalChapterComments.length" class="general-comments">
+          <header><small>CHAPTER DISCUSSION</small><strong>本章讨论</strong></header>
+          <FanficCommentList :comments="generalChapterComments" :book="book" @like="fanficStore.likeComment" />
+        </section>
+
         <section v-if="isLastChapter && book.status !== 'completed'" class="next-direction">
           <small>NEXT EPISODE</small>
           <h2>下一章，你想往哪里走？</h2>
-          <p>选择一个方向，或写下自己的想法。正文与该章高潮评论仍会一起生成。</p>
+          <p>选择一个方向，或写下自己的想法。章节会同时生成正文和高潮评论点，评论内容只在读者点击对应热点时按需加载。</p>
           <button v-for="direction in chapter.nextDirections" :key="direction" type="button" :class="{ selected: selectedDirection === direction }" @click="selectedDirection = selectedDirection === direction ? '' : direction">{{ direction }}</button>
           <textarea v-model="customDirection" maxlength="500" rows="3" placeholder="自定义下一章方向（可选）"></textarea>
-          <button class="generate-next" type="button" :disabled="generating" @click="generateNext"><LoaderCircle v-if="generating" class="spin" :size="16" /><Sparkles v-else :size="16" />{{ generating ? '正在生成章节与评论' : '生成下一章与评论' }}</button>
+          <button class="generate-next" type="button" :disabled="generating" @click="generateNext"><LoaderCircle v-if="generating" class="spin" :size="16" /><Sparkles v-else :size="16" />{{ generating ? '正在生成章节' : '生成下一章' }}</button>
           <em v-if="generateError">{{ generateError }}</em>
         </section>
 
@@ -64,25 +69,27 @@
           <header><span><small>LIVE REACTIONS</small><strong>{{ selectedHotspot.label }}</strong></span><button type="button" aria-label="关闭评论" @click="closeHotspot"><X :size="19" /></button></header>
           <blockquote>“{{ selectedHotspot.excerpt }}”</blockquote>
           <main>
-            <FanficCommentList :comments="selectedHotspotComments" @like="fanficStore.likeComment" @reply="replyToComment" />
-            <p v-if="!selectedHotspotComments.length" class="no-comments">这段高潮还没有评论，成为第一个留下感受的人。</p>
+            <FanficCommentList v-if="selectedHotspotComments.length" :comments="selectedHotspotComments" :book="book" @like="fanficStore.likeComment" @reply="replyToComment" />
+            <span v-if="hotspotCommentsLoading" class="comments-loading"><LoaderCircle class="spin" :size="18" /><strong>正在生成这一刻的评论</strong><small>只会请求当前高潮点，完成后自动缓存</small></span>
+            <span v-else-if="hotspotCommentError" class="comments-error"><CircleAlert :size="18" /><strong>评论生成失败</strong><small>{{ hotspotCommentError }}</small><button type="button" @click="retryHotspotComments">重新生成</button></span>
+            <p v-else-if="!selectedHotspotComments.length" class="no-comments">点击后会为这一刻单独生成评论。</p>
           </main>
           <form @submit.prevent="submitHotspotComment">
             <small v-if="replyTarget">回复 {{ replyTarget.authorName }} <button type="button" @click="replyTargetId = ''">取消</button></small>
-            <span><input v-model="commentDraft" maxlength="500" :placeholder="`评论这一刻 · ${book.userName}`" /><button type="submit" :disabled="!commentDraft.trim()"><Send :size="15" /></button></span>
+            <span><input v-model="commentDraft" maxlength="500" :placeholder="`评论这一刻 · ${book.userName}`" /><button type="submit" :disabled="hotspotCommentsLoading || !commentDraft.trim()"><Send :size="15" /></button></span>
           </form>
         </article>
       </section>
     </Transition>
   </section>
 
-  <section v-else class="screen no-tabs missing-reader"><BookX :size="34" /><h1>这一章暂时不存在</h1><button type="button" @click="goBook">返回小说目录</button></section>
+  <section v-else class="screen no-tabs missing-reader"><BookX :size="34" /><h1>这一章暂时不存在</h1><button type="button" @click="goBook">返回同人文目录</button></section>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { BookX, ChevronLeft, ChevronRight, Heart, ListTree, LoaderCircle, MessageCircle, MessageCircleHeart, Send, Sparkles, Type, X } from 'lucide-vue-next';
+import { BookX, ChevronLeft, ChevronRight, CircleAlert, Heart, ListTree, LoaderCircle, MessageCircle, MessageCircleHeart, Send, Sparkles, Type, X } from 'lucide-vue-next';
 import FanficCommentList from '@/components/fanfic/FanficCommentList.vue';
 import { useFanficStore } from '@/stores/fanficStore';
 
@@ -101,6 +108,7 @@ const selectedDirection = ref('');
 const customDirection = ref('');
 const generating = ref(false);
 const generateError = ref('');
+const hotspotCommentError = ref('');
 const currentProgress = ref(0);
 let progressTimer = 0;
 let previousScrollTop = 0;
@@ -114,12 +122,14 @@ const previousChapter = computed(() => chapterIndex.value > 0 ? chapters.value[c
 const nextChapter = computed(() => chapterIndex.value >= 0 ? chapters.value[chapterIndex.value + 1] ?? null : null);
 const isLastChapter = computed(() => chapterIndex.value === chapters.value.length - 1);
 const chapterComments = computed(() => fanficStore.commentsForChapter(props.chapterId));
+const generalChapterComments = computed(() => chapterComments.value.filter((comment) => !comment.hotspotId));
 const paragraphs = computed(() => chapter.value?.paragraphs.length
   ? chapter.value.paragraphs
   : chapter.value?.content.split(/\n\s*\n/).map((text, index) => ({ id: `${props.chapterId}-paragraph-${index + 1}`, text: text.trim() })).filter((entry) => entry.text) ?? []);
 const readMinutes = computed(() => Math.max(1, Math.ceil((chapter.value?.wordCount ?? 0) / 420)));
 const selectedHotspot = computed(() => chapter.value?.hotspots.find((hotspot) => hotspot.id === selectedHotspotId.value) ?? null);
 const selectedHotspotComments = computed(() => selectedHotspotId.value ? fanficStore.commentsForHotspot(props.chapterId, selectedHotspotId.value) : []);
+const hotspotCommentsLoading = computed(() => Boolean(selectedHotspotId.value && fanficStore.isGeneratingHotspot(props.chapterId, selectedHotspotId.value)));
 const replyTarget = computed(() => selectedHotspotComments.value.find((comment) => comment.id === replyTargetId.value) ?? null);
 const totalLikes = computed(() => chapterComments.value.reduce((total, comment) => total + comment.likes, 0));
 
@@ -130,6 +140,7 @@ onMounted(async () => {
 
 watch(() => props.chapterId, async () => {
   selectedHotspotId.value = '';
+  hotspotCommentError.value = '';
   selectedDirection.value = '';
   customDirection.value = '';
   currentProgress.value = 0;
@@ -154,14 +165,38 @@ function hotspotsAt(index: number) {
 
 function hotspotCommentCount(hotspotId: string) { return fanficStore.commentsForHotspot(props.chapterId, hotspotId).length; }
 
-function openHotspot(hotspotId: string) {
+function hotspotCommentLabel(hotspotId: string) {
+  const count = hotspotCommentCount(hotspotId);
+  if (count) return `${count} 条评论正在讨论这一刻`;
+  if (fanficStore.isGeneratingHotspot(props.chapterId, hotspotId)) return '正在生成这一刻的评论';
+  return '点击生成这一刻的评论';
+}
+
+async function openHotspot(hotspotId: string) {
   selectedHotspotId.value = hotspotId;
   replyTargetId.value = '';
   commentDraft.value = '';
+  hotspotCommentError.value = '';
+  if (fanficStore.commentsForHotspot(props.chapterId, hotspotId).some((comment) => comment.origin === 'generated')) return;
+  try {
+    await fanficStore.generateHotspotComments(props.chapterId, hotspotId);
+  } catch (error) {
+    hotspotCommentError.value = error instanceof Error ? error.message : '评论生成失败，请重试。';
+  }
 }
 
-function closeHotspot() { selectedHotspotId.value = ''; replyTargetId.value = ''; }
+function closeHotspot() { selectedHotspotId.value = ''; replyTargetId.value = ''; hotspotCommentError.value = ''; }
 function replyToComment(commentId: string) { replyTargetId.value = commentId; }
+
+async function retryHotspotComments() {
+  if (!selectedHotspotId.value || hotspotCommentsLoading.value) return;
+  hotspotCommentError.value = '';
+  try {
+    await fanficStore.generateHotspotComments(props.chapterId, selectedHotspotId.value);
+  } catch (error) {
+    hotspotCommentError.value = error instanceof Error ? error.message : '评论生成失败，请重试。';
+  }
+}
 
 async function submitHotspotComment() {
   const content = commentDraft.value.trim();
@@ -221,7 +256,7 @@ async function generateNext() {
     const generated = await fanficStore.generateNextChapter(props.bookId, direction);
     if (generated) openChapter(generated.id);
   } catch (error) {
-    generateError.value = error instanceof Error ? error.message : '下一章与评论生成失败。';
+    generateError.value = error instanceof Error ? error.message : '下一章生成失败。';
   } finally {
     generating.value = false;
   }
@@ -266,6 +301,10 @@ async function generateNext() {
 .chapter-ending blockquote { max-width: 470px; margin: 0; color: color-mix(in srgb, var(--reader-text) 74%, #a47c83); font-family: Georgia, "Songti SC", serif; font-size: 13px; font-style: italic; line-height: 1.8; }
 .chapter-stats { display: flex; gap: 17px; color: var(--reader-muted); font-size: 8px; }
 .chapter-stats span { display: flex; align-items: center; gap: 4px; }
+.general-comments { display: grid; gap: 14px; margin-top: 22px; padding: 18px; border: 1px solid color-mix(in srgb, var(--reader-text) 7%, transparent); border-radius: 23px; background: color-mix(in srgb, var(--reader-card) 82%, transparent); }
+.general-comments header { display: grid; gap: 2px; }
+.general-comments header small { color: #a48387; font-size: 8px; font-weight: 900; letter-spacing: .13em; }
+.general-comments header strong { font-family: Georgia, "Songti SC", serif; font-size: 17px; }
 .next-direction { display: grid; gap: 9px; margin-top: 22px; padding: 18px; border-radius: 23px; background: color-mix(in srgb, #d9e6dc 55%, var(--reader-card)); }
 .next-direction > small { color: #78907d; font-size: 8px; font-weight: 950; letter-spacing: .13em; }
 .next-direction h2 { margin: 0; font-family: Georgia, "Songti SC", serif; font-size: 18px; }
@@ -296,6 +335,11 @@ async function generateNext() {
 .comment-sheet > blockquote { margin: 0 17px 10px; padding: 10px 12px; border-left: 3px solid #c199a1; border-radius: 0 12px 12px 0; background: #f3e8ea; color: #755f64; font-family: Georgia, "Songti SC", serif; font-size: 10px; line-height: 1.6; }
 .comment-sheet > main { flex: 1; min-height: 90px; overflow-y: auto; padding: 5px 17px 12px; }
 .no-comments { color: #94898b; font-size: 9px; text-align: center; }
+.comments-loading, .comments-error { display: grid; place-items: center; gap: 6px; padding: 22px 14px; color: #8d7f82; text-align: center; }
+.comments-loading strong, .comments-error strong { color: #5f5557; font-size: 10px; }
+.comments-loading small, .comments-error small { max-width: 280px; font-size: 8px; line-height: 1.55; }
+.comments-error { color: #9b5e64; }
+.comments-error button { min-height: 31px; margin-top: 3px; padding: 0 11px; border-radius: 10px; background: #8f5c62; color: #fff; font-size: 8px; font-weight: 800; }
 .comment-sheet > form { display: grid; gap: 4px; padding: 10px 15px; border-top: 1px solid rgba(66,57,59,.07); }
 .comment-sheet form > small { color: #8e747a; font-size: 8px; }.comment-sheet form > small button { color: #a24f58; font-size: 8px; }
 .comment-sheet form > span { display: grid; grid-template-columns: minmax(0,1fr) 38px; gap: 7px; }

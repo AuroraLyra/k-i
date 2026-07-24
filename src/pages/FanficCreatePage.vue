@@ -2,7 +2,7 @@
   <section class="screen no-tabs create-page">
     <header class="top-bar create-topbar">
       <button class="back-button" type="button" aria-label="返回书架" :disabled="creating" @click="goBack"><ChevronLeft :size="21" /></button>
-      <span class="create-title"><small>NEW ORIGINAL</small><strong>创建小说</strong></span>
+      <span class="create-title"><small>NEW FANWORK</small><strong>创建同人文</strong></span>
       <button class="close-button" type="button" aria-label="关闭" :disabled="creating" @click="goBack"><X :size="19" /></button>
     </header>
 
@@ -14,10 +14,10 @@
 
     <main class="create-main">
       <section v-if="step === 1" class="wizard-panel">
-        <header class="wizard-heading"><small>01 · PROTAGONISTS</small><h1>这一次，和谁成为主角？</h1><p>用户与所选角色会作为唯一双主角，小说只使用双方真名。</p></header>
+        <header class="wizard-heading"><small>01 · FANWORK SUBJECTS</small><h1>这一次，写你和谁？</h1><p>用户与所选角色是明确的同人对象，也是 AU 正文里的唯一双主角。</p></header>
         <article class="user-card">
           <span class="avatar-wrap"><img :src="appStore.user?.avatar" alt="用户头像" /></span>
-          <span><small>USER · 固定主角</small><strong>{{ appStore.user?.name || '尚未填写真名' }}</strong><em>{{ appStore.user?.nickname }}</em></span>
+          <span><small>USER · 固定同人对象</small><strong>{{ appStore.user?.name || '尚未填写真名' }}</strong><em>{{ appStore.user?.nickname }}</em></span>
           <CheckCircle2 v-if="appStore.user?.name.trim()" :size="19" />
           <CircleAlert v-else :size="19" />
         </article>
@@ -29,7 +29,7 @@
           </button>
         </div>
         <p v-if="!appStore.charactersForActiveUser.length" class="panel-notice">当前账号还没有可用角色，请先添加并绑定角色。</p>
-        <p class="privacy-note"><ShieldCheck :size="15" /> 只读取双方真名、人物设定与所选角色绑定且启用的局部世界书；不读取聊天、记忆、全局世界书或头像描述。</p>
+        <p class="privacy-note"><ShieldCheck :size="15" /> 创作会直接读取双方真名、人物设定与所选角色启用的局部世界书作为参考，但不会把全部资料视为必须照搬的剧情。阅读时点击高潮评论点，才会另行读取同账号绑定角色的真名、签名和角色设定生成该点评论；全程不读取聊天、记忆、全局世界书或头像描述。</p>
       </section>
 
       <section v-else-if="step === 2" class="wizard-panel topic-panel">
@@ -47,13 +47,13 @@
             <input v-model="builtInSearch" type="search" placeholder="搜索题材、赛道或分类" />
             <small>{{ filteredBuiltInCount }} 项</small>
           </label>
-          <nav class="genre-family-tabs" aria-label="女频题材分类">
+          <nav class="genre-family-tabs" aria-label="同人题材分类">
             <button v-for="group in fanficGenreGroups" :key="group.id" type="button" :class="{ active: selectedGenreGroupId === group.id && !builtInSearch.trim() }" @click="selectGenreGroup(group.id)">
               <strong>{{ group.shortLabel }}</strong><small>{{ group.sections.reduce((total, section) => total + section.topics.length, 0) }}</small>
             </button>
           </nav>
           <article v-if="!builtInSearch.trim()" class="genre-intro">
-            <span><small>WOMEN'S FICTION</small><strong>{{ selectedGenreGroup.label }}</strong></span>
+            <span><small>STORY GENRES</small><strong>{{ selectedGenreGroup.label }}</strong></span>
             <p>{{ selectedGenreGroup.description }}</p>
           </article>
           <div v-if="filteredBuiltInSections.length" class="genre-sections">
@@ -104,7 +104,7 @@
       </section>
 
       <section v-else class="wizard-panel confirm-panel">
-        <header class="wizard-heading"><small>04 · READY</small><h1>确认原创约定</h1><p>创建后将先完成全书大纲，再一次性生成第一章与该章高潮评论。</p></header>
+        <header class="wizard-heading"><small>04 · READY</small><h1>确认 AU 同人约定</h1><p>创建后会先生成作品基础设定，再生成第一章正文和高潮评论点，不会提前生成评论内容。</p></header>
         <article class="confirm-pair">
           <span><img :src="appStore.user?.avatar" alt="" /><strong>{{ appStore.user?.name }}</strong><small>用户真名</small></span>
           <HeartHandshake :size="24" />
@@ -112,8 +112,8 @@
         </article>
         <article v-if="selectedTopic" class="confirm-topic"><small>{{ selectedTopic.source === 'trend' ? '联网趋势灵感' : selectedTopic.categoryLabel ? `${selectedTopic.categoryLabel} / ${selectedTopic.subcategory}` : '原创题材' }}</small><strong>{{ selectedTopic.title }}</strong><p>{{ selectedTopic.hook }}</p></article>
         <dl class="confirm-settings"><div><dt>基调</dt><dd>{{ preferences.tone }}</dd></div><div><dt>视角</dt><dd>{{ preferences.pov }}</dd></div><div><dt>结局</dt><dd>{{ preferences.endingPreference }}</dd></div><div><dt>篇幅</dt><dd>{{ preferences.chapterTarget }} 章 · 每章约 2500 字</dd></div></dl>
-        <ul class="original-rules"><li><Check :size="14" /> 所有剧情、地点、身份、职业、能力、关系起点与世界规则从零原创</li><li><Check :size="14" /> 后续写作不再读取原设定或局部世界书原文，只使用抽象人物 DNA 与本书事实账本</li><li><Check :size="14" /> 第一章正文、高潮锚点、章评与书评同批生成并一起保存</li></ul>
-        <label class="consent-row"><input v-model="consent" type="checkbox" /><span>同意将双方真名、人物设定与所选角色绑定且启用的局部世界书发送给当前文本模型，仅用于人物气质抽象。</span></label>
+        <ul class="original-rules"><li><Check :size="14" /> 作品始终明确属于用户与所选角色，AU 剧情会结合题材与参考资料重新创作</li><li><Check :size="14" /> 双方设定与角色绑定局部世界书仅供参考，不要求逐条照搬；正文同时遵循故事圣经与已发布事实</li><li><Check :size="14" /> 章节只创建高潮评论点；用户点击某个热点后，模型才单独生成并缓存该点评论</li></ul>
+        <label class="consent-row"><input v-model="consent" type="checkbox" /><span>同意将双方资料与所选角色启用的局部世界书发送给全局小剧场与同人文模型（未单独选择时跟随 API 默认模型）作为创作参考，并在点击高潮评论点时发送同账号绑定角色的真名、签名与角色设定；不发送聊天和记忆。</span></label>
         <p v-if="createError" class="error-note">{{ createError }}</p>
       </section>
     </main>
@@ -121,14 +121,14 @@
     <footer class="wizard-footer">
       <button v-if="step > 1" class="secondary" type="button" :disabled="creating" @click="step -= 1">上一步</button>
       <button v-if="step < 4" class="primary" type="button" :disabled="!canContinue" @click="nextStep">继续 <ArrowRight :size="15" /></button>
-      <button v-else class="primary create-submit" type="button" :disabled="!canCreate || creating" @click="submitCreate"><Sparkles :size="15" /> 创建小说与第一章</button>
+      <button v-else class="primary create-submit" type="button" :disabled="!canCreate || creating" @click="submitCreate"><Sparkles :size="15" /> 创建同人文与第一章</button>
     </footer>
 
     <section v-if="creating" class="creating-overlay" aria-live="polite">
       <span class="creating-orbit"><Sparkles :size="24" /><i></i></span>
-      <small>CREATING YOUR ORIGINAL STORY</small>
+      <small>CREATING YOUR AU FANWORK</small>
       <h2>{{ activeGenerationLabel }}</h2>
-      <p>章节正文与高潮评论会在同一次生成完成后一起保存，请保持页面开启。</p>
+      <p>章节会同时生成正文和高潮评论点，不会在创建阶段请求任何评论内容。</p>
       <span class="progress-track"><i :style="{ width: `${activeGenerationProgress}%` }"></i></span>
       <em>{{ activeGenerationProgress }}%</em>
     </section>
@@ -162,12 +162,12 @@ const createError = ref('');
 const boundaryDraft = ref('');
 const consent = ref(false);
 const creating = ref(false);
-const preferences = reactive({ tone: '爽感连载 · 开局即冲突', pov: '第三人称双线推进', endingPreference: 'HE 圆满收束', chapterTarget: 12, contentBoundaries: [] as string[], extraGuidance: '' });
+const preferences = reactive({ tone: '', pov: '', endingPreference: '', chapterTarget: 12, contentBoundaries: [] as string[], extraGuidance: '' });
 const customTopic = reactive({ title: '', hook: '', setting: '', conflict: '', relationship: '', tags: [] as string[] });
 
-const steps = [{ id: 1, label: '主角' }, { id: 2, label: '题材' }, { id: 3, label: '方向' }, { id: 4, label: '确认' }];
+const steps = [{ id: 1, label: '对象' }, { id: 2, label: '题材' }, { id: 3, label: '方向' }, { id: 4, label: '确认' }];
 const topicTabs = [{ id: 'built-in' as const, label: '内置原创' }, { id: 'trend' as const, label: '联网趋势' }, { id: 'custom' as const, label: '自定义' }];
-const toneOptions = ['爽感连载 · 开局即冲突', '轻松甜宠 · 高频互动', '强情节悬疑 · 章末钩子', '酸甜拉扯 · 慢热升温', '轻喜剧打脸 · 节奏快', '事业升级 · 大女主'];
+const toneOptions = ['强冲突快节奏', '轻松日常高互动', '强情节悬疑推进', '慢热关系拉扯', '轻喜剧反转', '事业与能力升级', '冒险求生', '群像成长'];
 const povOptions = ['第三人称双线推进', '第一人称交替', '第三人称限知'];
 const endingOptions = ['HE 圆满收束', 'OE 留有余味', 'BE 遗憾收束'];
 const chapterOptions = [{ value: 8, label: '短篇 · 8章' }, { value: 12, label: '中篇 · 12章' }, { value: 20, label: '长篇 · 20章' }];
@@ -191,10 +191,16 @@ const filteredBuiltInSections = computed(() => {
 });
 const filteredBuiltInCount = computed(() => filteredBuiltInSections.value.reduce((total, section) => total + section.topics.length, 0));
 const visibleTopics = computed(() => topicTab.value === 'trend' ? fanficStore.trendTopics : fanficStore.customTopics);
-const canContinue = computed(() => step.value === 1 ? Boolean(appStore.user?.name.trim() && selectedCharacter.value?.name.trim()) : step.value === 2 ? Boolean(selectedTopic.value) : true);
+const canContinue = computed(() => step.value === 1
+  ? Boolean(appStore.user?.name.trim() && selectedCharacter.value?.name.trim())
+  : step.value === 2
+    ? Boolean(selectedTopic.value)
+    : step.value === 3
+      ? Boolean(preferences.tone && preferences.pov && preferences.endingPreference)
+      : true);
 const canCreate = computed(() => Boolean(selectedCharacter.value && selectedTopic.value && consent.value));
 const currentJob = computed(() => [...fanficStore.jobs].sort((left, right) => right.updatedAt - left.updatedAt).find((job) => !['completed', 'failed'].includes(job.stage)) ?? null);
-const activeGenerationLabel = computed(() => currentJob.value?.label || '正在准备原创小说');
+const activeGenerationLabel = computed(() => currentJob.value?.label || '正在准备 AU 同人文');
 const activeGenerationProgress = computed(() => currentJob.value?.progress ?? 4);
 
 onMounted(async () => {
@@ -243,7 +249,7 @@ async function submitCreate() {
     const book = await fanficStore.createBook({ characterId: selectedCharacterId.value, topicId: selectedTopicId.value, preferences: { ...preferences } });
     await router.replace({ name: 'fanfic-book', params: { bookId: book.id } });
   } catch (error) {
-    createError.value = error instanceof Error ? error.message : '小说创建失败。';
+    createError.value = error instanceof Error ? error.message : '同人文创建失败。';
   } finally {
     creating.value = false;
   }

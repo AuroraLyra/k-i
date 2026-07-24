@@ -3,6 +3,7 @@ import { normalizeTimeAwarenessSettings, renderTimeAwarenessPrompt } from '@/uti
 import { activeOfflineTonePreset, activeOfflineWritingStylePreset, defaultOfflineSettings, normalizeOfflineSettings } from '@/utils/memory';
 import { getCharacterAiName } from '@/utils/character';
 import { getUserAiName } from '@/utils/profile';
+import { isTabooWorldBook } from '@/utils/worldBook';
 
 export const baseRoleplayPrompt = `你是{{char}}。
 
@@ -366,7 +367,7 @@ export const profileMutationPrompt = `补充输出规则：
 25. 当额外指令明确说明“用户正在拨打给你，需要你判断是否接听”时，这仍然是一轮正常线上聊天回复：你可以照常在 messages 输出 text、voice、sticker、image、location、transfer 等气泡，同时必须在 messageActions.callResponse 写 { "status":"accepted" }、{ "status":"rejected" }、{ "status":"busy" } 或 { "status":"missed" }。只有 accepted 才表示进入通话。
 26. 你可以在关系、时间和语境自然时主动邀请{{user}}下五子棋：先按真实线上聊天习惯决定是否发一句自然消息，再在 messageActions.gobangInvite 写 { "starter":"char" }。邀请仅表示你发出对局请求，用户接受前绝对不能写成已经开局、已经落子或用户已经同意；不邀请时固定为 null。
 27. 当额外指令明确说明“用户向你发出五子棋邀请，需要你判断是否接受”时，这仍是一轮正常线上聊天回复：你可以照常发送符合人设的消息，同时必须在 messageActions.gobangResponse 写 { "status":"accepted" } 或 { "status":"rejected" }。决定必须来自你此刻的人设、关系、现实时间与会话上下文，不得固定接受，也不得用随机规则。
-28. 你拥有真实社交软件里的关系边界。只有当冲突严重、信任破裂、持续越界或人设确实会决绝离开时，才可在最后一条告别消息后设置 messageActions.relationshipAction：拉黑写 { "type":"block", "reason":"简短真实原因" }，删除好友写 { "type":"delete", "reason":"简短真实原因" }。这是会真正锁定会话的高影响动作，禁止为了戏剧性、试探用户、普通吃醋或小争执滥用，也禁止每轮反复触发。涉及拉黑、删除好友及恢复关系的旁白必须明确使用{{char}}与{{user}}的真名。
+28. 你拥有真实社交软件里的关系边界。只有当冲突严重、信任破裂、持续越界或人设确实会决绝离开时，才可在最后一条告别消息后设置 messageActions.relationshipAction：拉黑写 { "type":"block", "reason":"简短真实原因" }，删除好友写 { "type":"delete", "reason":"简短真实原因" }。这是会真正锁定会话的高影响动作，禁止为了戏剧性、试探用户、普通吃醋或小争执滥用，也禁止每轮反复触发。
 29. 当额外指令明确说明用户在被拉黑或删除后发来了好友验证，你必须结合人设、验证文字、最近冲突和关系记忆决定：同意写 { "type":"accept_request", "reason":"决定原因" }，拒绝写 { "type":"reject_request", "reason":"决定原因" }。不要用 block/delete 代替申请决定；可以在 messages 中写一两句符合角色性格的回应。
 30. 当额外指令明确说明“这是关系事件，{{char}}被{{user}}拉黑或删除后考虑重新申请好友”时，不要假装普通消息还能送达。只有{{char}}确实想恢复与{{user}}的关系时才输出一条简短验证文字，并设置 { "type":"request_friend", "reason":"作为好友验证显示的文字" }；{{char}}不想申请时 relationshipAction 保持 null。此事件不是普通聊天回复。`;
 
@@ -714,6 +715,7 @@ function getMessageText(message: Pick<PromptContext['messages'][number], 'conten
     const itemsText = message.commerce.items.map((item) => `${item.name}×${item.quantity}`).join('、');
     const etaText = message.commerce.eta ? `，${message.commerce.eta}` : '';
     const cardText = message.commerce.cardMessage ? `，专属卡片：“${message.commerce.cardMessage}”` : '';
+    if (message.sender === 'user') return `用户用自己的钱给角色完成了一笔${kindText}订单：${message.commerce.storeName}，${itemsText}，实付 ¥${message.commerce.totalAmount}${etaText}${cardText}。这是已经付款并发送给角色的真实订单，不是商品分享，也不是让角色付款或确认。`;
     return `角色用自己的钱完成了一笔${kindText}订单：${message.commerce.storeName}，${itemsText}，实付 ¥${message.commerce.totalAmount}${etaText}${cardText}。订单不使用用户钱包，也不需要用户确认。`;
   }
   if (message.shopShare) {
@@ -800,61 +802,8 @@ function replacePromptIdentityTokens(value: string, context: PromptContext) {
   return value
     .replace(/\{\{\s*char\s*\}\}/gi, characterName)
     .replace(/<\s*char\s*>/gi, characterName)
-    .replace(/\bChar\b/g, characterName)
-    .replace(/\bchar\b/g, characterName)
     .replace(/\{\{\s*user\s*\}\}/gi, userName)
-    .replace(/<\s*user\s*>/gi, userName)
-    .replace(/\bUser\b/g, userName)
-    .replace(/\buser\b/g, userName);
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function uniquePromptIdentityAliases(canonicalName: string, names: Array<string | null | undefined>) {
-  const canonicalKey = canonicalName.trim().toLocaleLowerCase();
-  const seen = new Set<string>();
-  return names
-    .map((name) => String(name ?? '').trim())
-    .filter((name) => {
-      const key = name.toLocaleLowerCase();
-      if (!name || key === canonicalKey || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-}
-
-function normalizePromptIdentityText(value: string, context: PromptContext) {
-  const boundUserName = getUserAiName(context.boundUser) || getUserAiName(context.user);
-  const characterName = getCharacterAiName(context.character);
-  const replacements = [
-    {
-      canonicalName: boundUserName,
-      aliases: uniquePromptIdentityAliases(boundUserName, [
-        context.boundUser.nickname,
-        context.user.nickname,
-        context.boundUser.profile?.nickname,
-        context.user.profile?.nickname,
-        context.boundUser.profile?.handle,
-        context.user.profile?.handle
-      ])
-    },
-    {
-      canonicalName: characterName,
-      aliases: uniquePromptIdentityAliases(characterName, [
-        context.character.nickname,
-        context.character.userNote,
-        context.character.profile?.nickname,
-        context.character.profile?.handle
-      ])
-    }
-  ];
-
-  return replacements.reduce((text, replacement) => replacement.aliases.reduce((nextText, alias) => {
-    if (alias.length < 2) return nextText;
-    return nextText.replace(new RegExp(escapeRegExp(alias), 'g'), replacement.canonicalName);
-  }, text), value);
+    .replace(/<\s*user\s*>/gi, userName);
 }
 
 function renderLoreEntry(book: WorldBookEntry, entry: WorldBookLoreEntry, context: PromptContext) {
@@ -925,13 +874,33 @@ function renderMusicListeningPrompt(context: PromptContext) {
   ].join('\n');
 }
 
+function formatEconomyCny(cents: number) {
+  return `¥${(Math.max(0, Math.round(cents)) / 100).toFixed(2)}`;
+}
+
+function renderCharacterEconomyPrompt(context: PromptContext) {
+  const economy = context.characterEconomy;
+  if (!economy || context.mode !== 'online') return '';
+  return [
+    '角色实时经济快照（生成本轮回复前读取，只作为角色自己的内部现实状态）：',
+    `账面余额：${formatEconomyCny(economy.balanceCents)}`,
+    `待接收转账已占用：${formatEconomyCny(economy.reservedTransferCents)}`,
+    `本轮真正可用余额：${formatEconomyCny(economy.availableCents)}`,
+    `月收入参考：${formatEconomyCny(economy.monthlyIncomeCents)}`,
+    `储蓄目标：${formatEconomyCny(economy.savingsGoalCents)}`,
+    `剩余礼物预算：${formatEconomyCny(economy.giftAllowanceCents)}`,
+    `消费习惯：${economy.spendingTraits.join('；') || '按现实能力安排开支'}`,
+    '经济动作硬规则：本轮 messages 中所有 transfer、takeout、gift、shopping 的金额必须按发送顺序累计，合计绝对不能超过“本轮真正可用余额”；gift 还应尊重剩余礼物预算。余额不足时，必须自然地减少金额、换成负担得起的选择、暂缓购买或不发送经济动作，禁止假装付款成功、禁止透支、禁止虚构临时收入。不要为了展示功能而消费，也不要无缘无故向用户报出精确余额；只有对话自然涉及钱时才可用符合人设的方式提及。'
+  ].join('\n');
+}
+
 function replaceTokens(template: string, replacements: Record<string, string>) {
   return Object.entries(replacements).reduce((result, [token, value]) => result.split(token).join(value), template);
 }
 
 export function selectWorldBooks(context: PromptContext) {
   return context.worldBooks.filter((entry) => {
-    if (!entry.enabled) return false;
+    if (!entry.enabled || isTabooWorldBook(entry)) return false;
     if (entry.scope === 'local') return context.character.localWorldBookIds.includes(entry.id);
     if (context.mode === 'online') return entry.scope === 'global-online';
     return entry.scope === 'global-offline';
@@ -946,7 +915,6 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
   const characterName = getCharacterAiName(context.character);
   const userName = getUserAiName(context.user);
   const boundUserName = getUserAiName(context.boundUser);
-  const canonicalUserName = boundUserName || userName;
   const timeAwarenessTimestamp = context.timeAwarenessNow;
   const timeAwarenessNow = Number.isFinite(timeAwarenessTimestamp) ? new Date(timeAwarenessTimestamp as number) : undefined;
   const timeAwarenessPrompt = renderTimeAwarenessPrompt(context.timeAwareness, {
@@ -966,9 +934,9 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
           ? getCharacterAiName(context.character)
           : '系统';
       const quoteText = message.quote
-        ? `引用 ${quoteAuthorName}: ${normalizePromptIdentityText(getMessageText(message.quote), context)}\n`
+        ? `引用 ${quoteAuthorName}: ${getMessageText(message.quote)}\n`
         : '';
-      const messageText = normalizePromptIdentityText(getMessageText(message), context);
+      const messageText = getMessageText(message);
       const visualText = message.sticker
         ? `${messageText}${context.stickerVisionEnabled ? '（已随请求附带图片，可直接识图）' : '（识图关闭，仅可读取文字描述）'}`
         : messageText;
@@ -1003,24 +971,20 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
       ? '线下邀约功能当前已关闭：本轮以及后续线上回复都禁止发起线下邀约，messageActions.offlineInvitation 必须固定为 null。'
       : '',
     timeAwarenessPrompt,
+    context.mode === 'online' && includeOnlineReplyTools ? renderCharacterEconomyPrompt(context) : '',
     includeMessageTime
       ? '时间判定规则：最近对话里的“发送时间”只表示那条历史消息实际发出的时间。回复时先以“现实时间感知”里的当前时间判断现在，再根据历史发送时间推算已经过去多久；不要把最后一条用户消息的发送时间当作当前时间。'
       : '',
-    `当前对话总结：\n${normalizePromptIdentityText(context.conversationSummary || '暂无总结。', context)}`,
+    `当前对话总结：\n${context.conversationSummary || '暂无总结。'}`,
     `一起听状态：\n${renderMusicListeningPrompt(context)}`,
-    context.mode === 'online' && includeOnlineReplyTools
-      ? `身份称谓铁律：角色只能用真名「${characterName}」指代，用户只能用真名「${canonicalUserName}」指代。所有 text、voice、narration、location、transfer、image description、messageActions 语境和通话相关判断里，绝对禁止使用角色网名、角色备注、角色主页名、用户网名、用户主页名或任何昵称来代指双方；如果历史里出现这些别名，输出时必须改写成真名。`
-      : context.mode === 'online'
-        ? `身份称谓规则：角色只能用真名「${characterName}」指代，用户只能用真名「${canonicalUserName}」指代；如果历史里出现别名，理解为对应本人。`
-      : '',
-    `记忆手册：\n${normalizePromptIdentityText(context.memorySummary || '暂无记忆手册。', context)}`,
-    `世界书：\n${normalizePromptIdentityText(renderWorldBooks(selectedWorldBooks, context) || '无启用条目。', context)}`,
+    `记忆手册：\n${context.memorySummary || '暂无记忆手册。'}`,
+    `世界书：\n${renderWorldBooks(selectedWorldBooks, context) || '无启用条目。'}`,
     context.mode === 'online' && includeOnlineReplyTools
       ? 'Sticker / 图片 / 语音 / 定位 / 转账 / 一起听 / 网站链接规则：用户发送 Sticker 时，文字描述是用户提供的贴纸含义。用户发送真实图片时，若本次请求附带图片，你可以观察图片内容；用户发送文字描述卡片时，必须理解为“用户发送了一张图片，图片内容为描述文本”，虽然没有真实图片文件，也要按图片内容参与对话。用户或角色发送语音时，必须理解为对方用语音消息说出了对应文字内容，不要把它当成普通打字消息；角色也可以在合适时用 voice 项主动发送语音条。用户发送定位时，必须理解为用户把自己的当前位置发给了你，并告知了用户与角色之间的距离；角色也可以在合适时用 location 项主动发送自己的定位。用户发送转账时，必须理解为用户确实向你发起了对应金额的转账；你可以在后续按角色意愿接收或拒绝。角色也可以在合适时用 transfer 项主动向用户转账，等待用户接收或拒绝。用户发送一起听邀请时，必须理解为用户正在邀请你进入音乐页的一起听状态；你可以按关系和语境接受或拒绝。若你主动邀请用户一起听，先用普通 text 自然提出，再在 messageActions.musicListenInvite 写入邀请。一起听状态下你可以感知当前歌曲、播放进度和此刻歌词，也可以用 messageActions.musicActions 切歌、搜索播放或把当前/指定歌曲加入用户的“我的喜欢音乐”。用户发送网站链接卡片时，必须理解为用户转发了一个真实可读的网页链接给你，链接卡片附带的“网站内容”为你已经能看到的页面正文，可直接按其中内容参与对话。若未附带真实图片，不要臆造描述之外的图片细节。'
       : '',
     context.mode === 'online' && includeOnlineReplyTools && options.includeAvailableStickers !== false ? `角色可用 Stickers：\n${renderAvailableStickers(context)}` : '',
     includeOnlineReplyTools ? renderProfileThemePrompt(context) : '',
-    context.mode === 'online' && context.replyInstruction ? `本次生成任务：\n${normalizePromptIdentityText(context.replyInstruction, context)}` : '',
+    context.mode === 'online' && context.replyInstruction ? `本次生成任务：\n${context.replyInstruction}` : '',
     `最近对话：\n${history || '暂无。'}`
   ].filter(Boolean).join('\n\n');
 }
@@ -1096,7 +1060,7 @@ ${imageRulesPrompt}
 4. 除非最近对话或记忆里已经有明确依据，禁止突然写角色已经到达新地点、见了新人物、完成一整段行程、跨到第二天/深夜/清晨。需要移动时，只能写成本轮时间能合理发生的等待、收拾、路上、刚走到附近等连续过程。
 5. 如果当前聊天没有足够事件支撑 VOOM，可以写角色此刻生活里的小切片，但仍要贴合当前时间、角色职业/日程、刚才聊天情绪和已知地点，不要为了换题而强行换背景。
 9. likes 和 comments 来自本角色真实社交圈里的 NPC，不要包含{{user}}，也不要使用“NPC”这种占位名字。
-10. 用户和已有角色只能使用真名，严禁使用网名、昵称、备注或主页名；角色本人评论时 authorName 必须是 ${characterName}。
+10. 角色本人评论时 authorName 填写 ${characterName}，用于绑定现有角色身份。
 11. comments 控制在 6-15 条，内容要像社交软件评论区里会出现的真实评论；id 是本次评论的临时 id，parentId 留空表示新评论，填写前面某条评论的 id 表示回复该评论。
 12. 角色本人可以回复别人评论；如果 content 写成“回复某某：……”，也必须同时填写对应 parentId，不要只把回复对象写进文字里。
 13. 不要连续重复近期 VOOM 的同一个核心话题；若主题相近，必须因为当前聊天自然延续，并提供新的具体事件、状态变化或细节。

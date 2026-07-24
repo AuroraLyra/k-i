@@ -2,11 +2,11 @@
   <section v-if="book" class="screen no-tabs book-page">
     <header class="top-bar book-topbar">
       <button class="header-button" type="button" aria-label="返回书架" @click="goBack"><ChevronLeft :size="21" /></button>
-      <span><small>ORIGINAL FANFIC</small><strong>书籍详情</strong></span>
+      <span><small>USER × CHARACTER FANWORK</small><strong>同人文详情</strong></span>
       <button class="header-button" type="button" aria-label="更多操作" @click="showActions = !showActions"><MoreHorizontal :size="21" /></button>
       <section v-if="showActions" class="action-menu">
         <button type="button" :disabled="covering" @click="refreshCover"><ImagePlus :size="15" />重新生成封面</button>
-        <button class="danger" type="button" @click="removeBook"><Trash2 :size="15" />删除整本小说</button>
+        <button class="danger" type="button" @click="removeBook"><Trash2 :size="15" />删除整篇同人文</button>
       </section>
     </header>
 
@@ -18,13 +18,13 @@
           <h1>{{ book.title }}</h1>
           <p>{{ book.authorName }} · 著</p>
           <span class="hero-tags"><em v-for="tag in book.tags" :key="tag">#{{ tag }}</em></span>
-          <dl><div><dt>主角</dt><dd>{{ book.userName }} × {{ book.characterName }}</dd></div><div><dt>进度</dt><dd>{{ chapterList.length }} / {{ book.chapterTarget }} 章</dd></div><div><dt>字数</dt><dd>{{ totalWords.toLocaleString() }} 字</dd></div></dl>
+          <dl><div><dt>同人对象</dt><dd>{{ book.userName }} × {{ book.characterName }}</dd></div><div><dt>进度</dt><dd>{{ chapterList.length }} / {{ book.chapterTarget }} 章</dd></div><div><dt>字数</dt><dd>{{ totalWords.toLocaleString() }} 字</dd></div></dl>
         </span>
       </section>
 
       <section v-if="latestJob && latestJob.stage !== 'completed'" class="job-card" :class="latestJob.stage">
         <span><LoaderCircle v-if="latestJob.stage !== 'failed'" class="spin" :size="17" /><CircleAlert v-else :size="17" /></span>
-        <span><strong>{{ latestJob.label }}</strong><small>{{ latestJob.error || '章节和评论完成后会一起出现。' }}</small><i><b :style="{ width: `${latestJob.progress}%` }"></b></i></span>
+        <span><strong>{{ latestJob.label }}</strong><small>{{ latestJob.error || '正文与高潮评论点完成后会出现在目录。' }}</small><i><b :style="{ width: `${latestJob.progress}%` }"></b></i></span>
       </section>
 
       <section class="summary-card">
@@ -41,37 +41,32 @@
         <div v-if="chapterList.length" class="chapter-list">
           <button v-for="chapter in chapterList" :key="chapter.id" type="button" @click="openChapter(chapter.id)">
             <span class="chapter-order">{{ String(chapter.order).padStart(2, '0') }}</span>
-            <span><strong>{{ chapter.title }}</strong><small>{{ chapter.wordCount }} 字 · {{ chapter.hotspots.length }} 个高潮 · {{ fanficStore.commentsForChapter(chapter.id).length }} 条章评</small></span>
+            <span><strong>{{ chapter.title }}</strong><small>{{ chapter.wordCount }} 字 · {{ chapter.hotspots.length }} 个评论点 · {{ fanficStore.commentsForChapter(chapter.id).length }} 条章评</small></span>
             <ChevronRight :size="16" />
           </button>
         </div>
-        <section v-else class="chapter-empty"><Feather :size="24" /><strong>第一章还未完成</strong><p>{{ latestJob?.error || '可以从完整大纲继续生成第一章与该章评论。' }}</p></section>
+        <section v-else class="chapter-empty"><Feather :size="24" /><strong>第一章还未完成</strong><p>{{ latestJob?.error || '可以根据作品设定继续生成第一章与高潮评论点。' }}</p></section>
       </section>
 
       <section v-if="book.status !== 'completed'" class="next-chapter-card">
-        <header><span><small>NEXT CHAPTER</small><h2>{{ nextOrder === 1 ? '生成第一章与评论' : `续写第 ${nextOrder} 章` }}</h2></span><Sparkles :size="20" /></header>
-        <p>正文、高潮锚点与对应章评会同一次生成，并在全部完成后一起保存。</p>
+        <header><span><small>NEXT CHAPTER</small><h2>{{ nextOrder === 1 ? '生成第一章' : `续写第 ${nextOrder} 章` }}</h2></span><Sparkles :size="20" /></header>
+        <p>章节会同时生成正文与几个高潮评论点，但不生成评论内容；进入阅读页点击某个热点后，才调用 API 加载该点评论。</p>
         <div v-if="directionOptions.length" class="direction-list">
           <button v-for="direction in directionOptions" :key="direction" type="button" :class="{ selected: selectedDirection === direction }" @click="selectedDirection = selectedDirection === direction ? '' : direction">{{ direction }}</button>
         </div>
         <label><span>自定义方向（可选）</span><textarea v-model="customDirection" maxlength="500" rows="3" placeholder="例如：让误会在本章解决，但留下更大的世界谜题"></textarea></label>
-        <button class="generate-button" type="button" :disabled="generating" @click="generateChapter"><LoaderCircle v-if="generating" class="spin" :size="16" /><Sparkles v-else :size="16" />{{ generating ? '正在生成章节与评论' : nextOrder === 1 ? '生成第一章与评论' : '生成下一章与评论' }}</button>
+        <button class="generate-button" type="button" :disabled="generating" @click="generateChapter"><LoaderCircle v-if="generating" class="spin" :size="16" /><Sparkles v-else :size="16" />{{ generating ? '正在生成章节' : nextOrder === 1 ? '生成第一章' : '生成下一章' }}</button>
         <p v-if="generateError" class="error-note">{{ generateError }}</p>
       </section>
 
-      <details class="outline-card">
-        <summary><span><small>STORY MAP</small><strong>全书原创大纲</strong></span><ChevronDown :size="17" /></summary>
-        <ol><li v-for="item in book.outline" :key="item.order"><span>{{ String(item.order).padStart(2, '0') }}</span><p><strong>{{ item.title }}</strong><small>{{ item.premise }}</small><em>{{ item.emotionalBeat }}</em></p></li></ol>
-      </details>
-
       <section class="originality-card">
         <ShieldCheck :size="22" />
-        <span><small>ORIGINALITY NOTE</small><strong>平行世界原创声明</strong><p>本书只继承 {{ book.userName }} 与 {{ book.characterName }} 的真名和抽象人物气质。创建时若角色绑定了已启用的局部世界书，其内容仅用于补齐抽象人物 DNA；职业、背景、地点、能力、关系起点、剧情事件与世界规则均为本书原创，后续写作不读取原设定、局部世界书原文、聊天或记忆。</p></span>
+        <span><small>AU FANWORK NOTE</small><strong>{{ book.userName }} × {{ book.characterName }} 原创 AU 同人</strong><p>本作明确以两人为同人对象。双方人物设定与所选角色绑定的局部世界书会在创作时直接读取，但仅作为性格、表达、边界与世界灵感参考，不代表必须逐条照搬或已经发生；正文不读取聊天、记忆、普通全局世界书或其他绑定角色资料。其他绑定角色资料只用于作品外评论区发言。</p></span>
       </section>
 
       <section class="book-comments">
-        <header class="section-title"><span><small>READERS</small><h2>整本评论</h2></span><em>{{ bookCommentList.length }} COMMENTS</em></header>
-        <FanficCommentList :comments="bookCommentList" @like="fanficStore.likeComment" @reply="replyToComment" />
+        <header class="section-title"><span><small>FANWORK COMMUNITY</small><h2>评论区</h2></span><em>{{ bookCommentList.length }} COMMENTS</em></header>
+        <FanficCommentList :comments="bookCommentList" :book="book" @like="fanficStore.likeComment" @reply="replyToComment" />
         <form class="comment-form" @submit.prevent="submitComment">
           <small v-if="replyTarget">回复 {{ replyTarget.authorName }} <button type="button" @click="replyTargetId = ''">取消</button></small>
           <span><input v-model="commentDraft" maxlength="500" placeholder="以你的真名留下评论" /><button type="submit" :disabled="!commentDraft.trim()"><Send :size="15" /></button></span>
@@ -80,13 +75,13 @@
     </main>
   </section>
 
-  <section v-else class="screen no-tabs missing-page"><BookX :size="34" /><h1>没有找到这本小说</h1><button type="button" @click="goBack">返回书架</button></section>
+  <section v-else class="screen no-tabs missing-page"><BookX :size="34" /><h1>没有找到这篇同人文</h1><button type="button" @click="goBack">返回书架</button></section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArrowRight, BookOpenText, BookX, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Feather, ImagePlus, LoaderCircle, MoreHorizontal, Send, ShieldCheck, Sparkles, Trash2 } from 'lucide-vue-next';
+import { ArrowRight, BookOpenText, BookX, ChevronLeft, ChevronRight, CircleAlert, Feather, ImagePlus, LoaderCircle, MoreHorizontal, Send, ShieldCheck, Sparkles, Trash2 } from 'lucide-vue-next';
 import FanficBookCover from '@/components/fanfic/FanficBookCover.vue';
 import FanficCommentList from '@/components/fanfic/FanficCommentList.vue';
 import { useFanficStore } from '@/stores/fanficStore';
@@ -139,7 +134,7 @@ async function generateChapter() {
     customDirection.value = '';
     if (chapter) openChapter(chapter.id);
   } catch (error) {
-    generateError.value = error instanceof Error ? error.message : '章节与评论生成失败。';
+    generateError.value = error instanceof Error ? error.message : '章节生成失败。';
   } finally {
     generating.value = false;
   }
@@ -154,7 +149,7 @@ async function refreshCover() {
 
 async function removeBook() {
   showActions.value = false;
-  if (!window.confirm(`删除《${book.value?.title}》及全部章节和评论？此操作无法撤销。`)) return;
+  if (!window.confirm(`删除同人文《${book.value?.title}》及全部章节和评论？此操作无法撤销。`)) return;
   await fanficStore.deleteBook(props.bookId);
   goBack();
 }
@@ -183,7 +178,7 @@ async function submitComment() {
 .book-main { display: grid; gap: 18px; padding: 12px 16px 34px; }
 .book-hero { display: grid; grid-template-columns: minmax(130px, 43%) minmax(0,1fr); align-items: center; gap: 17px; }
 .book-identity { display: grid; gap: 8px; min-width: 0; }
-.book-identity > small, .summary-card > small, .section-title small, .next-chapter-card header small, .outline-card summary small, .originality-card small { color: #a17f86; font-size: 8px; font-weight: 900; letter-spacing: .14em; }
+.book-identity > small, .summary-card > small, .section-title small, .next-chapter-card header small, .originality-card small { color: #a17f86; font-size: 8px; font-weight: 900; letter-spacing: .14em; }
 .book-identity h1 { margin: 0; font-family: Georgia, "Songti SC", serif; font-size: 23px; line-height: 1.16; }
 .book-identity > p { margin: 0; color: #867b7d; font-size: 9px; }
 .hero-tags { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -200,7 +195,7 @@ async function submitComment() {
 .job-card small { font-size: 8px; line-height: 1.4; }
 .job-card i { height: 3px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.8); }
 .job-card b { display: block; height: 100%; background: currentColor; }
-.summary-card, .next-chapter-card, .outline-card, .book-comments { padding: 17px; border: 1px solid rgba(67,57,59,.055); border-radius: 24px; background: rgba(255,255,255,.68); box-shadow: 0 12px 30px rgba(56,47,49,.045); }
+.summary-card, .next-chapter-card, .book-comments { padding: 17px; border: 1px solid rgba(67,57,59,.055); border-radius: 24px; background: rgba(255,255,255,.68); box-shadow: 0 12px 30px rgba(56,47,49,.045); }
 .summary-card h2, .next-chapter-card h2, .section-title h2 { margin: 4px 0 0; font-family: Georgia, "Songti SC", serif; font-size: 18px; }
 .summary-card > p { margin: 12px 0; color: #685f61; font-size: 11px; line-height: 1.85; }
 .summary-card blockquote { margin: 0; padding: 10px 12px; border-left: 3px solid #c6a8ae; border-radius: 0 12px 12px 0; background: #f5edef; color: #806b70; font-family: Georgia, "Songti SC", serif; font-size: 10px; line-height: 1.6; }
@@ -235,19 +230,6 @@ async function submitComment() {
 .generate-button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; border-radius: 13px; background: #363133; color: #fff; font-size: 10px; font-weight: 850; }
 .generate-button:disabled { opacity: .55; }
 .error-note { margin: 0; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.55); color: #9a5d62; }
-.outline-card { padding: 0; overflow: hidden; }
-.outline-card summary { display: flex; align-items: center; justify-content: space-between; padding: 15px 17px; cursor: pointer; list-style: none; }
-.outline-card summary::-webkit-details-marker { display: none; }
-.outline-card summary > span { display: grid; gap: 2px; }
-.outline-card summary strong { font-family: Georgia, "Songti SC", serif; font-size: 15px; }
-.outline-card[open] summary svg { transform: rotate(180deg); }
-.outline-card ol { display: grid; gap: 0; margin: 0; padding: 0 17px 16px; list-style: none; }
-.outline-card li { display: grid; grid-template-columns: 28px minmax(0,1fr); gap: 8px; padding: 10px 0; border-top: 1px solid rgba(68,59,61,.06); }
-.outline-card li > span { color: #aa8e94; font-family: Georgia, serif; font-size: 11px; }
-.outline-card li p { display: grid; gap: 3px; margin: 0; }
-.outline-card li strong { font-size: 10px; }
-.outline-card li small { color: #817779; font-size: 8px; line-height: 1.5; }
-.outline-card li em { color: #78907e; font-size: 8px; font-style: normal; }
 .originality-card { display: grid; grid-template-columns: 32px minmax(0,1fr); gap: 10px; padding: 15px; border-radius: 21px; background: #edf3ed; color: #57705d; }
 .originality-card > span { display: grid; gap: 4px; }
 .originality-card strong { color: #405747; font-size: 11px; }

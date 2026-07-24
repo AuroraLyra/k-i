@@ -10,8 +10,9 @@ import { assertRenderableSmallTheaterHtml, getSmallTheaterVisibleText, withSmall
 import { renderTimeAwarenessPrompt } from '@/utils/timeAwareness';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { getVoomFrequencyChance, stripVoomCommentReplyPrefix } from '@/utils/voom';
-import { normalizeCoupleSpaceIdentityReferences, normalizeCoupleSpaceSnapshot } from '@/utils/coupleSpace';
+import { normalizeCoupleSpaceSnapshot } from '@/utils/coupleSpace';
 import { buildMomentPrompt, buildPrompt } from './prompt';
+import { prependTabooWorldBookPrompt } from './tabooWorldBook';
 
 const modelSelectionSeparator = '::';
 const textProxyPath = '/__text-proxy';
@@ -765,6 +766,8 @@ async function fetchNovelAiEndpoint(endpoint: string, init: RequestInit) {
 async function probeNovelAiAuth(settings: AppSettings) {
   const config = settings.imageNovelAi;
   const endpointBase = resolveNovelAiEndpointBase(settings);
+  if (config.endpointMode === 'custom') return;
+
   const endpoints = [
     `${endpointBase}/user/subscription`,
     `${endpointBase}/ai/generate-image/models`,
@@ -2243,10 +2246,11 @@ export async function requestTextEmbeddings(
 async function callTextApi(settings: AppSettings | undefined, prompt: string, modelOverride = '', imageParts: TextApiContentPart[] = [], options: TextGenerationOptions = {}) {
   const resolved = getResolvedTextApiConfig(settings, modelOverride);
   if (!resolved.endpoint.trim()) return '';
+  const prioritizedPrompt = prependTabooWorldBookPrompt(prompt);
 
   const content = imageParts.length
-    ? [{ type: 'text' as const, text: prompt }, ...imageParts]
-    : prompt;
+    ? [{ type: 'text' as const, text: prioritizedPrompt }, ...imageParts]
+    : prioritizedPrompt;
 
   const createRequestInit = (jsonMode: boolean): RequestInit => ({
     method: 'POST',
@@ -2334,7 +2338,7 @@ export async function fetchVendorModels(vendor: Pick<ApiVendor, 'apiUrl' | 'apiK
 
 export async function generateOpenAiImage(settings: AppSettings, overrides: ImageGenerationOverrides = {}): Promise<ImageGenerationResult> {
   const resolved = getResolvedOpenAiImageConfig(settings);
-  const positivePrompt = overrides.positivePrompt ?? settings.imageOpenAi.positivePrompt;
+  const positivePrompt = prependTabooWorldBookPrompt(overrides.positivePrompt ?? settings.imageOpenAi.positivePrompt);
   const negativePrompt = overrides.negativePrompt ?? settings.imageOpenAi.negativePrompt;
   const referenceImage = await prepareReferenceImage(overrides.referenceImage ?? '', 'image/png', resolved.apiKey);
   const prompt = sanitizePrompt(positivePrompt, negativePrompt);
@@ -2410,7 +2414,7 @@ export async function generateOpenAiImage(settings: AppSettings, overrides: Imag
 
 export async function generateNovelAiImage(settings: AppSettings, overrides: ImageGenerationOverrides = {}): Promise<ImageGenerationResult> {
   const config = settings.imageNovelAi;
-  const positivePrompt = overrides.positivePrompt ?? config.positivePrompt;
+  const positivePrompt = prependTabooWorldBookPrompt(overrides.positivePrompt ?? config.positivePrompt);
   const negativePrompt = overrides.negativePrompt ?? config.negativePrompt;
   const referenceImage = await prepareReferenceImage(overrides.referenceImage ?? '', 'image/png');
   const endpointBase = resolveNovelAiEndpointBase(settings);
@@ -2462,6 +2466,9 @@ export async function fetchNovelAiModels(settings: AppSettings): Promise<NovelAi
   if (!config.apiKey.trim() || !endpointBase) {
     return defaultNovelAiModels;
   }
+  if (config.endpointMode === 'custom') {
+    return config.availableModels.length ? config.availableModels : defaultNovelAiModels;
+  }
 
   const modelListEndpoints = [
     `${endpointBase}/ai/generate-image/models`,
@@ -2501,7 +2508,7 @@ export async function checkNovelAiImageAccess(settings: AppSettings): Promise<vo
 
 export async function generatePollinationsImage(settings: AppSettings, overrides: ImageGenerationOverrides = {}): Promise<ImageGenerationResult> {
   const config = settings.imagePollinations;
-  const positivePrompt = overrides.positivePrompt ?? config.positivePrompt;
+  const positivePrompt = prependTabooWorldBookPrompt(overrides.positivePrompt ?? config.positivePrompt);
   const negativePrompt = overrides.negativePrompt ?? config.negativePrompt;
   const referenceImage = overrides.referenceImage ?? config.referenceImage;
 
@@ -2800,7 +2807,6 @@ function buildCoupleSpacePrompt(input: { context: PromptContext; previousSnapsho
     buildPrompt(input.context, { includeAvailableStickers: false }),
     `现在为 ${userName} 与 ${characterName} 的「情侣守护空间」生成一次角色生活状态快照。`,
     `这是双方授权查看的角色互动模拟，不是真实 GPS、系统监控或设备取证。请根据角色设定、世界书、记忆、近期聊天、当前时间与角色生活轨迹，创造可信且有连续性的状态；不要声称读取真实手机权限，不要替 ${userName} 行动。`,
-    `身份称谓规则：${characterName} 是角色真名，${userName} 是用户真名。NPC 按情境使用具体姓名或明确身份。`,
     previousSnapshot,
     `内容要求：
   1. location 必须覆盖生成时刻往前完整 24 小时，按时间顺序给出 8–12 个 route 节点，包含睡眠、起床、吃饭、工作/学习、通勤、社交、办事、休闲等真实生活节奏。每段写开始/结束时间、地点、活动分类、发生了什么、同行者、留下的生活痕迹，以及可选的未说出口想法。不能只给三四个概览点。
@@ -2825,11 +2831,7 @@ export async function generateCoupleSpaceSnapshot(input: {
   const apiReply = await callTextApi(input.settings, buildCoupleSpacePrompt(input), input.modelOverride);
   if (!apiReply.trim()) throw new Error('情侣空间模型没有返回状态内容。');
   const parsed = JSON.parse(extractJsonContent(apiReply)) as unknown;
-  return normalizeCoupleSpaceIdentityReferences(
-    normalizeCoupleSpaceSnapshot(parsed, Date.now()),
-    getCharacterAiName(input.context.character),
-    getUserAiName(input.context.boundUser ?? input.context.user)
-  );
+  return normalizeCoupleSpaceSnapshot(parsed, Date.now());
 }
 
 function buildSmallTheaterPrompt(input: { context: PromptContext; topic: SmallTheaterTopic; recentTheaters?: SmallTheater[] }) {
@@ -3026,7 +3028,7 @@ export async function generateUserVoomComments(input: {
   const targetCharacterText = input.targetCharacters
     .map((character) => [
       `id: ${character.id}`,
-      `角色真名: ${getCharacterAiName(character)}`,
+      `角色姓名: ${getCharacterAiName(character)}`,
       `主页签名: ${character.signature || '无'}`,
       `角色设定: ${character.description || '无'}`
     ].join('；'))
@@ -3034,7 +3036,7 @@ export async function generateUserVoomComments(input: {
   const prompt = [
     '你要模拟 LINK VOOM 里，用户可见角色以及这些角色社交圈 NPC 看到用户动态后的自然评论区。只输出 JSON，不要输出 JSON 以外的文字。',
     timeAwarenessPrompt,
-    `用户真名：${getUserAiName(input.author)}`,
+    `用户姓名：${getUserAiName(input.author)}`,
     `用户设定：${input.author.description || '无'}`,
     includeTimeContext && input.createdAt ? `用户动态发布时间：${formatVoomContextTime(input.createdAt)}` : '',
     `用户动态正文：\n${input.content}`,
@@ -3043,11 +3045,11 @@ export async function generateUserVoomComments(input: {
     `输出格式：
 {
   "comments": [
-    { "id": "c1", "authorId": "可见角色 id；NPC 留空", "authorName": "角色真名或真实感 NPC 名", "content": "评论内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "被回复的本次评论 id；直接评论则留空" },
+    { "id": "c1", "authorId": "可见角色 id；NPC 留空", "authorName": "发言者显示名", "content": "评论内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "被回复的本次评论 id；直接评论则留空" },
     { "id": "c2", "authorName": "真实感 NPC 名", "content": "回复内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "c1" }
   ]
 }`,
-    '要求：1. 输出 6-15 条；2. authorId 可以来自可见角色，凡是可见角色本人发言，authorName 必须写该角色真名；NPC 则不要填 authorId，必须填写具体 authorName；3. NPC 可以来自可见角色自己的设定、社交圈、朋友同事家人粉丝或参考上下文内容生成，如果没有提及则可以根据世界线合理拓展相应NPC；4. parentId 留空表示直接评论用户动态，填写本次前面输出的 id 表示回复那条评论；5. 可以让角色回复 NPC，也可以让 NPC 回复角色或其他 NPC，但不要代替用户本人评论；6. 评论要短、自然、有社交软件感，不要解释设定；7. 不要使用“NPC”“朋友A”“路人”这类占位名；8. 用户和可见角色只能使用真名，不得使用网名、昵称、备注或主页名；9. contentTranslation 规则：外语、粤语都要翻译成自然现代简体普通话；不要加“翻译：”前缀。'
+    '要求：1. 输出 6-15 条；2. 可见角色本人发言时填写对应 authorId；NPC 不填 authorId，但必须填写具体 authorName；3. NPC 可以来自可见角色自己的设定、社交圈、朋友同事家人粉丝或参考上下文内容生成，如果没有提及则可以根据世界线合理拓展相应NPC；4. parentId 留空表示直接评论用户动态，填写本次前面输出的 id 表示回复那条评论；5. 可以让角色回复 NPC，也可以让 NPC 回复角色或其他 NPC，但不要代替用户本人评论；6. 评论要短、自然、有社交软件感，不要解释设定；7. 不要使用“NPC”“朋友A”“路人”这类占位名；8. contentTranslation 规则：外语、粤语都要翻译成自然现代简体普通话；不要加“翻译：”前缀。'
   ].filter(Boolean).join('\n\n');
 
   const apiReply = await callTextApi(input.settings, prompt, input.modelOverride);
@@ -3099,7 +3101,7 @@ export async function generateVoomCommentReplies(input: {
     { "id": "r2", "authorName": "真实感 NPC 名", "content": "自然评论或回复", "contentTranslation": "如 content 不是中文，则给普通话译文；否则留空", "parentId": "已有评论ID或本次前面输出的id，可留空" }
   ]
 }`,
-    '要求：1. 输出 6-15 条；2. authorName 可以是当前执行角色真名，也可以是符合社交圈边界的真实感 NPC 名；3. 凡是用户或已有角色，只能用真名指代，不得使用网名、昵称、备注或主页名；4. 角色可以回复用户或其他人的评论，NPC 也可以发新评论、回复角色或互相回复；5. parentId 留空表示新评论，填写已有评论 ID 或本次前面输出的 id 表示回复；6. 不要代替用户发言，不要使用“NPC”“路人”“朋友A”这类占位名；7. 内容像真实社交软件评论区，短、自然、有上下文，不要解释设定；8. contentTranslation 规则：外语、粤语都要翻译成简体普通话；不要加“翻译：”前缀。'
+    '要求：1. 输出 6-15 条；2. authorName 可以是当前执行角色，也可以是符合社交圈边界的真实感 NPC 名；3. 角色可以回复用户或其他人的评论，NPC 也可以发新评论、回复角色或互相回复；4. parentId 留空表示新评论，填写已有评论 ID 或本次前面输出的 id 表示回复；5. 不要代替用户发言，不要使用“NPC”“路人”“朋友A”这类占位名；6. 内容像真实社交软件评论区，短、自然、有上下文，不要解释设定；7. contentTranslation 规则：外语、粤语都要翻译成简体普通话；不要加“翻译：”前缀。'
   ].join('\n\n');
 
   const apiReply = await callTextApi(input.settings, prompt, input.modelOverride);
@@ -3215,14 +3217,14 @@ export async function generateMusicCommentThread(input: {
   const characterText = boundCharacters.length
     ? boundCharacters.map((character) => [
       `id: ${character.id}`,
-      `角色真名: ${getCharacterAiName(character)}`,
+      `角色姓名: ${getCharacterAiName(character)}`,
       `签名: ${character.signature || '无'}`,
       `设定: ${character.description || '无'}`
     ].join('；')).join('\n')
     : '当前账号暂未绑定角色。';
   const prompt = [
     '你要为 LINK 音乐页生成一个独立的歌曲评论区。它不是线上聊天、线下 RP 或 VOOM 会话，不要写入任何聊天事件。只输出 JSON，不要输出 JSON 以外的文字。',
-    `当前用户真名：${getUserAiName(input.user)}（不要代替该用户发评论）`,
+    `当前用户姓名：${getUserAiName(input.user)}（不要代替该用户发评论）`,
     `歌曲信息：\n${formatMusicTrackPrompt(input.track)}`,
     `该用户账号绑定的角色：\n${characterText}`,
     existingComments.length ? `已有评论区：\n${existingComments.map((comment) => formatMusicCommentPromptLine(comment, input)).join('\n')}` : '已有评论区：暂无。',
@@ -3234,10 +3236,10 @@ export async function generateMusicCommentThread(input: {
     `输出格式：
 {
   "comments": [
-    { "id": "c1", "authorId": "绑定角色id，可留空", "authorName": "角色真名或真实感听友名", "content": "评论内容", "contentTranslation": "如需翻译则填写，否则留空", "parentId": "回复的已有评论ID或本次前面输出的id，可留空" }
+    { "id": "c1", "authorId": "绑定角色id，可留空", "authorName": "发言者显示名", "content": "评论内容", "contentTranslation": "如需翻译则填写，否则留空", "parentId": "回复的已有评论ID或本次前面输出的id，可留空" }
   ]
 }`,
-    '要求：1. 输出 45-55 条，一级评论和回复评论合计计数；2. 至少包含 2 条该用户绑定角色的评论或回复，角色 authorId 必须来自绑定角色，且角色 authorName 必须写真名；3. 其余可以是有真实感的路人听友；4. 可以回复任意已有评论或本次前面评论；5. 用户和绑定角色只能使用真名，不得使用网名、昵称、备注或主页名；6. 不要使用“NPC”“路人A”“朋友A”这类占位名；7. 语气像网易云音乐评论区，短、自然、有情绪和梗，但不要刷屏；8. contentTranslation 规则：外语、粤语都要翻译成自然现代简体普通话，不要加“翻译：”前缀。'
+    '要求：1. 输出 45-55 条，一级评论和回复评论合计计数；2. 至少包含 2 条该用户绑定角色的评论或回复，角色 authorId 必须来自绑定角色；3. 其余可以是有真实感的路人听友；4. 可以回复任意已有评论或本次前面评论；5. 不要使用“NPC”“路人A”“朋友A”这类占位名；6. 语气像网易云音乐评论区，短、自然、有情绪和梗，但不要刷屏；7. contentTranslation 规则：外语、粤语都要翻译成自然现代简体普通话，不要加“翻译：”前缀。'
   ].join('\n\n');
 
   const apiReply = await callTextApi(input.settings, prompt, input.modelOverride);
@@ -3366,16 +3368,12 @@ function replaceGroupPromptTokens(value: string, characterName: string, userName
   if (characterName) {
     result = result
       .replace(/\{\{\s*char\s*\}\}/gi, characterName)
-      .replace(/<\s*char\s*>/gi, characterName)
-      .replace(/\bChar\b/g, characterName)
-      .replace(/\bchar\b/g, characterName);
+      .replace(/<\s*char\s*>/gi, characterName);
   }
   if (userName) {
     result = result
       .replace(/\{\{\s*user\s*\}\}/gi, userName)
-      .replace(/<\s*user\s*>/gi, userName)
-      .replace(/\bUser\b/g, userName)
-      .replace(/\buser\b/g, userName);
+      .replace(/<\s*user\s*>/gi, userName);
   }
   return result;
 }
@@ -3450,8 +3448,8 @@ export async function discoverGeneratedGroups(input: {
     const lore = entry.localWorldBooks.flatMap((book) => book.entries.filter((item) => item.enabled).map((item) => `${replaceTokens(book.title)}/${replaceTokens(item.title)}: ${replaceTokens(item.content)}`)).join('\n');
     return [
       `角色ID：${entry.character.id}`,
-      `角色真名：${characterName}`,
-      `角色当前网名（仅社交资料，禁止代替真名）：${replaceTokens(entry.character.nickname)}`,
+      `角色姓名：${characterName}`,
+      `角色当前网名：${replaceTokens(entry.character.nickname)}`,
       `角色设定：${replaceTokens(entry.character.description)}`,
       `当前用户设定：${replaceTokens(input.user.description) || '暂无'}`,
       `会话总结：${replaceTokens(entry.conversationSummary) || '暂无'}`,
@@ -3462,7 +3460,7 @@ export async function discoverGeneratedGroups(input: {
   }).join('\n\n---\n\n');
   const prompt = `你是社交软件 LINK 的群聊搜索模拟器。用户点击“查找目前已有群聊”，请根据用户选择的已有角色及其连续生活经历，生成 3-6 个仿佛本来就存在、用户有合理渠道发现并可申请加入的群聊。
 
-身份铁律：用户只能用真名「${canonicalUserName}」指代。已有角色只能使用下方角色ID和角色真名指代；网名可以作为资料展示，但绝不能写成网名做了某事。不要伪造新的已有角色ID。NPC 必须有稳定真名，可另设网名。
+身份映射：已有角色成员必须使用下方角色 ID，NPC 不得伪造已有角色 ID，并应保持稳定姓名。
 
 角色上下文：
 ${characterContext}
@@ -3589,15 +3587,14 @@ ${stickerList || '无'}
 
 规则：
 1. 只允许成员表里的角色发言，绝不代替用户发言；authorMemberId 必须来自成员表。
-2. 所有行为描述、消息正文中的人物指代只能使用用户真名或角色/NPC真名。网名和群昵称只是可修改资料，绝不能写成网名做了某事。
-3. ${mode === 'offline' ? '这是群聊线下 RP。每条 content 都是该成员视角下可直接展示的沉浸式章节正文，包含必要的场景、动作、神情、对白与多人互动；不得写成聊天气泡口吻，不得替用户决定、行动或发言。输出 1-4 个自然章节，不要机械轮流。' : '像真实群聊：允许无人回复、单人回复、多人插话、连续多条、引用、@、跑题与沉默；本轮输出 0-8 条，不要机械轮流。需要引用最近群聊中的历史消息时，在该条消息填写 quoteMessageId；可以引用用户、其他成员，也可以自然引用该发言成员自己此前发过的消息。只能填写最近群聊里方括号标出的真实消息 ID，不要在 content 中复述被引用内容。'}
-4. 已有角色必须同时结合自己的角色设定、与用户的一对一会话总结、记忆手册、近期私聊/线下对话和世界书，不得把群聊当作孤立世界；每个角色只能使用自己专属上下文里的私密知识，不能读取、暗示或利用其他角色的专属上下文，也不能知道自己未参与且未被转述的秘密。
-5. ${mode === 'offline' ? '线下模式的 type 必须为 text。' : 'type 可为 text、voice、image、sticker。voice 的 content 是语音转写；image 的 content 是图片画面描述；sticker 必须填写 stickerId，content 可填贴纸含义。'}
-6. 如果群内情境让某个已有角色很自然地想单独联系用户，可在 privateInitiations 放入该角色ID和原因；最多 1 个，不能使用 NPC，不能每轮都触发。
-7. 如果当前用户状态为 pending，群主或管理员可根据群设定和上下文决定是否通过申请，在 membershipDecision 输出 approve、reject 或 null；其他状态必须输出 null。
-8. 群内出现匿名小号消息时，不得推断、暗示或泄露它与当前用户的真实身份关系。
-9. 图片与语音是群内所有当前成员共同可见的真实消息：真实图片已随请求附带时可直接识图；文字描述卡片要理解为用户发送了描述所表达的图片；语音条要理解为发送者用语音说出了转写内容。引用消息必须结合被引用内容理解，不能当成孤立文本。
-10. 只输出 JSON：{"messages":[{"authorMemberId":"成员id","type":"text|voice|image|sticker","content":"正文或描述","stickerId":"可选","quoteMessageId":"可选，仅线上引用的历史消息id"}],"privateInitiations":[{"characterId":"已有角色ID","reason":"为什么此刻要私聊用户"}],"membershipDecision":"approve|reject|null"}`;
+2. ${mode === 'offline' ? '这是群聊线下 RP。每条 content 都是该成员视角下可直接展示的沉浸式章节正文，包含必要的场景、动作、神情、对白与多人互动；不得写成聊天气泡口吻，不得替用户决定、行动或发言。输出 1-4 个自然章节，不要机械轮流。' : '像真实群聊：允许无人回复、单人回复、多人插话、连续多条、引用、@、跑题与沉默；本轮输出 0-8 条，不要机械轮流。需要引用最近群聊中的历史消息时，在该条消息填写 quoteMessageId；可以引用用户、其他成员，也可以自然引用该发言成员自己此前发过的消息。只能填写最近群聊里方括号标出的真实消息 ID，不要在 content 中复述被引用内容。'}
+3. 已有角色必须同时结合自己的角色设定、与用户的一对一会话总结、记忆手册、近期私聊/线下对话和世界书，不得把群聊当作孤立世界；每个角色只能使用自己专属上下文里的私密知识，不能读取、暗示或利用其他角色的专属上下文，也不能知道自己未参与且未被转述的秘密。
+4. ${mode === 'offline' ? '线下模式的 type 必须为 text。' : 'type 可为 text、voice、image、sticker。voice 的 content 是语音转写；image 的 content 是图片画面描述；sticker 必须填写 stickerId，content 可填贴纸含义。'}
+5. 如果群内情境让某个已有角色很自然地想单独联系用户，可在 privateInitiations 放入该角色ID和原因；最多 1 个，不能使用 NPC，不能每轮都触发。
+6. 如果当前用户状态为 pending，群主或管理员可根据群设定和上下文决定是否通过申请，在 membershipDecision 输出 approve、reject 或 null；其他状态必须输出 null。
+7. 群内出现匿名小号消息时，不得推断、暗示或泄露它与当前用户的真实身份关系。
+8. 图片与语音是群内所有当前成员共同可见的真实消息：真实图片已随请求附带时可直接识图；文字描述卡片要理解为用户发送了描述所表达的图片；语音条要理解为发送者用语音说出了转写内容。引用消息必须结合被引用内容理解，不能当成孤立文本。
+9. 只输出 JSON：{"messages":[{"authorMemberId":"成员id","type":"text|voice|image|sticker","content":"正文或描述","stickerId":"可选","quoteMessageId":"可选，仅线上引用的历史消息id"}],"privateInitiations":[{"characterId":"已有角色ID","reason":"为什么此刻要私聊用户"}],"membershipDecision":"approve|reject|null"}`;
   const apiReply = await callTextApi(input.settings, prompt, input.modelOverride, await getPreparedVisualImageParts(input));
   const parsed = JSON.parse(extractJsonContent(apiReply)) as Record<string, unknown>;
   const rawMessages = Array.isArray(parsed.messages) ? parsed.messages : [];

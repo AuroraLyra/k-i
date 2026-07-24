@@ -1,18 +1,18 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import { builtInFanficTopics, createFallbackTrendTopic } from '@/data/fanficTopics';
-import { deleteEntity, loadSnapshot, putEntity, putFanficChapterBundle, pruneUnusedStoredMediaCache } from '@/data/db';
+import { builtInFanficTopics } from '@/data/fanficTopics';
+import { deleteEntity, loadSnapshot, putEntity, putFanficChapterBundle, putFanficHotspotComments, pruneUnusedStoredMediaCache } from '@/data/db';
 import {
-  distillFanficCreativeDna,
   fetchFanficTrendKeywords,
   generateFanficBookPlan,
-  generateFanficChapterWithComments,
+  generateFanficChapter,
+  generateFanficHotspotComments,
   generateFanficCover,
   generateFanficTrendTopics,
   type FanficCreationPreferences
 } from '@/services/fanfic';
 import type { FanficBook, FanficChapter, FanficComment, FanficGenerationJob, FanficTopic } from '@/types/domain';
-import { createFanficProfileFingerprint, createProceduralFanficCover, getFanficLocalWorldBookSourceText, normalizeFanficBook, requireFanficTrueNames, selectFanficLocalWorldBooks, validateFanficOriginality } from '@/utils/fanfic';
+import { createFanficProfileFingerprint, createProceduralFanficCover, getFanficLocalWorldBookSourceText, normalizeFanficBook, requireFanficTrueNames, selectFanficLocalWorldBooks } from '@/utils/fanfic';
 import { createId } from '@/utils/id';
 import { hydrateStoredMediaRefs } from '@/utils/mediaStorage';
 import { useAppStore } from './appStore';
@@ -59,10 +59,16 @@ function normalizeChapter(chapter: FanficChapter): FanficChapter {
 }
 
 function normalizeComment(comment: FanficComment): FanficComment {
+  const legacyComment = comment as FanficComment & { authorType?: string; origin?: string };
+  const authorType = ['author', 'reader', 'character', 'user'].includes(String(legacyComment.authorType))
+    ? legacyComment.authorType as FanficComment['authorType']
+    : 'reader';
   return {
     ...comment,
-    authorType: comment.authorType === 'user' ? 'user' : 'generated',
-    authorName: String(comment.authorName ?? '').trim() || '匿名读者',
+    authorType,
+    origin: legacyComment.origin === 'manual' || authorType === 'user' ? 'manual' : 'generated',
+    authorId: String(comment.authorId ?? '').trim() || undefined,
+    authorName: String(comment.authorName ?? '').trim(),
     avatarSeed: String(comment.avatarSeed ?? comment.id),
     content: String(comment.content ?? '').trim(),
     likes: Math.max(0, Math.round(Number(comment.likes) || 0)),
@@ -80,8 +86,10 @@ export const useFanficStore = defineStore('fanfic', () => {
   const topics = ref<FanficTopic[]>([]);
   const jobs = ref<FanficGenerationJob[]>([]);
   const generatingBookIds = ref<string[]>([]);
+  const generatingHotspotKeys = ref<string[]>([]);
   const refreshingTrends = ref(false);
   const trendStatus = ref('');
+  const hotspotGenerationPromises = new Map<string, Promise<FanficComment[]>>();
 
   const sortedBooks = computed(() => [...books.value].sort((left, right) => right.updatedAt - left.updatedAt));
   const builtInTopics = computed(() => topics.value.filter((topic) => topic.source === 'built-in'));
@@ -97,7 +105,7 @@ export const useFanficStore = defineStore('fanfic', () => {
       const snapshot = await hydrateStoredMediaRefs(await loadSnapshot());
       books.value = (snapshot.fanficBooks ?? []).map(normalizeFanficBook);
       chapters.value = (snapshot.fanficChapters ?? []).map(normalizeChapter);
-      comments.value = (snapshot.fanficComments ?? []).map(normalizeComment).filter((comment) => comment.content);
+      comments.value = (snapshot.fanficComments ?? []).map(normalizeComment).filter((comment) => comment.content && comment.authorName);
       topics.value = (snapshot.fanficTopics ?? []).map(normalizeTopic).filter((topic) => topic.title && topic.hook);
       jobs.value = (snapshot.fanficGenerationJobs ?? []).map((job) => ({ ...job, progress: Number(job.progress) || (job.stage === 'completed' ? 100 : 0) }));
       await ensureBuiltInTopics();
@@ -179,6 +187,14 @@ export const useFanficStore = defineStore('fanfic', () => {
     return generatingBookIds.value.includes(bookId);
   }
 
+  function hotspotGenerationKey(chapterId: string, hotspotId: string) {
+    return `${chapterId}:${hotspotId}`;
+  }
+
+  function isGeneratingHotspot(chapterId: string, hotspotId: string) {
+    return generatingHotspotKeys.value.includes(hotspotGenerationKey(chapterId, hotspotId));
+  }
+
   async function saveBook(book: FanficBook) {
     const normalized = normalizeFanficBook({ ...book, updatedAt: Date.now() });
     const index = books.value.findIndex((entry) => entry.id === normalized.id);
@@ -207,7 +223,7 @@ export const useFanficStore = defineStore('fanfic', () => {
       bookId,
       chapterOrder,
       stage: 'planning',
-      label: '正在提炼人物气质',
+      label: '正在准备同人文设定',
       progress: 8,
       error: '',
       createdAt: now,
@@ -218,59 +234,34 @@ export const useFanficStore = defineStore('fanfic', () => {
   async function generateAndPersistChapter(book: FanficBook, order: number, direction: string, job: FanficGenerationJob) {
     const character = appStore.characters.find((entry) => entry.id === book.characterId);
     const user = appStore.users.find((entry) => entry.id === book.userId);
-    if (!character || !user) throw new Error('这本小说绑定的用户或角色已不存在。');
-    const localWorldBookText = getFanficLocalWorldBookSourceText(selectFanficLocalWorldBooks(character, appStore.worldBooks));
-    job = await updateJob(job, { stage: 'writing', label: `正在生成第 ${order} 章与高潮评论`, progress: 56, error: '' });
-    let bundle = await generateFanficChapterWithComments({
+    if (!character || !user) throw new Error('这篇同人文绑定的用户或角色已不存在。');
+    const localWorldBooks = selectFanficLocalWorldBooks(character, appStore.worldBooks);
+    job = await updateJob(job, { stage: 'writing', label: `正在生成第 ${order} 章正文`, progress: 50, error: '' });
+    const chapter = await generateFanficChapter({
       book,
       order,
       previousChapters: chaptersForBook(book.id),
+      user,
+      character,
+      localWorldBooks,
       direction,
       settings: appStore.settings ?? undefined
     });
-    let originality = validateFanficOriginality({
-      generatedText: bundle.chapter.content,
-      userDescription: user.description,
-      characterDescription: character.description,
-      creativeDna: book.creativeDna,
-      allowedNames: [book.userName, book.characterName],
-      additionalSourceTexts: localWorldBookText ? [{ label: '角色绑定局部世界书', text: localWorldBookText }] : []
-    });
-    if (!originality.valid) {
-      job = await updateJob(job, { label: '原创检查未通过，正在重写本章与评论', progress: 66 });
-      bundle = await generateFanficChapterWithComments({
-        book,
-        order,
-        previousChapters: chaptersForBook(book.id),
-        direction: [direction, '必须完全更换本章事件、环境细节和表达，严禁复用人物资料原句或原背景。'].filter(Boolean).join('\n'),
-        settings: appStore.settings ?? undefined
-      });
-      originality = validateFanficOriginality({
-        generatedText: bundle.chapter.content,
-        userDescription: user.description,
-        characterDescription: character.description,
-        creativeDna: book.creativeDna,
-        allowedNames: [book.userName, book.characterName],
-        additionalSourceTexts: localWorldBookText ? [{ label: '角色绑定局部世界书', text: localWorldBookText }] : []
-      });
-      if (!originality.valid) throw new Error(`原创检查未通过：${originality.reason}`);
-    }
-    job = await updateJob(job, { stage: 'commenting', label: '正在整理高潮章评与伏笔账本', progress: 78 });
-    const nextContinuity = uniqueStrings([...book.continuity, ...bundle.chapter.continuity], 40);
+    job = await updateJob(job, { stage: 'writing', label: `正在保存第 ${order} 章正文`, progress: 70, error: '' });
+    const nextContinuity = uniqueStrings([...book.continuity, ...chapter.continuity], 40);
     const nextBook: FanficBook = {
       ...book,
       continuity: nextContinuity,
       status: order >= book.chapterTarget ? 'completed' : 'serializing',
       updatedAt: Date.now()
     };
-    await putFanficChapterBundle(nextBook, bundle.chapter, [...bundle.comments, ...bundle.bookComments]);
+    await putFanficChapterBundle(nextBook, chapter, []);
     const bookIndex = books.value.findIndex((entry) => entry.id === nextBook.id);
     if (bookIndex >= 0) books.value[bookIndex] = nextBook;
-    const chapterIndex = chapters.value.findIndex((entry) => entry.id === bundle.chapter.id);
-    if (chapterIndex >= 0) chapters.value[chapterIndex] = bundle.chapter;
-    else chapters.value.push(bundle.chapter);
-    comments.value.push(...bundle.comments, ...bundle.bookComments);
-    return { book: nextBook, chapter: bundle.chapter, job };
+    const chapterIndex = chapters.value.findIndex((entry) => entry.id === chapter.id);
+    if (chapterIndex >= 0) chapters.value[chapterIndex] = chapter;
+    else chapters.value.push(chapter);
+    return { book: nextBook, chapter, job };
   }
 
   async function createBook(input: CreateFanficBookInput) {
@@ -289,12 +280,21 @@ export const useFanficStore = defineStore('fanfic', () => {
     let job = createJob(bookId, 1);
     await saveJob(job);
     try {
-      const creativeDna = await distillFanficCreativeDna({ user, character, userName, characterName, localWorldBooks, settings: appStore.settings });
-      job = await updateJob(job, { stage: 'planning', label: '正在创建全新世界与全书大纲', progress: 24 });
-      const plan = await generateFanficBookPlan({ userName, characterName, creativeDna, topic, preferences: input.preferences, settings: appStore.settings });
+      job = await updateJob(job, { stage: 'planning', label: '正在参考双方设定创建全新世界', progress: 24 });
+      const plan = await generateFanficBookPlan({
+        userName,
+        characterName,
+        user,
+        character,
+        localWorldBooks,
+        topic,
+        preferences: input.preferences,
+        settings: appStore.settings
+      });
       const now = Date.now();
       let book: FanficBook = normalizeFanficBook({
         id: bookId,
+        workType: 'user-character-au-fanfic',
         userId: user.id,
         characterId: character.id,
         userName,
@@ -307,7 +307,7 @@ export const useFanficStore = defineStore('fanfic', () => {
         topicId: topic.id,
         topicTitle: topic.title,
         topicPitch: plan.topicPitch,
-        sourceLabel: topic.source === 'trend' ? '联网趋势灵感 · 全新原创' : topic.source === 'built-in' ? '内置原创题材' : '自定义原创题材',
+        sourceLabel: topic.source === 'trend' ? '联网趋势灵感 · 原创 AU 同人' : topic.source === 'built-in' ? '内置 AU 同人题材' : '自定义 AU 同人题材',
         tone: plan.tone,
         pov: plan.pov,
         endingPreference: plan.endingPreference,
@@ -317,9 +317,7 @@ export const useFanficStore = defineStore('fanfic', () => {
         coverPrompt: plan.coverPrompt,
         coverPalette: plan.coverPalette,
         status: 'serializing',
-        creativeDna,
         storyBible: plan.storyBible,
-        outline: plan.outline,
         continuity: [],
         profileFingerprint: createFanficProfileFingerprint(user, character, localWorldBookText),
         createdAt: now,
@@ -332,23 +330,24 @@ export const useFanficStore = defineStore('fanfic', () => {
         const generated = await generateAndPersistChapter(book, 1, input.preferences.extraGuidance, job);
         book = generated.book;
         job = generated.job;
-        job = await updateJob(job, { stage: 'cover', label: '正在制作小说封面', progress: 88 });
+        job = await updateJob(job, { stage: 'cover', label: '正在制作同人文封面', progress: 88 });
         try {
           const generatedCover = await generateFanficCover(book, appStore.settings);
           if (generatedCover) book = await saveBook({ ...book, coverImage: generatedCover });
         } catch (error) {
           console.warn('Fanfic cover generation failed, using procedural cover.', error);
         }
-        await updateJob(job, { stage: 'completed', label: '第一章与评论已完成', progress: 100, error: '' });
+        await updateJob(job, { stage: 'completed', label: '第一章与高潮评论点已完成', progress: 100, error: '' });
       } catch (error) {
         book = await saveBook({ ...book, status: 'paused' });
-        await updateJob(job, { stage: 'failed', label: '第一章生成失败，可在书籍页重试', progress: 100, error: error instanceof Error ? error.message : '第一章生成失败。' });
+        const failedJob = latestJobForBook(book.id) ?? job;
+        await updateJob(failedJob, { stage: 'failed', label: '第一章生成或保存失败，可在书籍页重试', progress: 100, error: error instanceof Error ? error.message : '第一章生成失败。' });
       } finally {
         generatingBookIds.value = generatingBookIds.value.filter((id) => id !== book.id);
       }
       return book;
     } catch (error) {
-      await updateJob(job, { stage: 'failed', label: '小说创建失败', progress: 100, error: error instanceof Error ? error.message : '小说创建失败。' });
+      await updateJob(job, { stage: 'failed', label: '同人文创建失败', progress: 100, error: error instanceof Error ? error.message : '同人文创建失败。' });
       throw error;
     }
   }
@@ -356,23 +355,24 @@ export const useFanficStore = defineStore('fanfic', () => {
   async function generateNextChapter(bookId: string, direction = '') {
     await hydrate();
     const book = bookById(bookId);
-    if (!book) throw new Error('没有找到这本小说。');
+    if (!book) throw new Error('没有找到这篇同人文。');
     if (isGenerating(bookId)) return null;
     const currentChapters = chaptersForBook(bookId);
     const order = (currentChapters.at(-1)?.order ?? 0) + 1;
-    if (order > book.chapterTarget) throw new Error('这本小说已经完成计划章节。');
+    if (order > book.chapterTarget) throw new Error('这篇同人文已经完成计划章节。');
     generatingBookIds.value.push(bookId);
     let job = createJob(bookId, order);
     job.stage = 'writing';
-    job.label = `正在生成第 ${order} 章与评论`;
+    job.label = `正在生成第 ${order} 章与高潮评论点`;
     job.progress = 42;
     await saveJob(job);
     try {
       const generated = await generateAndPersistChapter(book, order, direction, job);
-      await updateJob(generated.job, { stage: 'completed', label: `第 ${order} 章与评论已完成`, progress: 100, error: '' });
+      await updateJob(generated.job, { stage: 'completed', label: `第 ${order} 章与高潮评论点已完成`, progress: 100, error: '' });
       return generated.chapter;
     } catch (error) {
-      await updateJob(job, { stage: 'failed', label: `第 ${order} 章生成失败`, progress: 100, error: error instanceof Error ? error.message : '章节生成失败。' });
+      const failedJob = latestJobForBook(bookId) ?? job;
+      await updateJob(failedJob, { stage: 'failed', label: `第 ${order} 章生成或保存失败`, progress: 100, error: error instanceof Error ? error.message : '章节生成失败。' });
       throw error;
     } finally {
       generatingBookIds.value = generatingBookIds.value.filter((id) => id !== bookId);
@@ -382,7 +382,7 @@ export const useFanficStore = defineStore('fanfic', () => {
   async function regenerateCover(bookId: string) {
     await hydrate();
     const book = bookById(bookId);
-    if (!book) throw new Error('没有找到这本小说。');
+    if (!book) throw new Error('没有找到这篇同人文。');
     const proceduralCover = createProceduralFanficCover({ title: book.title, authorName: book.authorName, palette: [...book.coverPalette].reverse(), motif: book.tags[0] });
     let nextBook = await saveBook({ ...book, coverImage: proceduralCover });
     try {
@@ -402,8 +402,7 @@ export const useFanficStore = defineStore('fanfic', () => {
     try {
       const trend = await fetchFanficTrendKeywords();
       trendStatus.value = '正在把趋势重组为原创题材';
-      let generatedTopics = await generateFanficTrendTopics({ keywords: trend.keywords, settings: appStore.settings ?? undefined });
-      if (!generatedTopics.length) generatedTopics = trend.keywords.slice(0, 6).map(createFallbackTrendTopic);
+      const generatedTopics = await generateFanficTrendTopics({ keywords: trend.keywords, settings: appStore.settings ?? undefined });
       const oldTrendIds = topics.value.filter((topic) => topic.source === 'trend').map((topic) => topic.id);
       topics.value = [...topics.value.filter((topic) => topic.source !== 'trend'), ...generatedTopics];
       await Promise.all([
@@ -437,6 +436,58 @@ export const useFanficStore = defineStore('fanfic', () => {
     return topic;
   }
 
+  async function generateHotspotComments(chapterId: string, hotspotId: string) {
+    await hydrate();
+    const existingComments = commentsForHotspot(chapterId, hotspotId);
+    if (existingComments.some((comment) => comment.origin === 'generated')) return existingComments;
+    const key = hotspotGenerationKey(chapterId, hotspotId);
+    const pending = hotspotGenerationPromises.get(key);
+    if (pending) return await pending;
+
+    const promise = (async () => {
+      generatingHotspotKeys.value.push(key);
+      try {
+        const chapter = chapterById(chapterId);
+        if (!chapter) throw new Error('没有找到这个同人文章节。');
+        const hotspot = chapter.hotspots.find((entry) => entry.id === hotspotId);
+        if (!hotspot) throw new Error('没有找到这个高潮评论点。');
+        const book = bookById(chapter.bookId);
+        if (!book) throw new Error('没有找到这篇同人文。');
+        const character = appStore.characters.find((entry) => entry.id === book.characterId);
+        if (!character) throw new Error('这篇同人文绑定的角色已不存在。');
+        const commentCharacters = [
+          character,
+          ...appStore.characters.filter((entry) => entry.boundUserId === book.userId && entry.id !== character.id)
+        ];
+        const generatedComments = await generateFanficHotspotComments({
+          book,
+          chapter,
+          hotspotId,
+          characters: commentCharacters,
+          settings: appStore.settings ?? undefined
+        });
+        const alreadyGenerated = commentsForHotspot(chapterId, hotspotId).filter((comment) => comment.origin === 'generated');
+        if (alreadyGenerated.length) return alreadyGenerated;
+        const nextCommentCount = commentsForHotspot(chapterId, hotspotId).length + generatedComments.length;
+        const nextChapter: FanficChapter = {
+          ...chapter,
+          hotspots: chapter.hotspots.map((entry) => entry.id === hotspotId ? { ...entry, commentCount: nextCommentCount } : entry),
+          updatedAt: Date.now()
+        };
+        await putFanficHotspotComments(nextChapter, generatedComments);
+        const chapterIndex = chapters.value.findIndex((entry) => entry.id === chapterId);
+        if (chapterIndex >= 0) chapters.value[chapterIndex] = nextChapter;
+        comments.value.push(...generatedComments);
+        return generatedComments;
+      } finally {
+        generatingHotspotKeys.value = generatingHotspotKeys.value.filter((entry) => entry !== key);
+        hotspotGenerationPromises.delete(key);
+      }
+    })();
+    hotspotGenerationPromises.set(key, promise);
+    return await promise;
+  }
+
   async function addUserComment(input: { bookId: string; content: string; chapterId?: string; hotspotId?: string; parentId?: string }) {
     await hydrate();
     const user = appStore.user;
@@ -450,6 +501,8 @@ export const useFanficStore = defineStore('fanfic', () => {
       hotspotId: input.hotspotId,
       scope: input.chapterId ? 'chapter' : 'book',
       authorType: 'user',
+      origin: 'manual',
+      authorId: user.id,
       authorName: user.name.trim(),
       avatarSeed: user.id,
       content,
@@ -497,6 +550,33 @@ export const useFanficStore = defineStore('fanfic', () => {
     await pruneUnusedStoredMediaCache();
   }
 
+  async function deleteCharacterFanficData(characterId: string) {
+    const normalizedCharacterId = characterId.trim();
+    if (!normalizedCharacterId) return 0;
+    await hydrate();
+
+    const relatedBooks = books.value.filter((book) => book.characterId === normalizedCharacterId);
+    const relatedBookIds = new Set(relatedBooks.map((book) => book.id));
+    if (!relatedBookIds.size) return 0;
+    const relatedChapters = chapters.value.filter((chapter) => relatedBookIds.has(chapter.bookId));
+    const relatedComments = comments.value.filter((comment) => relatedBookIds.has(comment.bookId));
+    const relatedJobs = jobs.value.filter((job) => relatedBookIds.has(job.bookId));
+
+    books.value = books.value.filter((book) => !relatedBookIds.has(book.id));
+    chapters.value = chapters.value.filter((chapter) => !relatedBookIds.has(chapter.bookId));
+    comments.value = comments.value.filter((comment) => !relatedBookIds.has(comment.bookId));
+    jobs.value = jobs.value.filter((job) => !relatedBookIds.has(job.bookId));
+    generatingBookIds.value = generatingBookIds.value.filter((bookId) => !relatedBookIds.has(bookId));
+    await Promise.all([
+      ...relatedBooks.map((book) => deleteEntity('fanficBooks', book.id)),
+      ...relatedChapters.map((chapter) => deleteEntity('fanficChapters', chapter.id)),
+      ...relatedComments.map((comment) => deleteEntity('fanficComments', comment.id)),
+      ...relatedJobs.map((job) => deleteEntity('fanficGenerationJobs', job.id))
+    ]);
+    await pruneUnusedStoredMediaCache();
+    return relatedBooks.length + relatedChapters.length + relatedComments.length + relatedJobs.length;
+  }
+
   return {
     ready,
     books,
@@ -521,8 +601,10 @@ export const useFanficStore = defineStore('fanfic', () => {
     commentsForHotspot,
     latestJobForBook,
     isGenerating,
+    isGeneratingHotspot,
     createBook,
     generateNextChapter,
+    generateHotspotComments,
     regenerateCover,
     refreshTrendTopics,
     createCustomTopic,
@@ -530,6 +612,7 @@ export const useFanficStore = defineStore('fanfic', () => {
     likeComment,
     updateReadingProgress,
     dismissJob,
-    deleteBook
+    deleteBook,
+    deleteCharacterFanficData
   };
 });

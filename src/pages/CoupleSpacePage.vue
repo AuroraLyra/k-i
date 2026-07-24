@@ -396,7 +396,7 @@ import { AppWindow, ArrowLeft, BatteryCharging, BatteryMedium, Bell, BellRing, B
 import AppModal from '@/components/common/AppModal.vue';
 import { useAppStore } from '@/stores/appStore';
 import type { CoupleSpaceSnapshot } from '@/types/domain';
-import { createCoupleSpaceIdentityAliases, createCoupleSpaceState, normalizeCoupleSpaceIdentityReferences } from '@/utils/coupleSpace';
+import { createCoupleSpaceState } from '@/utils/coupleSpace';
 import { createId } from '@/utils/id';
 import { getCharacterAiName } from '@/utils/character';
 import { getUserAiName, normalizeVisualProfile } from '@/utils/profile';
@@ -427,17 +427,9 @@ const state = computed(() => character.value?.coupleSpace);
 const snapshot = computed(() => state.value?.snapshot);
 const snapshotHistory = computed(() => state.value?.history ?? []);
 const displaySnapshot = computed<CoupleSpaceSnapshot | undefined>(() => {
-  const selectedSnapshot = selectedSnapshotId.value
+  return selectedSnapshotId.value
     ? snapshotHistory.value.find((item) => item.id === selectedSnapshotId.value) ?? snapshot.value
     : snapshot.value;
-  return selectedSnapshot
-    ? normalizeCoupleSpaceIdentityReferences(
-      selectedSnapshot,
-      characterName.value,
-      currentUserName.value,
-      createCoupleSpaceIdentityAliases(character.value, currentUser.value)
-    )
-    : undefined;
 });
 const characterName = computed(() => character.value ? getCharacterAiName(character.value) : '角色');
 const currentUserName = computed(() => currentUser.value ? getUserAiName(currentUser.value) : '用户');

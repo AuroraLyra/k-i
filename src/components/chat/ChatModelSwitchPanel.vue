@@ -46,7 +46,7 @@ const modelScopes: Array<{ id: ChatModelScope; label: string }> = [
   { id: 'offline', label: '线下 RP 模型' },
   { id: 'summary', label: '总结模型' },
   { id: 'voom', label: 'VOOM 生成模型' },
-  { id: 'theater', label: '小剧场模型' },
+  { id: 'theater', label: '小剧场、同人文、商场模型' },
   { id: 'groupDiscovery', label: '搜索角色群聊模型' }
 ];
 const draft = reactive<ChatModelOverrides>(normalizeChatModelOverrides(null));
@@ -112,7 +112,7 @@ function fallbackLabel(scope: ChatModelScope) {
     offline: '跟随全局线下 RP 模型',
     summary: '跟随全局总结模型',
     voom: '跟随全局 VOOM 生成模型',
-    theater: '跟随全局小剧场模型',
+    theater: '跟随全局小剧场与同人文模型',
     groupDiscovery: '跟随全局搜索角色群聊模型'
   };
   return labels[scope];

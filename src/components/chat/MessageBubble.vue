@@ -18,8 +18,9 @@
       @pointerup.stop="cancelAvatarLongPress"
     >
       <img class="avatar mini" :src="avatarSource" :alt="avatarAlt" />
+      <span v-if="showProfileAlert" class="mind-state-hearts" aria-hidden="true"><i>♥</i><i>♥</i><i>♥</i></span>
     </button>
-    <div class="bubble-wrap">
+    <div class="bubble-wrap" :class="{ 'shop-share-wrap': message.shopShare }">
       <span v-if="canQuote" class="swipe-quote-cue" :class="{ visible: swipeOffset > 0, ready: swipeQuoteReady }" aria-hidden="true">
         <Quote :size="16" />
       </span>
@@ -167,7 +168,7 @@
             </section>
           </template>
           <template v-else-if="message.commerce">
-            <section class="commerce-order-card" :class="`commerce-order-card--${message.commerce.kind}`" aria-label="角色订单消息">
+            <section class="commerce-order-card" :class="`commerce-order-card--${message.commerce.kind}`" aria-label="订单消息">
               <span class="commerce-order-head">
                 <span class="commerce-order-brand"><i>{{ commerceOrderMark }}</i><span>LINK {{ commerceKindEnglish }}</span></span>
                 <span class="commerce-order-chip">{{ commerceStatusLabel }}</span>
@@ -181,7 +182,7 @@
                 </span>
               </span>
               <span class="commerce-order-payment">
-                <span><small>{{ message.commerce.purchaserName || characterDisplayName }} 已付款</small><strong>¥{{ message.commerce.totalAmount }}</strong></span>
+                <span><small>{{ commercePayerName }} 已付款</small><strong>¥{{ message.commerce.totalAmount }}</strong></span>
                 <span>{{ message.commerce.eta || '订单已提交' }} <ChevronRight :size="13" /></span>
               </span>
               <span v-if="commerceCardMessage" class="commerce-order-note">“{{ commerceCardMessage }}”</span>
@@ -665,12 +666,15 @@ const linePayCardSubtext = computed(() => {
 });
 const linePayRequestNoteText = computed(() => linePayNote.value || blankTransferRequestLine);
 const canRespondTransferCard = computed(() => props.message.sender === 'char' && !linePayIsReceipt.value && linePayStatus.value === 'pending');
-const commerceKindLabel = computed(() => ({ takeout: '给你点的外卖', gift: '送给你的礼物', shopping: '刚买到的东西' })[props.message.commerce?.kind ?? 'shopping']);
+const commerceKindLabel = computed(() => props.message.sender === 'user'
+  ? ({ takeout: `给${characterDisplayName.value}点的外卖`, gift: `送给${characterDisplayName.value}的礼物`, shopping: '共同购买的东西' })[props.message.commerce?.kind ?? 'shopping']
+  : ({ takeout: '给你点的外卖', gift: '送给你的礼物', shopping: '刚买到的东西' })[props.message.commerce?.kind ?? 'shopping']);
 const commerceKindEnglish = computed(() => ({ takeout: 'DELIVERY', gift: 'GIFT', shopping: 'ORDER' })[props.message.commerce?.kind ?? 'shopping']);
 const commerceOrderMark = computed(() => ({ takeout: '🥡', gift: '🎁', shopping: '🛍️' })[props.message.commerce?.kind ?? 'shopping']);
 const commerceItemsText = computed(() => props.message.commerce?.items.map((item) => `${item.name} ×${item.quantity}`).join(' · ') || '订单商品');
 const commerceStatusLabel = computed(() => ({ paid: '已付款', preparing: '准备中', delivering: '配送中', delivered: '已送达', cancelled: '已取消' })[props.message.commerce?.status ?? 'paid']);
 const commerceCardMessage = computed(() => props.message.commerce?.cardMessage?.trim() || props.message.commerce?.note?.trim() || '');
+const commercePayerName = computed(() => props.message.commerce?.purchaserName || (props.message.sender === 'user' ? userDisplayName.value : characterDisplayName.value));
 const shopShareKindLabel = computed(() => ({ product: '分享给你的商品', 'character-pick': 'TA 放进共同购物车', wishlist: '共同愿望单', storefront: '想和你逛的店', moment: '商城里的新动态', order: '共同购物订单' })[props.message.shopShare?.kind ?? 'product']);
 const shopShareChip = computed(() => props.message.shopShare?.kind === 'character-pick' ? 'TA PICKED' : props.message.sender === 'user' ? 'SHARED' : 'FOR YOU');
 const shopSharePrice = computed(() => typeof props.message.shopShare?.priceCents === 'number' ? `¥${(props.message.shopShare.priceCents / 100).toFixed(2)}` : '');
@@ -1250,26 +1254,80 @@ onBeforeUnmount(() => {
   line-height: 0;
 }
 
-.message-row.profile-alert .avatar-button::before {
-  content: '';
+.message-row.profile-alert .avatar-button {
+  z-index: 1;
+  overflow: visible;
+}
+
+.mind-state-hearts {
   position: absolute;
-  inset: -4px;
-  border-radius: 50%;
-  border: 2px solid rgba(6, 199, 85, 0.76);
-  animation: profile-alert-pulse 1.8s ease-out infinite;
+  top: -16px;
+  right: -12px;
+  width: 40px;
+  height: 32px;
   pointer-events: none;
 }
 
-@keyframes profile-alert-pulse {
+.mind-state-hearts i {
+  position: absolute;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.98);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1;
+  -webkit-text-stroke: 0.6px rgba(82, 91, 103, 0.44);
+  text-shadow: 0 2px 8px rgba(53, 61, 72, 0.52), 0 0 5px rgba(255, 255, 255, 0.98);
+  animation: mind-state-heart-drift 2.7s ease-in-out infinite;
+}
+
+.mind-state-hearts i:nth-child(1) {
+  left: 0;
+  font-size: 11px;
+  animation-delay: -1.55s;
+}
+
+.mind-state-hearts i:nth-child(2) {
+  left: 13px;
+  font-size: 15px;
+  animation-delay: -0.75s;
+}
+
+.mind-state-hearts i:nth-child(3) {
+  left: 28px;
+  font-size: 10px;
+  animation-delay: -0.1s;
+}
+
+@keyframes mind-state-heart-drift {
   0% {
-    opacity: 0.72;
-    transform: scale(0.94);
+    opacity: 0.38;
+    transform: translateY(7px) scale(0.55);
   }
 
-  80%,
+  22% {
+    opacity: 0.98;
+    transform: translateY(2px) scale(1);
+  }
+
+  72% {
+    opacity: 0.7;
+    transform: translateY(-10px) scale(0.9);
+  }
+
   100% {
-    opacity: 0;
-    transform: scale(1.24);
+    opacity: 0.38;
+    transform: translateY(-17px) scale(0.72);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mind-state-hearts i {
+    opacity: 0.88;
+    animation: none;
+    transform: none;
   }
 }
 
@@ -3221,11 +3279,171 @@ time,
   line-height: inherit;
   white-space: nowrap;
 }
-.bubble.shopShare { width:min(276px,76vw);max-width:min(276px,76vw);padding:0!important;overflow:hidden;background:transparent!important;border-radius:23px!important;box-shadow:0 13px 31px rgba(55,42,47,.14)!important; }
-.shop-share-card { display:grid;overflow:hidden;border:1px solid rgba(111,83,92,.12);border-radius:23px;background:linear-gradient(155deg,#fffaf8,#f4efed 62%,#edf2ee);color:#554a4e; }
-.shop-share-head { display:flex;align-items:center;justify-content:space-between;padding:11px 12px 8px;color:#8f7780;font-size:7px;font-weight:900;letter-spacing:.1em; }.shop-share-head > span { display:inline-flex;align-items:center;gap:5px; }.shop-share-head i { font-size:14px;font-style:normal; }.shop-share-head em { padding:4px 7px;border-radius:999px;background:rgba(114,88,97,.08);font-size:6px;font-style:normal; }
-.shop-share-main { display:grid;grid-template-columns:67px minmax(0,1fr);align-items:center;gap:11px;padding:2px 12px 11px; }.shop-share-main > img,.shop-share-main > i { display:grid;place-items:center;width:67px;height:67px;border-radius:18px;background:linear-gradient(145deg,#eadde1,#e1e8e2);object-fit:cover;font-size:31px;font-style:normal; }.shop-share-main > span { display:grid;gap:4px;min-width:0; }.shop-share-main small { color:#a08d92;font-size:7px;font-weight:800; }.shop-share-main strong { overflow:hidden;color:#4e4347;font-size:12px;text-overflow:ellipsis;white-space:nowrap; }.shop-share-main em { display:-webkit-box;color:#8f8286;font-size:8px;font-style:normal;line-height:1.4;-webkit-box-orient:vertical;-webkit-line-clamp:2; }
-.shop-share-footer { display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-top:1px solid rgba(111,83,92,.09);background:rgba(255,255,255,.48); }.shop-share-footer > span:first-child { display:grid;gap:2px; }.shop-share-footer small { color:#9b8c90;font-size:7px; }.shop-share-footer strong { color:#594b50;font-family:Georgia,serif;font-size:11px; }.shop-share-footer > span:last-child { display:inline-flex;align-items:center;gap:2px;color:#826d75;font-size:7px;font-weight:900; }
-.shop-share-note { margin:0 11px 11px;padding:8px 9px;border-radius:12px;background:rgba(255,255,255,.58);color:#836f76;font-family:Georgia,serif;font-size:8px;line-height:1.45; }
-.message-row.user .bubble.shopShare,.message-row.char .bubble.shopShare { color:inherit!important; }
+.bubble.shopShare {
+  width: min(218px, 64vw);
+  min-width: min(194px, 56vw);
+  max-width: min(218px, 64vw);
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 15px !important;
+  background: transparent !important;
+  box-shadow: 0 10px 25px rgba(53, 43, 46, 0.1) !important;
+}
+
+.shop-share-card {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(111, 83, 92, 0.12);
+  border-radius: 15px;
+  background: linear-gradient(155deg, #fffaf8, #f4efed 62%, #edf2ee);
+  color: #554a4e;
+}
+
+.shop-share-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px 9px 6px;
+  color: #8f7780;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.shop-share-head > span {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+}
+
+.shop-share-head i {
+  font-size: 11px;
+  font-style: normal;
+}
+
+.shop-share-head em {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border-radius: 999px;
+  background: rgba(114, 88, 97, 0.08);
+  font-size: 6px;
+  font-style: normal;
+}
+
+.shop-share-main {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 2px 9px 9px;
+}
+
+.shop-share-main > img,
+.shop-share-main > i {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #eadde1, #e1e8e2);
+  object-fit: cover;
+  font-size: 26px;
+  font-style: normal;
+}
+
+.shop-share-main > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.shop-share-main small {
+  color: #a08d92;
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.shop-share-main strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #4e4347;
+  font-size: 13px;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.shop-share-main em {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #8f8286;
+  font-size: 7px;
+  font-style: normal;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.shop-share-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 9px;
+  border-top: 1px solid rgba(111, 83, 92, 0.09);
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.shop-share-footer > span:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.shop-share-footer small {
+  overflow: hidden;
+  color: #9b8c90;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shop-share-footer strong {
+  color: #594b50;
+  font-family: Georgia, serif;
+  font-size: 10px;
+}
+
+.shop-share-footer > span:last-child {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  color: #826d75;
+  font-size: 7px;
+  font-weight: 900;
+}
+
+.shop-share-note {
+  margin: 0 8px 8px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #836f76;
+  font-family: Georgia, serif;
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.message-row.user .bubble.shopShare,
+.message-row.char .bubble.shopShare {
+  color: inherit !important;
+}
 </style>

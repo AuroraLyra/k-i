@@ -751,12 +751,17 @@ const novelAiSizePresetModel = computed({
     });
   }
 });
-const novelAiStatusTitle = computed(() => ({
-  idle: '等待配置',
-  loading: '正在检测',
-  success: '接口可调用',
-  error: '不可调用'
-}[novelAiSyncState.value]));
+const novelAiStatusTitle = computed(() => {
+  if (novelAiSyncState.value === 'success' && draft.value.imageNovelAi.endpointMode === 'custom') {
+    return '配置已就绪';
+  }
+  return {
+    idle: '等待配置',
+    loading: '正在检测',
+    success: '接口可调用',
+    error: '不可调用'
+  }[novelAiSyncState.value];
+});
 const novelAiStatusBadge = computed(() => ({
   idle: 'Ready',
   loading: 'Check',
@@ -1046,7 +1051,9 @@ async function refreshNovelAiSelfCheck() {
       }
     });
     novelAiSyncState.value = 'success';
-    novelAiSyncFeedback.value = `鉴权通过，生图入口可达，已准备 ${models.length} 个模型。`;
+    novelAiSyncFeedback.value = normalizedSettings.imageNovelAi.endpointMode === 'custom'
+      ? `第三方代理配置已就绪，已准备 ${models.length} 个模型；Token 将在实际生图时校验。`
+      : `鉴权通过，生图入口可达，已准备 ${models.length} 个模型。`;
   } catch (error) {
     novelAiSyncState.value = 'error';
     novelAiSyncFeedback.value = error instanceof Error ? error.message : 'NovelAI 生图接口预检失败，请检查 Token 或连接方式。';

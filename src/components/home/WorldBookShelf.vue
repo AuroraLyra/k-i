@@ -1,321 +1,519 @@
 <template>
-  <div class="world-shelf">
-    <section class="library-card">
-      <div class="section-head">
-        <p class="eyebrow">Cover shelf</p>
-      </div>
+  <section class="archive-shelf" aria-label="世界书书架">
+    <article v-if="tabooBook" class="taboo-feature">
+      <button type="button" class="taboo-feature-button" @click="openEditPage(tabooBook)">
+        <span class="taboo-cover-frame">
+          <img :src="resolveWorldBookCover(tabooBook)" :alt="`${tabooBook.title} 封面`" />
+          <i aria-hidden="true"></i>
+        </span>
+        <span class="taboo-feature-copy">
+          <span class="feature-label"><LockKeyhole :size="12" stroke-width="2.2" /> permanent issue</span>
+          <strong>{{ tabooBook.title }}</strong>
+          <span class="feature-rule"></span>
+          <small>{{ tabooSummary }}</small>
+          <span class="feature-foot">
+            <span>{{ tabooBook.entries.length }} entries</span>
+            <span>sitewide first</span>
+            <ArrowUpRight :size="15" stroke-width="1.8" />
+          </span>
+        </span>
+      </button>
+    </article>
 
-      <div v-if="visibleBooks.length" class="shelf-grid">
-        <article
-          v-for="entry in visibleBooks"
-          :key="entry.id"
-          class="book-tile"
-          :class="[scopeClass(entry.scope), { disabled: !entry.enabled }]"
-        >
-          <button class="cover-button" type="button" @click="openEditPage(entry)">
-            <span class="book-glow" aria-hidden="true"></span>
-            <span class="cover-wrap">
-              <img class="cover-image" :src="resolveWorldBookCover(entry)" :alt="`${entry.title || 'World book'} 封面`" />
-              <span class="book-status-badge" :class="{ active: entry.enabled }">{{ entry.enabled ? 'ON' : 'OFF' }}</span>
-              <i class="cover-spine"></i>
-            </span>
-            <span class="book-copy">
-              <strong>{{ entry.title || '未命名世界书' }}</strong>
-            </span>
-          </button>
-        </article>
+    <header v-if="regularBooks.length" class="collection-heading">
+      <div>
+        <p>Selected stories</p>
+        <h2>收藏书目</h2>
       </div>
+      <span>{{ regularBooks.length.toString().padStart(2, '0') }}</span>
+    </header>
 
-      <div v-else class="empty-shelf">
-        <strong>这一层还空着</strong>
-        <p>写下一条角色记忆、地点规则，或先生成一本封面草稿。</p>
-        <button type="button" @click="openCreateModal">创建第一本</button>
-      </div>
+    <div v-if="regularBooks.length" class="book-gallery">
+      <article
+        v-for="(entry, index) in regularBooks"
+        :key="entry.id"
+        class="gallery-item"
+        :class="{ muted: !entry.enabled, tilted: index % 3 === 1 }"
+      >
+        <button type="button" class="gallery-book" @click="openEditPage(entry)">
+          <span class="gallery-cover">
+            <img :src="resolveWorldBookCover(entry)" :alt="`${entry.title || '未命名世界书'} 封面`" />
+            <span class="paper-tape" aria-hidden="true"></span>
+            <span class="state-dot" :class="{ on: entry.enabled }"></span>
+          </span>
+          <span class="gallery-copy">
+            <span>{{ scopeLabel(entry.scope) }}</span>
+            <strong>{{ entry.title || '未命名世界书' }}</strong>
+            <small>{{ entry.entries.length }} entries · {{ entry.enabled ? 'active' : 'paused' }}</small>
+          </span>
+        </button>
+      </article>
+    </div>
+
+    <section v-if="!tabooBook && !regularBooks.length" class="archive-empty">
+      <span><Feather :size="25" stroke-width="1.5" /></span>
+      <p>Blank archive</p>
+      <h2>从一条细小设定开始</h2>
+      <small>人物习惯、地点气味、关系边界，都可以成为一本世界书。</small>
+      <button type="button" @click="openCreatePage">写下第一条</button>
     </section>
-  </div>
+
+    <section v-else-if="!regularBooks.length && !tabooBookVisible" class="archive-empty compact">
+      <span><Feather :size="22" stroke-width="1.5" /></span>
+      <p>Nothing here</p>
+      <h2>这个分类还没有收藏</h2>
+      <button type="button" @click="openCreatePage">新建世界书</button>
+    </section>
+  </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
+import { ArrowUpRight, Feather, LockKeyhole } from 'lucide-vue-next';
 import type { WorldBookEntry } from '@/types/domain';
-import { resolveWorldBookCover } from '@/utils/worldBook';
-
-type ScopeFilter = 'all' | WorldBookEntry['scope'];
+import { getWorldBookContentSummary, isTabooWorldBook, resolveWorldBookCover } from '@/utils/worldBook';
 
 const props = defineProps<{
   books: WorldBookEntry[];
-  createScope?: ScopeFilter;
+  createScope?: WorldBookEntry['scope'];
 }>();
 
 const router = useRouter();
-const visibleBooks = computed(() => props.books);
+const tabooBook = computed(() => props.books.find((entry) => isTabooWorldBook(entry)) ?? null);
+const regularBooks = computed(() => props.books.filter((entry) => !isTabooWorldBook(entry)));
+const tabooBookVisible = computed(() => Boolean(tabooBook.value));
+const tabooSummary = computed(() => {
+  const content = tabooBook.value ? getWorldBookContentSummary(tabooBook.value).replace(/\s+/g, ' ').trim() : '';
+  return content ? content.slice(0, 72) : '内容保持空白时不会进入请求；写入后将成为所有生成任务最先读取的规则。';
+});
 
-function openCreateModal() {
-  const query = props.createScope && props.createScope !== 'all' ? { scope: props.createScope } : undefined;
-  void router.push({ name: 'world-book-new', query });
+function openCreatePage() {
+  void router.push({ name: 'world-book-new', query: { scope: props.createScope ?? 'local' } });
 }
 
 function openEditPage(entry: WorldBookEntry) {
   void router.push({ name: 'world-book-edit', params: { id: entry.id } });
 }
 
-function scopeClass(scope: WorldBookEntry['scope']) {
+function scopeLabel(scope: WorldBookEntry['scope']) {
   return {
-    'global-online': 'scope-online',
-    'global-offline': 'scope-offline',
-    local: 'scope-local'
+    'global-online': 'online collection',
+    'global-offline': 'offline collection',
+    local: 'private collection'
   }[scope];
 }
 
-defineExpose({
-  openCreateModal
-});
+defineExpose({ openCreateModal: openCreatePage });
 </script>
 
 <style scoped>
-.world-shelf {
-  --accent: #06c755;
-  --accent-soft: #eef8f1;
-  --ink: #1f2622;
-  --muted: #7c847f;
-  --line: rgba(17, 17, 17, 0.05);
-  --shadow: rgba(16, 24, 20, 0.06);
+.archive-shelf {
   display: grid;
-  gap: 12px;
+  gap: 26px;
+  min-width: 0;
 }
 
-.library-card,
-.empty-shelf {
+button {
+  font: inherit;
+}
+
+.taboo-feature {
   position: relative;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 28px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 249, 0.92));
-  box-shadow: 0 18px 40px var(--shadow);
+  min-width: 0;
 }
 
-.library-card::before,
-.empty-shelf::before {
+.taboo-feature::before {
+  content: 'SPECIAL\AISSUE';
+  position: absolute;
+  top: -11px;
+  right: 18px;
+  z-index: 3;
+  padding: 7px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: #d6b4aa;
+  color: #fffaf6;
+  font-size: 7px;
+  font-weight: 850;
+  line-height: 1.05;
+  letter-spacing: 0.16em;
+  text-align: center;
+  white-space: pre;
+  transform: rotate(4deg);
+  box-shadow: 0 8px 18px rgba(70, 49, 50, 0.15);
+}
+
+.taboo-feature-button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  width: 100%;
+  min-height: 190px;
+  padding: 18px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9px 34px 9px 34px;
+  background:
+    radial-gradient(circle at 92% 8%, rgba(241, 214, 205, 0.23), transparent 34%),
+    linear-gradient(132deg, #3e3035 0%, #644950 55%, #8d6c72 100%);
+  color: #fff9f5;
+  text-align: left;
+  box-shadow: 0 24px 46px rgba(71, 49, 55, 0.2);
+}
+
+.taboo-feature-button::after {
   content: '';
   position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at top left, rgba(6, 199, 85, 0.1), transparent 34%),
-    radial-gradient(circle at top right, rgba(244, 154, 181, 0.12), transparent 28%);
+  right: -32px;
+  bottom: -54px;
+  width: 160px;
+  height: 160px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 50%;
+  box-shadow: 0 0 0 24px rgba(255, 255, 255, 0.035), 0 0 0 52px rgba(255, 255, 255, 0.025);
 }
 
-.library-card {
-  padding: 14px;
+.taboo-feature-button:active {
+  transform: scale(0.99);
 }
 
-.section-head,
-.shelf-grid,
-.empty-shelf > * {
+.taboo-cover-frame {
   position: relative;
   z-index: 1;
-}
-
-.section-head {
-  margin-bottom: 10px;
-}
-
-.eyebrow {
-  margin: 0;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.shelf-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px 8px;
-  align-items: stretch;
-}
-
-.book-tile {
-  position: relative;
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  isolation: isolate;
-}
-
-.book-tile.disabled {
-  opacity: 0.62;
-}
-
-.cover-button {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--ink);
-  text-align: left;
-  box-shadow: none;
-}
-
-.cover-button:active .cover-wrap {
-  transform: translateY(-1px);
-}
-
-.book-glow {
-  position: absolute;
-  inset: 12px 16px auto;
-  height: 38%;
-  border-radius: 999px;
-  opacity: 0.28;
-  filter: blur(22px);
-  pointer-events: none;
-}
-
-.scope-online .book-glow {
-  background: rgba(6, 199, 85, 0.62);
-}
-
-.scope-offline .book-glow {
-  background: rgba(155, 164, 159, 0.68);
-}
-
-.scope-local .book-glow {
-  background: rgba(244, 154, 181, 0.78);
-}
-
-.cover-wrap {
-  position: relative;
   display: block;
-  width: min(100%, 190px);
-  aspect-ratio: 0.68;
-  margin: 0 auto;
-  overflow: hidden;
-  border-radius: 17px 22px 22px 17px;
-  background: linear-gradient(180deg, #f4f7f5, #e8eeea);
-  box-shadow: inset 8px 0 12px rgba(72, 84, 77, 0.1), 0 16px 30px rgba(16, 24, 20, 0.12);
-  pointer-events: none;
-  transition: transform 0.16s ease;
+  width: 108px;
+  height: 154px;
+  transform: rotate(-2deg);
 }
 
-.cover-image {
+.taboo-cover-frame img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 3px 14px 14px 3px;
+  box-shadow: 9px 14px 24px rgba(30, 20, 23, 0.3);
 }
 
-.book-status-badge {
-  position: absolute;
-  top: 0;
-  right: 8px;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  min-height: 24px;
-  padding: 3px 0 6px;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-top: 0;
-  background: linear-gradient(180deg, rgba(247, 249, 248, 0.96), rgba(216, 223, 219, 0.92));
-  color: #5e6862;
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 4px), 0 100%);
-  font-size: 6px;
-  font-weight: 900;
-  line-height: 1;
-  letter-spacing: 0;
-  text-transform: uppercase;
-  box-shadow: 0 6px 10px rgba(16, 24, 20, 0.12);
-}
-
-.book-status-badge.active {
-  background: linear-gradient(180deg, rgba(222, 251, 233, 0.98), rgba(109, 210, 145, 0.92));
-  color: #1d6035;
-}
-
-.cover-spine {
+.taboo-cover-frame i {
   position: absolute;
   inset: 0 auto 0 0;
-  width: 14%;
-  background: linear-gradient(90deg, rgba(53, 64, 58, 0.2), rgba(255, 255, 255, 0.04));
-  mix-blend-mode: multiply;
-  pointer-events: none;
+  width: 10px;
+  background: linear-gradient(90deg, rgba(13, 8, 10, 0.28), transparent);
 }
 
-.book-copy {
+.taboo-feature-copy {
+  position: relative;
+  z-index: 1;
   display: grid;
-  width: 100%;
-  min-width: 0;
-  justify-items: center;
-  text-align: center;
-}
-
-.book-copy strong {
-  display: -webkit-box;
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--ink);
-  font-size: 9px;
-  font-weight: 900;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-  text-overflow: clip;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.empty-shelf {
-  display: grid;
-  place-items: center;
   gap: 8px;
-  min-height: 190px;
-  padding: 20px;
-  color: var(--muted);
-  text-align: center;
-  font-size: 12px;
-  line-height: 1.55;
+  min-width: 0;
 }
 
-.empty-shelf strong {
-  color: var(--ink);
-  font-size: 13px;
+.feature-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #e4c8c2;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
-.empty-shelf p {
+.taboo-feature-copy strong {
+  font-family: Georgia, "Songti SC", serif;
+  font-size: clamp(23px, 6vw, 31px);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.feature-rule {
+  width: 34px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.taboo-feature-copy > small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: rgba(255, 248, 244, 0.72);
+  font-size: 10px;
+  line-height: 1.7;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.feature-foot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 2px;
+  color: rgba(255, 248, 244, 0.58);
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.feature-foot span + span::before {
+  content: '·';
+  margin-right: 7px;
+}
+
+.feature-foot svg {
+  margin-left: auto;
+}
+
+.collection-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 3px;
+}
+
+.collection-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.collection-heading p,
+.collection-heading h2 {
   margin: 0;
 }
 
-.empty-shelf button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 900;
-  box-shadow: 0 12px 24px rgba(6, 199, 85, 0.2);
+.collection-heading p {
+  color: #b1978c;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
 }
 
-@media (max-width: 360px) {
-  .shelf-grid {
-    gap: 10px 8px;
+.collection-heading h2 {
+  color: #302925;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 25px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.collection-heading > span {
+  color: #c3aea4;
+  font-family: Georgia, serif;
+  font-size: 29px;
+  font-style: italic;
+  line-height: 1;
+}
+
+.book-gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 16px;
+  align-items: start;
+}
+
+.gallery-item {
+  min-width: 0;
+}
+
+.gallery-item.muted {
+  opacity: 0.55;
+  filter: grayscale(0.28);
+}
+
+.gallery-book {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #302925;
+  text-align: left;
+}
+
+.gallery-book:active .gallery-cover {
+  transform: translateY(2px) rotate(-0.5deg);
+}
+
+.gallery-cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 0.73;
+  padding: 7px;
+  background: #fffdf9;
+  box-shadow: 0 16px 30px rgba(77, 61, 53, 0.12);
+  transition: transform 0.18s ease;
+}
+
+.gallery-item.tilted .gallery-cover {
+  transform: rotate(1.2deg);
+}
+
+.gallery-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.paper-tape {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 44px;
+  height: 17px;
+  background: rgba(218, 202, 186, 0.72);
+  transform: translateX(-50%) rotate(-2deg);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.state-dot {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.86);
+  border-radius: 50%;
+  background: #a79c96;
+  box-shadow: 0 2px 8px rgba(53, 42, 37, 0.2);
+}
+
+.state-dot.on {
+  background: #8da184;
+}
+
+.gallery-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 3px;
+}
+
+.gallery-copy > span {
+  color: #b0988e;
+  font-size: 7px;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.gallery-copy strong {
+  overflow-wrap: anywhere;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.gallery-copy small {
+  color: #9d9089;
+  font-size: 8px;
+  letter-spacing: 0.04em;
+}
+
+.archive-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-height: 310px;
+  padding: 44px 26px;
+  border: 1px solid rgba(115, 93, 83, 0.09);
+  border-radius: 70px 18px 70px 18px;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(221, 202, 193, 0.25), transparent 31%),
+    rgba(255, 253, 249, 0.62);
+  color: #948780;
+  text-align: center;
+}
+
+.archive-empty.compact {
+  min-height: 230px;
+  padding-block: 34px;
+}
+
+.archive-empty > span {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  background: #ede2dc;
+  color: #826b62;
+}
+
+.archive-empty p,
+.archive-empty h2,
+.archive-empty small {
+  margin: 0;
+}
+
+.archive-empty p {
+  color: #b1978c;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.archive-empty h2 {
+  color: #3d342f;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 21px;
+  font-weight: 500;
+}
+
+.archive-empty small {
+  max-width: 270px;
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.archive-empty button {
+  min-height: 42px;
+  margin-top: 10px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: #554640;
+  color: #fffaf6;
+  font-size: 10px;
+  font-weight: 800;
+  box-shadow: 0 12px 24px rgba(85, 70, 64, 0.16);
+}
+
+@media (max-width: 350px) {
+  .taboo-feature-button {
+    grid-template-columns: 90px minmax(0, 1fr);
+    gap: 14px;
+    padding: 15px;
+  }
+
+  .taboo-cover-frame {
+    width: 90px;
+    height: 132px;
+  }
+
+  .feature-foot span:nth-child(2) {
+    display: none;
+  }
+
+  .book-gallery {
+    gap-inline: 12px;
   }
 }
 
 @media (min-width: 680px) {
-  .shelf-grid {
+  .book-gallery {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

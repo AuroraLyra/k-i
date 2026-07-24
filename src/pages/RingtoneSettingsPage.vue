@@ -631,7 +631,7 @@ async function runNativeReleaseAction() {
       message: result === 'permission-required'
         ? '已打开“安装未知应用”授权页；授权后返回 BabyLink，再次点击应用内更新。'
         : result === 'browser-download'
-          ? '当前旧版原生壳尚不支持应用内安装，已打开浏览器完成本次升级；升级后即可使用应用内更新。'
+          ? '当前版本的内置安装器存在兼容性问题，已打开浏览器；请下载 APK 后点击文件完成覆盖安装。'
           : 'APK 校验通过，正在等待 Android 系统确认覆盖安装。'
     };
   } catch (error) {

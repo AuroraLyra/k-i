@@ -3,9 +3,12 @@
   <GlobalVoomNotice />
   <GlobalSmallTheaterNotice />
   <FirstRunDisclaimer v-if="showDisclaimer" :model-value="showDisclaimer" @complete="handleDisclaimerComplete" />
-  <AppModal v-model="store.configAlert.open" :title="store.configAlert.title">
+  <AppModal :model-value="store.configAlert.open" :title="store.configAlert.title" @update:model-value="setConfigAlertOpen">
     <section class="config-alert">
       <p>{{ store.configAlert.message }}</p>
+      <button v-if="store.configAlert.action" type="button" :disabled="configAlertActionRunning" @click="runConfigAlertAction">
+        {{ configAlertActionRunning ? (store.configAlert.action.runningLabel || '处理中…') : store.configAlert.action.label }}
+      </button>
     </section>
   </AppModal>
   <audio ref="musicAudioRef" class="global-music-audio" preload="metadata"></audio>
@@ -57,6 +60,7 @@ const route = useRoute();
 const router = useRouter();
 const musicPlayer = useMusicPlayerStore();
 const musicAudioRef = ref<HTMLAudioElement | null>(null);
+const configAlertActionRunning = ref(false);
 let githubAutoBackupTimer: number | undefined;
 let webDavAutoBackupTimer: number | undefined;
 let webDavAutoBackupRunning = false;
@@ -501,9 +505,33 @@ async function handleDisclaimerComplete() {
     disclaimerAccepted: true
   });
 }
+
+function setConfigAlertOpen(value: boolean) {
+  store.configAlert.open = value;
+  if (!value) store.configAlert.action = undefined;
+}
+
+async function runConfigAlertAction() {
+  const action = store.configAlert.action;
+  if (!action || configAlertActionRunning.value) return;
+  configAlertActionRunning.value = true;
+  try {
+    await action.run();
+    setConfigAlertOpen(false);
+  } catch (error) {
+    store.configAlert.message = error instanceof Error ? error.message : '重新生成失败。';
+  } finally {
+    configAlertActionRunning.value = false;
+  }
+}
 </script>
 
 <style scoped>
+.config-alert {
+  display: grid;
+  gap: 14px;
+}
+
 .config-alert p {
   margin: 0;
   color: #363a40;
@@ -511,6 +539,19 @@ async function handleDisclaimerComplete() {
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.config-alert button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 12px;
+  background: #17191d;
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.config-alert button:disabled {
+  opacity: 0.55;
 }
 
 .global-music-audio {

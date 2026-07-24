@@ -1,6 +1,7 @@
 import type { AppSettings, CharacterProfile, ChatMessage, Conversation, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VoomPost, WorldBookEntry } from '@/types/domain';
 import { createUserVisualProfile, defaultProfileAvatar } from '@/utils/profile';
 import { createDefaultKeepAliveSettings, createDefaultRingtoneSettings, createDefaultThemeSettings } from '@/utils/settings';
+import { createTabooWorldBook } from '@/utils/worldBook';
 
 export const defaultUsers: UserProfile[] = [
   {
@@ -30,7 +31,7 @@ export const defaultStickers: Sticker[] = [];
 
 export const defaultMessages: ChatMessage[] = [];
 
-export const defaultWorldBooks: WorldBookEntry[] = [];
+export const defaultWorldBooks: WorldBookEntry[] = [createTabooWorldBook()];
 
 export const defaultVoomPosts: VoomPost[] = [];
 

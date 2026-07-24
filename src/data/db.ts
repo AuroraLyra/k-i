@@ -1279,6 +1279,15 @@ export async function putFanficChapterBundle(book: FanficBook, chapter: FanficCh
   await tx.done;
 }
 
+export async function putFanficHotspotComments(chapter: FanficChapter, comments: FanficComment[]) {
+  await waitForBackupReadLock();
+  const db = await getDb();
+  const tx = db.transaction(['fanficChapters', 'fanficComments'], 'readwrite');
+  await tx.objectStore('fanficChapters').put(toPersistableValue(chapter));
+  for (const comment of comments) await tx.objectStore('fanficComments').put(toPersistableValue(comment));
+  await tx.done;
+}
+
 export async function pruneUnusedStoredMediaCache() {
   const db = await getDb();
   const values = await Promise.all(storeNames.map((storeName) => db.getAll(storeName)));

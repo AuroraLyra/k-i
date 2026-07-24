@@ -1,13 +1,9 @@
-import type { CharacterProfile, FanficBook, FanficCreativeDna, FanficStoryBible, UserProfile, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, CharacterProfile, FanficBook, FanficStoryBible, UserProfile, WorldBookEntry } from '@/types/domain';
 
-const directOverlapLength = 12;
 const defaultPalette = ['#f2d7d9', '#dce7de', '#f8f1e4'];
 
-function normalizeComparableText(value: string) {
-  return value
-    .toLocaleLowerCase()
-    .replace(/\{\{(?:char|user)\}\}/gi, '')
-    .replace(/[\s\p{P}\p{S}]+/gu, '');
+export function getFanficTextModelOverride(settings?: AppSettings) {
+  return settings?.modelOverrides.theater?.trim() ?? '';
 }
 
 function uniqueStrings(values: unknown, limit = 12) {
@@ -57,67 +53,13 @@ export function createFanficProfileFingerprint(user: Pick<UserProfile, 'name' | 
   return `fanfic-profile-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
-function findDirectOverlap(generatedText: string, sourceText: string) {
-  const generated = normalizeComparableText(generatedText);
-  const source = normalizeComparableText(sourceText);
-  if (source.length < directOverlapLength || generated.length < directOverlapLength) return '';
-  const generatedFragments = new Set<string>();
-  for (let index = 0; index <= generated.length - directOverlapLength; index += 1) {
-    generatedFragments.add(generated.slice(index, index + directOverlapLength));
-  }
-  for (let index = 0; index <= source.length - directOverlapLength; index += 1) {
-    const fragment = source.slice(index, index + directOverlapLength);
-    if (generatedFragments.has(fragment)) return fragment;
-  }
-  return '';
-}
-
-export interface FanficOriginalityResult {
-  valid: boolean;
-  reason: string;
-}
-
-export function validateFanficOriginality(input: {
-  generatedText: string;
-  userDescription: string;
-  characterDescription: string;
-  creativeDna?: FanficCreativeDna;
-  allowedNames?: string[];
-  additionalSourceTexts?: Array<{ label: string; text: string }>;
-}): FanficOriginalityResult {
-  const userOverlap = findDirectOverlap(input.generatedText, input.userDescription);
-  if (userOverlap) return { valid: false, reason: `正文与用户设定存在直接文字重合：“${userOverlap}”` };
-  const characterOverlap = findDirectOverlap(input.generatedText, input.characterDescription);
-  if (characterOverlap) return { valid: false, reason: `正文与角色设定存在直接文字重合：“${characterOverlap}”` };
-  for (const source of input.additionalSourceTexts ?? []) {
-    const overlap = findDirectOverlap(input.generatedText, source.text);
-    if (overlap) return { valid: false, reason: `正文与${source.label || '补充设定'}存在直接文字重合：“${overlap}”` };
-  }
-
-  const normalizedGenerated = normalizeComparableText(input.generatedText);
-  const allowedNames = new Set((input.allowedNames ?? []).map(normalizeComparableText));
-  const forbiddenCarryovers = uniqueStrings(input.creativeDna?.forbiddenCarryovers, 48)
-    .filter((entry) => normalizeComparableText(entry).length >= 3)
-    .filter((entry) => !allowedNames.has(normalizeComparableText(entry)));
-  const forbiddenMatch = forbiddenCarryovers.find((entry) => normalizedGenerated.includes(normalizeComparableText(entry)));
-  if (forbiddenMatch) return { valid: false, reason: `正文复用了原设定实体：“${forbiddenMatch}”` };
-  return { valid: true, reason: '' };
-}
-
-export function normalizeFanficCreativeDna(value: Partial<FanficCreativeDna> | null | undefined): FanficCreativeDna {
-  return {
-    userTraits: uniqueStrings(value?.userTraits, 8),
-    characterTraits: uniqueStrings(value?.characterTraits, 8),
-    chemistry: uniqueStrings(value?.chemistry, 8),
-    narrativeBoundaries: uniqueStrings(value?.narrativeBoundaries, 10),
-    forbiddenCarryovers: uniqueStrings(value?.forbiddenCarryovers, 48)
-  };
-}
-
 export function defaultFanficStoryBible(): FanficStoryBible {
   return {
     premise: '',
-    era: '架空当代',
+    coreHook: '',
+    storyEngine: '',
+    stakes: '',
+    era: '',
     locations: [],
     worldRules: [],
     supportingCharacters: [],
@@ -128,16 +70,22 @@ export function defaultFanficStoryBible(): FanficStoryBible {
 }
 
 export function normalizeFanficBook(book: FanficBook): FanficBook {
+  const normalizedBook = { ...book } as FanficBook & Record<string, unknown>;
+  delete normalizedBook.creativeDna;
+  delete normalizedBook.outline;
   return {
-    ...book,
+    ...normalizedBook,
+    workType: 'user-character-au-fanfic',
     tags: uniqueStrings(book.tags, 8),
-    tone: String(book.tone ?? '').trim() || '爽感连载 · 开局即冲突',
+    tone: String(book.tone ?? '').trim(),
     pov: String(book.pov ?? '').trim() || '第三人称双线推进',
     contentBoundaries: uniqueStrings(book.contentBoundaries, 12),
-    creativeDna: normalizeFanficCreativeDna(book.creativeDna),
     storyBible: {
       ...defaultFanficStoryBible(),
       ...(book.storyBible ?? {}),
+      coreHook: String(book.storyBible?.coreHook ?? '').trim(),
+      storyEngine: String(book.storyBible?.storyEngine ?? '').trim(),
+      stakes: String(book.storyBible?.stakes ?? '').trim(),
       locations: uniqueStrings(book.storyBible?.locations, 10),
       worldRules: uniqueStrings(book.storyBible?.worldRules, 12),
       motifs: uniqueStrings(book.storyBible?.motifs, 8),

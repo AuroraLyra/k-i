@@ -3,7 +3,7 @@
     <div v-if="modelValue" class="modal-backdrop" :class="`modal-backdrop-${variant}`" @click.self="$emit('update:modelValue', false)">
       <section class="modal-panel" :class="[`modal-panel-${variant}`, { 'modal-panel-fixed': fixedHeight }]" role="dialog" aria-modal="true">
         <header v-if="showHeader" class="modal-header">
-          <h2>{{ title }}</h2>
+          <h2 :data-eyebrow="eyebrow || undefined">{{ title }}</h2>
           <button class="icon-button" type="button" aria-label="关闭" @click="$emit('update:modelValue', false)">
             <X :size="18" />
           </button>
@@ -23,8 +23,9 @@ withDefaults(defineProps<{
   modelValue: boolean;
   title: string;
   showHeader?: boolean;
-  variant?: 'default' | 'profile' | 'ins' | 'profile-ins';
+  variant?: 'default' | 'profile' | 'ins' | 'profile-ins' | 'profile-theme';
   fixedHeight?: boolean;
+  eyebrow?: string;
 }>(), {
   showHeader: true,
   variant: 'default',
@@ -63,6 +64,15 @@ defineEmits<{
   background:
     radial-gradient(circle at top, rgba(255, 198, 214, 0.24), transparent 34%),
     rgba(34, 25, 30, 0.34);
+  backdrop-filter: blur(14px);
+}
+
+.modal-backdrop-profile-theme {
+  z-index: 80;
+  background:
+    radial-gradient(circle at 50% 100%, rgba(220, 193, 180, 0.22), transparent 36%),
+    rgba(47, 39, 36, 0.34);
+  -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
 }
 
@@ -207,6 +217,70 @@ defineEmits<{
 .modal-panel-profile-ins .modal-body.modal-body-headerless {
   max-height: none;
   padding: 18px 14px calc(18px + var(--safe-bottom));
+}
+
+.modal-panel-profile-theme {
+  max-height: min(780px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px));
+  max-height: min(780px, calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 16px));
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 30px 30px 0 0;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(231, 209, 198, 0.58), transparent 29%),
+    linear-gradient(180deg, #fbf8f4 0%, #f5f0ea 100%);
+  box-shadow: 0 -30px 90px rgba(52, 41, 37, 0.24);
+  color: #443a36;
+}
+
+.modal-panel-profile-theme.modal-panel-fixed {
+  height: min(650px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px));
+  height: min(650px, calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 16px));
+}
+
+.modal-panel-profile-theme .modal-header {
+  min-height: 64px;
+  padding: 11px 16px 10px 18px;
+  border-bottom-color: rgba(119, 91, 79, 0.08);
+  background: rgba(255, 255, 255, 0.34);
+  backdrop-filter: blur(20px);
+}
+
+.modal-panel-profile-theme .modal-header h2 {
+  color: #403633;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.modal-panel-profile-theme .modal-header h2[data-eyebrow]::before {
+  content: attr(data-eyebrow);
+  display: block;
+  margin-bottom: 2px;
+  color: #ad9184;
+  font-family: var(--app-current-font-family);
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.modal-panel-profile-theme .modal-header .icon-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #7f6c63;
+}
+
+.modal-panel-profile-theme .modal-body {
+  padding: 16px;
+}
+
+.modal-panel-profile-theme .modal-body.modal-body-headerless {
+  max-height: none;
+  padding: 16px 14px calc(16px + var(--safe-bottom));
 }
 
 .modal-panel .modal-body :deep(.form-grid),
@@ -436,4 +510,51 @@ defineEmits<{
   padding-block: 0 !important;
   border-radius: 999px !important;
 }
+
+.modal-panel-profile-theme .modal-body :deep(.composer-hero) {
+  gap: 12px !important;
+  padding: 16px !important;
+  border-radius: 28px 28px 28px 10px !important;
+}
+
+.modal-panel-profile-theme .modal-body :deep(.composer-hero span) {
+  font-size: 8px !important;
+  line-height: 1.35 !important;
+}
+
+.modal-panel-profile-theme .modal-body :deep(.composer-hero strong) {
+  font-size: 18px !important;
+  line-height: 1.2 !important;
+}
+
+.modal-panel-profile-theme .modal-body :deep(.composer-hero p) {
+  font-size: 10px !important;
+  line-height: 1.6 !important;
+}
+
+.modal-panel-profile-theme .modal-body :deep(.composer-tab) {
+  min-height: 36px !important;
+  border-radius: 999px !important;
+  font-size: 10px !important;
+}
+
+.modal-panel-profile-theme .modal-body :deep(.theme-editor-actions button),
+.modal-panel-profile-theme .modal-body :deep(.profile-theme-modal-footer button),
+.modal-panel-profile-theme .modal-body :deep(.topic-editor-actions button),
+.modal-panel-profile-theme .modal-body :deep(.theater-update-actions button) {
+  min-height: 42px !important;
+  border-radius: 999px !important;
+}
+
+.modal-panel-profile-theme .modal-body :deep(.theater-forward-sheet > button) {
+  min-height: 62px !important;
+  border-radius: 20px 20px 20px 8px !important;
+}
+
+.modal-panel-profile-theme .modal-body :deep(.generate-topic-option) {
+  min-height: 58px !important;
+  padding: 9px 11px !important;
+  border-radius: 19px 19px 19px 7px !important;
+}
+
 </style>

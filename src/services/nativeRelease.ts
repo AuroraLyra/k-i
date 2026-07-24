@@ -48,6 +48,7 @@ export interface IosUpdateSourceLink {
 export type NativeReleaseActionResult = 'install-requested' | 'permission-required' | 'browser-download';
 
 const LinkUpdater = registerPlugin<LinkUpdaterPlugin>('LinkUpdater');
+const LAST_ANDROID_VERSION_WITH_OPEN_INSTALL_STREAM = 15;
 
 function detectedPlatform(): NativeReleasePlatform | '' {
   const capacitorPlatform = Capacitor.getPlatform();
@@ -163,6 +164,15 @@ export async function installNativeRelease(inputRelease: NativeRelease): Promise
   const release = await refreshDownloadTicket(inputRelease);
   const absoluteUrl = new URL(release.downloadUrl, window.location.origin).toString();
   if (release.platform === 'android' && Capacitor.isNativePlatform()) {
+    const installedVersion = await resolveInstalledVersion('android');
+    if (installedVersion.versionCode <= LAST_ANDROID_VERSION_WITH_OPEN_INSTALL_STREAM) {
+      try {
+        await LinkUpdater.openDownload({ url: absoluteUrl });
+      } catch {
+        triggerBrowserDownload(release, absoluteUrl);
+      }
+      return 'browser-download';
+    }
     const metadata = normalizedAndroidVerificationMetadata(release);
     try {
       const result = await LinkUpdater.installUpdate({ url: absoluteUrl, ...metadata });

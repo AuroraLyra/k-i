@@ -41,7 +41,7 @@ export async function registerUpstreamProxy(app: FastifyInstance) {
         const upstream = await fetch(target, {
           method: request.method,
           headers,
-          signal: createTimeoutSignal(),
+          signal: createTimeoutSignal(config.modelRequestTimeoutMs),
           ...(request.method === 'POST' ? { body: bodyBuffer(request) } : {})
         });
         return await relayResponse(reply, upstream);
@@ -60,7 +60,7 @@ export async function registerUpstreamProxy(app: FastifyInstance) {
         const value = request.headers[name];
         if (typeof value === 'string' && value) headers.set(name, value);
       }
-      const upstream = await fetch(target, { method: 'POST', headers, body: bodyBuffer(request), signal: createTimeoutSignal() });
+      const upstream = await fetch(target, { method: 'POST', headers, body: bodyBuffer(request), signal: createTimeoutSignal(config.modelRequestTimeoutMs) });
       return await relayResponse(reply, upstream);
     } catch (error) {
       return await reply.code(502).send({ error: { code: 'proxy_request_failed', message: error instanceof Error ? error.message : '图片上游请求失败。' } });
@@ -74,7 +74,7 @@ export async function registerUpstreamProxy(app: FastifyInstance) {
       const headers = new Headers({ Accept: String(request.headers.accept ?? 'image/*,*/*;q=0.8') });
       const authorization = request.headers.authorization;
       if (authorization) headers.set('Authorization', authorization);
-      const upstream = await fetch(target, { headers, signal: createTimeoutSignal() });
+      const upstream = await fetch(target, { headers, signal: createTimeoutSignal(config.modelRequestTimeoutMs) });
       return await relayResponse(reply, upstream);
     } catch (error) {
       return await reply.code(502).send({ error: 'image_download_failed', message: error instanceof Error ? error.message : '图片下载失败。' });
@@ -96,7 +96,7 @@ export async function registerUpstreamProxy(app: FastifyInstance) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ model, prompt, ...(size ? { size } : {}), n: 1 }),
-        signal: createTimeoutSignal()
+        signal: createTimeoutSignal(config.modelRequestTimeoutMs)
       });
       return await relayResponse(reply, upstream);
     } catch (error) {

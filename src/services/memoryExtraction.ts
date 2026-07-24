@@ -1,5 +1,6 @@
 import { hasTextGenerationConfig, requestTextGeneration } from '@/services/ai';
 import type { AppSettings, ChatMessage } from '@/types/domain';
+import { jsonrepair } from 'jsonrepair';
 import type {
   MemoryAssertion,
   MemoryAssertionKind,
@@ -12,15 +13,14 @@ import type {
   MemoryStateKind,
   MemoryTheme,
 } from '@/types/memory';
-import { fallbackMemoryExtraction } from '@/utils/memoryGraph';
 
 export interface ExtractTemporalMemoryInput {
   settings: AppSettings | undefined;
   modelOverride?: string;
   characterName: string;
-  characterAliases?: string[];
+  characterContext?: string;
   userName: string;
-  userAliases?: string[];
+  worldBookContext?: string;
   messages: ChatMessage[];
   currentAssertions?: MemoryAssertion[];
   signal?: AbortSignal;
@@ -32,24 +32,29 @@ const epistemicKinds = new Set<MemoryEpistemicKind>(['told', 'observed', 'inferr
 const stateKinds = new Set<MemoryStateKind>(['relationship', 'user-impression', 'adaptive-personality', 'mood', 'current-context']);
 
 export async function extractTemporalMemory(input: ExtractTemporalMemoryInput): Promise<MemoryExtractionResult> {
-  const fallback = canonicalizeExtractionIdentities(
-    fallbackMemoryExtraction(input.messages, input.characterName, input.userName),
-    input,
-  );
-  if (!hasTextGenerationConfig(input.settings, input.modelOverride)) return fallback;
+  if (!hasTextGenerationConfig(input.settings, input.modelOverride)) {
+    throw new Error('没有可用的总结模型。请先配置角色局部总结模型、全局总结模型或 API 默认模型。');
+  }
   const prompt = buildMemoryExtractionPrompt(input);
-  try {
-    const response = await requestTextGeneration(input.settings, prompt, input.modelOverride, {
-      temperature: 0.1,
-      maxTokens: 2_400,
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const attemptPrompt = attempt === 0
+      ? prompt
+      : `${prompt}\n\n重要重试要求：上一次响应在完整 JSON 前中断，或日记正文没有自然收束。不要修补或续写上一次的输出；请从头输出一个完整 JSON 对象。narrative 压缩到 160-380 字、最后必须以完整句末标点收束；entities 最多 8 条、assertions 最多 10 条、themes 最多 5 条、stateDeltas 最多 3 条，严格闭合所有数组、字符串和花括号。`;
+    const response = await requestTextGeneration(input.settings, attemptPrompt, input.modelOverride, {
+      temperature: attempt === 0 ? 0.1 : 0.05,
+      maxTokens: attempt === 0 ? 3_600 : 4_096,
       jsonMode: true,
       signal: input.signal,
     });
-    return canonicalizeExtractionIdentities(normalizeExtractionResult(parseJsonObject(response), fallback), input);
-  } catch (error) {
-    console.warn('Temporal memory extraction fell back to local rules.', error);
-    return fallback;
+    try {
+      return parseTemporalMemoryExtractionResponse(response);
+    } catch (error) {
+      lastError = error;
+    }
   }
+  const reason = lastError instanceof Error ? lastError.message : 'JSON 结构无效。';
+  throw new Error(`${reason} 记忆模型已自动修复并重试仍未成功，请更换总结模型后再试。`);
 }
 
 export interface ConsolidateMemoryThemeInput {
@@ -67,11 +72,10 @@ export async function consolidateMemoryThemeReport(input: ConsolidateMemoryTheme
     .filter((assertion) => assertion.status === 'current' || assertion.status === 'open' || assertion.status === 'disputed')
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, 18);
-  const fallback = canonicalizeThemeReport(
-    activeAssertions.map((assertion) => assertion.perspectiveText).join('；') || input.theme.report,
-    input.userName,
-  );
-  if (!activeAssertions.length || !hasTextGenerationConfig(input.settings, input.modelOverride)) return fallback;
+  if (!activeAssertions.length) throw new Error('当前主题没有可用于整理的有效认知。');
+  if (!hasTextGenerationConfig(input.settings, input.modelOverride)) {
+    throw new Error('没有可用的总结模型。请先配置角色局部总结模型、全局总结模型或 API 默认模型。');
+  }
   const evidence = activeAssertions
     .map((assertion, index) => `${index + 1}. ${assertion.perspectiveText}（${assertion.kind}；确信度${Math.round(assertion.confidence * 100)}%）`)
     .join('\n');
@@ -79,28 +83,20 @@ export async function consolidateMemoryThemeReport(input: ConsolidateMemoryTheme
 要求：
 1. 全文使用${input.characterName}第一人称，像我对这件事的当前理解，不要写成数据库摘要。
 2. 必须只依据证据，概括稳定模式、最近变化、矛盾或仍未完成的事；不要把推测写成事实。
-3. 提及用户这个人时只能使用真名“${input.userName}”，禁止使用“用户”“对方”“TA”、昵称、备注名或网名。
-4. 120-320 字，避免逐条复述；这段报告会替代多条重复断言进入 prompt。
+3. 120-320 字，避免逐条复述；这段报告会替代多条重复断言进入 prompt。
 
 主题：${input.theme.name}
 证据：
 ${evidence}`;
-  try {
-    const response = await requestTextGeneration(input.settings, prompt, input.modelOverride, {
-      temperature: 0.15,
-      maxTokens: 500,
-      jsonMode: true,
-    });
-    const parsed = parseJsonObject(response);
-    return canonicalizeThemeReport(cleanText(parsed.report, 700) || fallback, input.userName);
-  } catch (error) {
-    console.warn('Memory theme consolidation fell back to local report.', error);
-    return fallback;
-  }
-}
-
-function canonicalizeThemeReport(value: string, userName: string): string {
-  return cleanText(String(value ?? '').replace(/用户|对方|TA|ta/g, userName), 700);
+  const response = await requestTextGeneration(input.settings, prompt, input.modelOverride, {
+    temperature: 0.15,
+    maxTokens: 500,
+    jsonMode: true,
+  });
+  const parsed = parseJsonObject(response);
+  const report = cleanText(parsed.report, 700);
+  if (!report) throw new Error('主题记忆整理结果缺少 report 字段。');
+  return report;
 }
 
 function buildMemoryExtractionPrompt(input: ExtractTemporalMemoryInput): string {
@@ -129,7 +125,7 @@ function buildMemoryExtractionPrompt(input: ExtractTemporalMemoryInput): string 
   return `你是${input.characterName}的“主观记忆编码器”，不是故事续写者，也不是全知数据库。请将本轮对话编码成时序知识图谱，只输出一个 JSON 对象。
 
 视角规则：
-1. narrative 与 perspectiveText 必须使用${input.characterName}的第一人称视角（我）；提及对方这个人时只能写真名“${input.userName}”。禁止用“用户”“对方”“TA”、昵称、备注名、主页名或网名代替${input.userName}。需要写出角色姓名时只能写真名“${input.characterName}”，不能写角色昵称、备注名、主页名或网名。
+1. narrative 与 perspectiveText 必须使用${input.characterName}的第一人称视角（我）。
 2. 只记录本轮消息有直接证据的信息。角色不知道的事不能记录；推断必须标为 inferred 并降低 confidence。
 3. 区分 told（用户告知）、observed（角色亲历/观察）、inferred（角色推断）、hearsay（转述）、canon（明确设定）。
 4. 不记录寒暄、措辞细节和无长期价值内容。优先记录偏好、边界、承诺、冲突、重要事件、关系变化、未完成事项。
@@ -137,12 +133,13 @@ function buildMemoryExtractionPrompt(input: ExtractTemporalMemoryInput): string 
 6. evidenceMessageIds 只能使用下方给出的消息 id。没有证据就不要输出断言。
 7. 新信息明确替代旧认知时，把旧 id 放入 supersedesAssertionIds；信息互相冲突但无法判断时放入 contradictsAssertionIds。不要因为对象不同就擅自覆盖可并存的喜好。
 8. adaptive-personality 只描述${input.characterName}在反复经历后形成的缓慢适应，不能修改核心人设。relationship/user-impression 也只输出小幅 delta；一次普通对话不得人格突变。
-9. narrative 要像${input.characterName}当天写下的一则私人日记：保留事件顺序、感受、关系变化与未完成的牵挂，约 300-700 字；不要写成技术摘要或全知旁白。
+9. narrative 要像${input.characterName}当天留下的一则私人日记或内心记录：保留事件顺序、感受、关系变化与未完成的牵挂，事件简单时宁可短而准确，约 180-500 字；不要写成技术摘要或全知旁白。
 10. 所有数值必须在指定范围内。不要输出 Markdown 或解释。
-
-身份规范化信息（这些别名仅用于识别，绝不能出现在输出中）：
-- ${input.characterName}的旧昵称/备注/主页名：${identityAliasDescription(input.characterAliases)}
-- ${input.userName}的旧昵称/主页名：${identityAliasDescription(input.userAliases)}
+11. 为确保 JSON 完整：entities 最多 8 条、assertions 最多 10 条、themes 最多 5 条、stateDeltas 最多 3 条；没有内容时输出空数组，不得省略字段。
+12. 日记口吻必须服从下方角色设定：使用${input.characterName}会使用的词汇、句子节奏、情绪表达强度和关注点。不要套用“今天，我……”开头、抒情散文、温柔总结或等待回应等通用模板，除非角色设定和本轮行为确实支持。
+13. 角色设定与世界书只用于确定口吻、身份关系和角色已知的背景事实，不能替代消息证据，也不能把未在本轮发生的设定写成刚发生的经历。
+14. 输出前在内部检查：如果遮住姓名，这篇日记是否仍能看出是${input.characterName}写的；若不能，先按角色设定重写 narrative，再输出 JSON。不要输出检查过程。
+15. narrative 必须在一个完整自然句结束（以 。！？!? 或 … 收束），再继续输出其余 JSON 字段并完整闭合 JSON；禁止半句、半段或未闭合 JSON。
 
 JSON 结构：
 {
@@ -183,6 +180,12 @@ JSON 结构：
   }]
 }
 
+角色设定与写作基准：
+${input.characterContext?.trim() || '未提供额外角色设定；保持克制，只依据本轮实际措辞推断口吻。'}
+
+本轮可用世界书背景：
+${input.worldBookContext?.trim() || '无启用且匹配的世界书条目。'}
+
 当前已有认知（可能为空；只能引用这里出现的旧断言 id）：
 ${assertionRows || '无'}
 
@@ -210,111 +213,97 @@ function renderMessageContent(message: ChatMessage): string {
 
 function parseJsonObject(raw: string): Record<string, unknown> {
   const text = String(raw ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  try {
-    const value = JSON.parse(text);
-    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
-  } catch {
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      const value = JSON.parse(text.slice(start, end + 1));
-      if (value && typeof value === 'object' && !Array.isArray(value)) return value;
-    }
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  const candidate = start >= 0 ? text.slice(start, end > start ? end + 1 : undefined) : text;
+  for (const source of [candidate, text]) {
+    if (!source) continue;
+    try {
+      const value = JSON.parse(source) as unknown;
+      if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+    } catch {}
+    try {
+      const value = JSON.parse(jsonrepair(source)) as unknown;
+      if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+    } catch {}
   }
   throw new Error('记忆抽取结果不是有效 JSON 对象。');
 }
 
-function normalizeExtractionResult(raw: Record<string, unknown>, fallback: MemoryExtractionResult): MemoryExtractionResult {
-  const entities = arrayOfRecords(raw.entities).slice(0, 30).flatMap(normalizeEntityDraft);
-  const assertions = arrayOfRecords(raw.assertions).slice(0, 40).flatMap(normalizeAssertionDraft);
-  const stateDeltas = arrayOfRecords(raw.stateDeltas).slice(0, 10).flatMap(normalizeStateDelta);
+export function parseTemporalMemoryExtractionResponse(raw: string): MemoryExtractionResult {
+  const completeJson = extractCompleteJsonObject(raw);
+  if (!completeJson) throw new Error('记忆模型输出在 JSON 完整闭合前中断。');
+  const parsed = parseJsonObject(completeJson);
+  const originalNarrative = cleanText(parsed.narrative ?? parsed.memory ?? parsed.summary ?? parsed.content, 900);
+  if (!originalNarrative) throw new Error('记忆模型没有返回日记正文。');
+  const result = normalizeExtractionResult(parsed);
+  if (isIncompleteDiaryNarrative(result.narrative)) {
+    throw new Error('记忆模型返回的日记正文不完整。');
+  }
+  return result;
+}
+
+function extractCompleteJsonObject(raw: string): string {
+  const text = String(raw ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  const start = text.indexOf('{');
+  if (start < 0) return '';
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{') depth += 1;
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, index + 1);
+    }
+  }
+  return '';
+}
+
+function isIncompleteDiaryNarrative(value: string): boolean {
+  const narrative = String(value ?? '').trim();
+  if (narrative.length < 32) return true;
+  return !/[。！？!?…」』”’）】》]$/u.test(narrative);
+}
+
+function normalizeExtractionResult(raw: Record<string, unknown>): MemoryExtractionResult {
+  const rawEntities = flexibleRecordArray(raw.entities ?? raw.entityList ?? raw.entity, ['key', 'name', 'type'], 'key').slice(0, 30);
+  const rawAssertions = flexibleRecordArray(raw.assertions ?? raw.memories ?? raw.memoryItems, ['subjectKey', 'predicate', 'perspectiveText']).slice(0, 40);
+  const rawStateDeltas = flexibleRecordArray(raw.stateDeltas ?? raw.stateDelta ?? raw.states, ['kind', 'summary']).slice(0, 10);
+  const entities = rawEntities.flatMap(normalizeEntityDraft);
+  const assertions = rawAssertions.flatMap(normalizeAssertionDraft);
+  const stateDeltas = rawStateDeltas.flatMap(normalizeStateDelta);
+  const narrative = cleanText(raw.narrative ?? raw.memory ?? raw.summary ?? raw.content, 900)
+    || '我记得我们最近有过一段值得留下的交流。';
+  const title = cleanText(raw.title ?? raw.memoryTitle, 80)
+    || cleanText(narrative, 28)
+    || '最近的一段相处';
   return {
-    title: cleanText(raw.title, 80) || fallback.title,
-    narrative: cleanText(raw.narrative, 900) || fallback.narrative,
+    title,
+    narrative,
     location: cleanText(raw.location, 80),
     emotion: cleanText(raw.emotion, 80),
-    valence: clamp(raw.valence, -1, 1),
-    arousal: clamp(raw.arousal, 0, 1),
-    salience: clamp(raw.salience, 0, 1),
+    valence: boundedNumber(raw.valence, -1, 1, 0),
+    arousal: boundedNumber(raw.arousal, 0, 1, 0.25),
+    salience: boundedNumber(raw.salience, 0, 1, 0.45),
     entities,
     assertions,
-    themes: unique(stringArray(raw.themes).map((item) => cleanText(item, 60)).filter(Boolean)).slice(0, 12),
+    themes: unique(flexibleStringArray(raw.themes ?? raw.theme).map((item) => cleanText(item, 60)).filter(Boolean)).slice(0, 12),
     stateDeltas,
   };
 }
 
-function canonicalizeExtractionIdentities(
-  result: MemoryExtractionResult,
-  input: Pick<ExtractTemporalMemoryInput, 'characterName' | 'characterAliases' | 'userName' | 'userAliases'>,
-): MemoryExtractionResult {
-  const canonicalize = (value: string) => canonicalizeIdentityText(value, input);
-  return {
-    ...result,
-    title: canonicalize(result.title),
-    narrative: canonicalize(result.narrative),
-    location: canonicalize(result.location),
-    entities: result.entities.map((entity) => ({
-      ...entity,
-      name: entity.key === 'self'
-        ? input.characterName
-        : entity.key === 'user'
-          ? input.userName
-          : canonicalize(entity.name),
-      description: canonicalize(entity.description ?? ''),
-    })),
-    assertions: result.assertions.map((assertion) => ({
-      ...assertion,
-      predicate: canonicalize(assertion.predicate),
-      objectText: canonicalize(assertion.objectText),
-      perspectiveText: canonicalize(assertion.perspectiveText),
-      themes: assertion.themes.map(canonicalize),
-    })),
-    themes: result.themes.map(canonicalize),
-    stateDeltas: result.stateDeltas.map((delta) => ({
-      ...delta,
-      summary: canonicalize(delta.summary),
-      facets: delta.facets.map((facet) => ({ ...facet, label: canonicalize(facet.label) })),
-    })),
-  };
-}
-
-function canonicalizeIdentityText(
-  value: string,
-  input: Pick<ExtractTemporalMemoryInput, 'characterName' | 'characterAliases' | 'userName' | 'userAliases'>,
-): string {
-  let text = String(value ?? '');
-  const characterAliases = normalizedIdentityAliases(input.characterAliases, input.characterName);
-  const userAliases = normalizedIdentityAliases(
-    [...(input.userAliases ?? []), '用户', '对方', 'TA', 'ta'],
-    input.userName,
-  );
-  const sharedAliases = new Set(characterAliases.filter((alias) => userAliases.includes(alias)));
-  for (const alias of characterAliases.filter((item) => !sharedAliases.has(item))) {
-    text = replaceIdentityAlias(text, alias, input.characterName);
-  }
-  for (const alias of userAliases.filter((item) => !sharedAliases.has(item))) {
-    text = replaceIdentityAlias(text, alias, input.userName);
-  }
-  return cleanText(text, 2_000);
-}
-
-function normalizedIdentityAliases(aliases: string[] | undefined, canonicalName: string): string[] {
-  const canonical = canonicalName.trim().toLocaleLowerCase();
-  return unique((aliases ?? [])
-    .map((alias) => alias.trim())
-    .filter((alias) => alias.length >= 2 && alias.toLocaleLowerCase() !== canonical))
-    .sort((left, right) => right.length - left.length);
-}
-
-function replaceIdentityAlias(value: string, alias: string, canonicalName: string): string {
-  const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return value.replace(new RegExp(escaped, /[a-z]/i.test(alias) ? 'gi' : 'g'), canonicalName);
-}
-
-function identityAliasDescription(aliases: string[] | undefined): string {
-  const values = unique((aliases ?? []).map((alias) => alias.trim()).filter(Boolean));
-  return values.length ? values.join('、') : '无';
-}
 
 function normalizeEntityDraft(raw: Record<string, unknown>): MemoryExtractionEntityDraft[] {
   const key = cleanText(raw.key, 60);
@@ -380,6 +369,52 @@ function arrayOfRecords(value: unknown): Record<string, unknown>[] {
     : [];
 }
 
+function decodeNestedJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const text = value.trim();
+  if (!text.startsWith('[') && !text.startsWith('{')) return value;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    try {
+      return JSON.parse(jsonrepair(text)) as unknown;
+    } catch {
+      return value;
+    }
+  }
+}
+
+function flexibleRecordArray(value: unknown, entryKeys: string[], mapKeyField = ''): Record<string, unknown>[] {
+  const decoded = decodeNestedJson(value);
+  if (Array.isArray(decoded)) return arrayOfRecords(decoded);
+  if (!decoded || typeof decoded !== 'object') return [];
+  const record = decoded as Record<string, unknown>;
+  if (entryKeys.some((key) => key in record)) return [record];
+  return Object.entries(record).flatMap(([key, item]) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const entry = item as Record<string, unknown>;
+    return [{ ...entry, ...(mapKeyField && !(mapKeyField in entry) ? { [mapKeyField]: key } : {}) }];
+  });
+}
+
+function flexibleStringArray(value: unknown): string[] {
+  const decoded = decodeNestedJson(value);
+  if (Array.isArray(decoded)) {
+    return decoded.flatMap((item) => {
+      if (typeof item === 'string') return [item];
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        const record = item as Record<string, unknown>;
+        const label = String(record.name ?? record.label ?? record.title ?? '').trim();
+        return label ? [label] : [];
+      }
+      return [];
+    });
+  }
+  if (typeof decoded === 'string') return decoded.split(/[,，、;；|\n]+/).map((item) => item.trim()).filter(Boolean);
+  if (decoded && typeof decoded === 'object') return Object.keys(decoded as Record<string, unknown>);
+  return [];
+}
+
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
@@ -391,6 +426,12 @@ function positiveTime(value: unknown): number | undefined {
 
 function cleanText(value: unknown, maxLength: number): string {
   return String(value ?? '').replace(/\u0000/g, '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function boundedNumber(value: unknown, minimum: number, maximum: number, fallback: number): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(maximum, Math.max(minimum, number));
 }
 
 function clamp(value: unknown, minimum: number, maximum: number): number {

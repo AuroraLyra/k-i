@@ -61,6 +61,7 @@ export const config = {
   proxyBodyLimitBytes: readInteger('PROXY_BODY_LIMIT_MB', 24, 1, 128) * 1024 * 1024,
   webdavBodyLimitBytes: readInteger('WEBDAV_BODY_LIMIT_MB', 128, 1, 1024) * 1024 * 1024,
   upstreamTimeoutMs: readInteger('UPSTREAM_TIMEOUT_MS', 45_000, 2_000, 180_000),
+  modelRequestTimeoutMs: readInteger('MODEL_REQUEST_TIMEOUT_MS', 600_000, 4_000, 1_200_000),
   groupSyncMinutes: readInteger('GROUP_SYNC_MINUTES', 360, 10, 1440),
   auditRetentionDays: readInteger('AUDIT_RETENTION_DAYS', 90, 7, 730)
 } as const;

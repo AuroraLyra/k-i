@@ -31,7 +31,7 @@
 
       <section v-if="shoppingCharacters.length" class="ai-restock-card" :class="{ 'ai-restock-card--relationship': isRelationshipShop }">
         <span class="ai-restock-icon"><Sparkles :size="20" /></span>
-        <span class="ai-restock-copy"><small>AI CURATED DROP</small><strong>让角色亲自上新</strong><em>文本模型生成店铺、商品、价格与晒单</em></span>
+        <span class="ai-restock-copy"><small>AI CURATED DROP</small><strong>让角色亲自上新</strong><em>生成店铺、商品、经济画像与生活流水</em></span>
         <label v-if="!isRelationshipShop">
           <select v-model="selectedAiCharacterId" aria-label="选择上新角色">
             <option v-for="character in shoppingCharacters" :key="character.id" :value="character.id">{{ character.nickname || character.name }}</option>
@@ -59,9 +59,9 @@
             <span><small>Gift budget</small><strong>{{ formatMoney(relationshipWallet?.giftAllowanceCents ?? 0) }}</strong></span>
             <p>{{ relationshipWallet?.spendingTraits.join(' · ') || `${relationshipCharacterName} 还没有形成消费画像。` }}</p>
           </div>
-          <div class="shop-section-title relationship-ledger-title"><div><small>RECENT ACTIVITY</small><h2>TA 的收支记录</h2></div></div>
+          <div class="shop-section-title relationship-ledger-title"><div><small>RECENT ACTIVITY</small><h2>TA 的收支记录</h2></div><span>{{ relationshipTransactions.length }} records</span></div>
           <div v-if="relationshipTransactions.length" class="relationship-ledger">
-            <article v-for="transaction in relationshipTransactions.slice(0, 8)" :key="transaction.id"><span><strong>{{ transaction.title }}</strong><small>{{ transaction.subtitle }}</small></span><em :class="{ income: transaction.amountCents >= 0 }">{{ transaction.amountCents >= 0 ? '+' : '-' }}{{ formatMoney(Math.abs(transaction.amountCents)) }}</em></article>
+            <article v-for="transaction in relationshipTransactions.slice(0, 8)" :key="transaction.id"><span><strong>{{ transaction.title }}</strong><small>{{ transaction.subtitle }} · {{ formatTransactionDate(transaction.createdAt) }}</small></span><em :class="{ income: transaction.amountCents >= 0 }">{{ transaction.amountCents >= 0 ? '+' : '-' }}{{ formatMoney(Math.abs(transaction.amountCents)) }}</em></article>
           </div>
           <div v-else class="shop-empty"><ReceiptText :size="26" /><strong>还没有关系账单</strong><small>转账、礼物和共同消费会记录在这里。</small></div>
         </section>
@@ -309,13 +309,25 @@ const filteredProducts = computed(() => {
 
 function storeName(storeId: string) { return commerceStore.storefronts.find((storefront) => storefront.id === storeId)?.name ?? 'LINK Select'; }
 function formatMoney(cents: number) { return new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', minimumFractionDigits: 2 }).format(cents / 100); }
+function formatTransactionDate(timestamp: number) { return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(timestamp); }
 function orderStatusLabel(status: CommerceOrderStatus) { return { paid: '已付款', preparing: '准备中', delivering: '配送中', delivered: '已送达', cancelled: '已取消' }[status]; }
 function productStyle(product: ShopProduct) { return { background: `linear-gradient(145deg, ${product.palette[0]}, ${product.palette[1]})` }; }
 function storefrontStyle(storefront: ShopStorefront) { return { background: `linear-gradient(145deg, ${storefront.palette[0]}, ${storefront.palette[1]})` }; }
 function momentStyle(moment: ShopMoment) { return { background: `linear-gradient(145deg, ${moment.palette[0]}, ${moment.palette[1]})` }; }
 function momentProduct(moment: ShopMoment) { return moment.productIds.flatMap((productId) => commerceStore.products.find((product) => product.id === productId) ?? []).at(0) ?? null; }
 function formatRelativeTime(timestamp: number) { const hours = Math.max(1, Math.floor((Date.now() - timestamp) / 3_600_000)); return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`; }
-function goBack() { void router.push(isRelationshipShop.value ? { name: 'chat-room', params: { id: relationshipConversationId.value } } : { name: 'wallet' }); }
+function goBack() {
+  const target = isRelationshipShop.value
+    ? { name: 'chat-room', params: { id: relationshipConversationId.value } }
+    : { name: 'wallet' };
+  const backPath = String(window.history.state?.back ?? '');
+  const targetPath = router.resolve(target).path;
+  if (backPath && new URL(backPath, window.location.origin).pathname === targetPath) {
+    router.back();
+    return;
+  }
+  void router.replace(target);
+}
 function openOrderChat(conversationId: string, sourceMessageId?: string) { void router.push({ name: 'chat-room', params: { id: conversationId }, query: sourceMessageId ? { focus: sourceMessageId } : {} }); }
 function momentLiked(moment: ShopMoment) { return Boolean(activeUserId.value && moment.likedByUserIds?.includes(activeUserId.value)); }
 function momentSaved(moment: ShopMoment) { return Boolean(activeUserId.value && moment.savedByUserIds?.includes(activeUserId.value)); }
@@ -465,13 +477,17 @@ async function shareMoment(momentId: string) {
 }
 
 async function generateCatalog() {
-  if (!selectedAiCharacter.value || !appStore.settings || generatingCatalog.value) return;
+  const character = selectedAiCharacter.value;
+  const settings = appStore.settings;
+  const user = appStore.user;
+  if (!character || !settings || generatingCatalog.value) return;
+  const previousCategory = activeCategory.value;
   generatingCatalog.value = true;
   try {
-    const result = await commerceStore.generateCharacterCatalog(selectedAiCharacter.value, appStore.user, appStore.settings);
+    const result = await commerceStore.generateCharacterCatalog(character, user, settings);
     selectedStoreId.value = result.storefront.id;
-    activeCategory.value = 'storefront';
-    void sendShopShare(selectedAiCharacter.value.id, 'char', {
+    activeCategory.value = previousCategory === 'economy' ? 'economy' : 'storefront';
+    void sendShopShare(character.id, 'char', {
       id: `shop_share_restock_${Date.now()}`,
       kind: 'storefront',
       title: result.storefront.name,
@@ -480,10 +496,10 @@ async function generateCatalog() {
       mark: result.storefront.mark,
       storeId: result.storefront.id,
       note: '店里刚换了一批我自己挑的东西，想先给你看。',
-      actorCharacterId: selectedAiCharacter.value.id,
-      actorName: selectedAiCharacter.value.nickname || selectedAiCharacter.value.name
+      actorCharacterId: character.id,
+      actorName: character.nickname || character.name
     }).catch((error) => appStore.showConfigAlert(error instanceof Error ? error.message : '店铺卡片发送失败。', '上新已完成，但未发送到聊天'));
-    showToast(`${selectedAiCharacter.value.nickname || selectedAiCharacter.value.name} 已完成本次上新`);
+    showToast(`${character.nickname || character.name} 已上新，并新增 ${result.transactions.length} 条生活收支`);
   } catch (error) {
     appStore.showConfigAlert(error instanceof Error ? error.message : '商城 AI 上新失败。', '无法完成 AI 上新');
   } finally {

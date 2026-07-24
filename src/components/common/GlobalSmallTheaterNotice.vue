@@ -106,21 +106,25 @@ watch(
   display: grid;
   place-items: end center;
   padding: 18px calc(14px + var(--safe-right)) calc(18px + var(--safe-bottom)) calc(14px + var(--safe-left));
-  background: rgba(15, 23, 42, 0.2);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  background:
+    radial-gradient(circle at 50% 100%, rgba(220, 193, 180, 0.2), transparent 38%),
+    rgba(47, 39, 36, 0.3);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
 }
 
 .theater-notice-sheet {
   position: relative;
   display: grid;
-  gap: 10px;
+  gap: 12px;
   width: min(100%, 440px);
-  padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.93);
-  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18);
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 28px 28px 28px 10px;
+  background:
+    radial-gradient(circle at 94% 0%, rgba(231, 209, 198, 0.62), transparent 30%),
+    linear-gradient(180deg, rgba(251, 248, 244, 0.98), rgba(245, 240, 234, 0.98));
+  box-shadow: 0 26px 78px rgba(52, 41, 37, 0.22);
 }
 
 .theater-notice-close {
@@ -131,15 +135,16 @@ watch(
   place-items: center;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
-  background: transparent;
-  color: #111827;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.56);
+  color: #7f6c63;
 }
 
 .theater-notice-sheet > span {
-  color: #2563eb;
-  font-size: 10px;
+  color: #aa8c7f;
+  font-size: 8px;
   font-weight: 900;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
@@ -149,19 +154,22 @@ watch(
 }
 
 .theater-notice-sheet h2 {
-  color: #111827;
-  font-size: 18px;
+  color: #403633;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 20px;
+  font-weight: 600;
   line-height: 1.35;
 }
 
 .theater-notice-preview {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
-  gap: 4px 10px;
-  padding: 12px;
-  border-radius: 8px;
-  background: #f0f7ff;
-  color: #1d4ed8;
+  gap: 5px 11px;
+  padding: 13px;
+  border: 1px solid rgba(128, 100, 88, 0.08);
+  border-radius: 20px 20px 20px 8px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #8d7165;
 }
 
 .theater-notice-preview svg {
@@ -177,20 +185,23 @@ watch(
 }
 
 .theater-notice-preview strong {
-  color: #111827;
+  color: #493e39;
+  font-family: Georgia, "Songti SC", serif;
   font-size: 14px;
+  font-weight: 600;
 }
 
 .theater-notice-preview small {
-  color: #4b5563;
-  font-size: 12px;
+  color: #94847d;
+  font-size: 11px;
 }
 
 .theater-notice-sheet > button:last-child {
   min-height: 42px;
-  border-radius: 8px;
-  background: #111827;
+  border-radius: 999px;
+  background: #51443e;
   color: #ffffff;
   font-weight: 900;
+  box-shadow: 0 10px 22px rgba(76, 57, 49, 0.12);
 }
 </style>

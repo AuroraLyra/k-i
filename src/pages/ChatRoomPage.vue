@@ -31,8 +31,8 @@
           :character="character"
           :user="conversationUser ?? undefined"
           :appearance="chatSettings.appearance"
-          :hide-avatar="shouldHideAvatar(entry.messageIndex)"
-          :profile-alert="hasUnreadMindState"
+          :hide-avatar="shouldHideAvatar(entry.messageIndex) && entry.message.id !== unreadMindStateMessageId"
+          :profile-alert="entry.message.id === unreadMindStateMessageId"
           :can-regenerate-image="canRegenerateChatImage"
           :regenerating-image="regeneratingChatImageMessageIds.includes(entry.message.id)"
           :selection-mode="selectionMode"
@@ -328,59 +328,55 @@
 
     <AppModal v-model="showActionMenu" title="更多操作" :show-header="false" variant="ins">
       <section class="action-menu">
-        <header class="action-menu-intro">
-          <small>MORE WITH {{ characterDisplayName.toUpperCase() }}</small>
-          <strong>和 {{ characterDisplayName }} 的专属空间</strong>
-          <span>角色相关的经济、购物和礼物只保存在这段关系里。</span>
-        </header>
-
-        <section class="action-menu-group action-menu-group--relationship">
-          <div class="action-menu-group-title"><span><small>OUR PRIVATE LIFE</small><strong>与 TA 的生活</strong></span><em>角色独立</em></div>
-          <div class="action-menu-grid action-menu-grid--relationship">
-            <button type="button" @click="openRelationshipCommerce('economy')"><span>TA 的钱包</span><small>角色经济与流水</small></button>
-            <button type="button" @click="openRelationshipCommerce('cart')"><span>共同购物</span><small>你们的独立购物车</small></button>
-            <button type="button" @click="openRelationshipCommerce('wishlist')"><span>共同愿望</span><small>只属于当前关系</small></button>
-            <button type="button" @click="openRelationshipCommerce('gift')"><span>礼物与卡片</span><small>送给彼此的心意</small></button>
-            <button type="button" @click="openRelationshipCommerce('stores')"><span>TA 的店铺</span><small>角色经营与上新</small></button>
-            <button type="button" @click="openRelationshipCommerce('orders')"><span>关系订单</span><small>共同消费与回跳</small></button>
+        <section class="action-menu-group">
+          <div class="action-menu-group-title"><small>OUR PRIVATE LIFE</small></div>
+          <div class="action-menu-grid">
+            <button type="button" @click="openRelationshipCommerce('economy')"><span>TA 的钱包</span></button>
+            <button type="button" @click="openRelationshipCommerce('cart')"><span>共同购物</span></button>
+            <button type="button" @click="openRelationshipCommerce('wishlist')"><span>共同愿望</span></button>
+            <button type="button" @click="openRelationshipCommerce('gift')"><span>礼物与卡片</span></button>
+            <button type="button" @click="openRelationshipCommerce('stores')"><span>TA 的店铺</span></button>
+            <button type="button" @click="openRelationshipCommerce('orders')"><span>关系订单</span></button>
           </div>
         </section>
 
         <section class="action-menu-group">
-          <div class="action-menu-group-title"><span><small>CHAT TOOLS</small><strong>聊天工具</strong></span></div>
+          <div class="action-menu-group-title"><small>CHAT TOOLS</small></div>
           <div class="action-menu-grid">
             <button type="button" :disabled="chatActionLocked" @click="openLocationPanel"><span>发送定位</span></button>
             <button type="button" :disabled="chatActionLocked" @click="openTransferPanel"><span>转账</span></button>
             <button type="button" :disabled="chatActionLocked" @click="openMusicListenInvitePanel"><span>邀请一起听</span></button>
             <button type="button" :disabled="chatActionLocked" @click="startOutgoingCall('voice')"><span>语音通话</span></button>
             <button type="button" :disabled="chatActionLocked" @click="startOutgoingCall('video')"><span>视频通话</span></button>
+            <button type="button" :disabled="chatActionLocked" @click="openCommercePanel('takeout')"><span>点外卖</span></button>
+            <button type="button" :disabled="chatActionLocked" @click="openCommercePanel('gift')"><span>送礼物</span></button>
+            <button type="button" :class="{ busy: currentConversationReplying }" :aria-disabled="currentConversationReplying" @click="regenerateReply"><span>重新回复</span></button>
+            <button type="button" :disabled="chatActionLocked" @click="openNarrationPanel"><span>添加旁白</span></button>
           </div>
         </section>
 
         <section class="action-menu-group">
-          <div class="action-menu-group-title"><span><small>CONTENT TOOLS</small><strong>内容工具</strong></span></div>
+          <div class="action-menu-group-title"><small>CONTENT TOOLS</small></div>
           <div class="action-menu-grid">
             <button type="button" @click="openModelSwitch"><span>模型切换</span></button>
-            <button type="button" :class="{ busy: currentConversationReplying }" :aria-disabled="currentConversationReplying" @click="regenerateReply"><span>重新回复</span></button>
-            <button type="button" :disabled="chatActionLocked" @click="openNarrationPanel"><span>添加旁白</span></button>
             <button type="button" :disabled="chatActionLocked" @click="startGobangInvitation"><span>五子棋</span></button>
             <button type="button" :class="{ busy: generatingVoom }" :aria-disabled="generatingVoom" @click="generateVoomPost"><span>{{ generatingVoom ? '生成中' : '生成 VOOM' }}</span></button>
             <button type="button" @click="openSmallTheater"><span>小剧场</span></button>
-          </div>
-        </section>
-
-        <section class="action-menu-group">
-          <div class="action-menu-group-title"><span><small>PROFILES</small><strong>主页与关系</strong></span></div>
-          <div class="action-menu-grid">
-            <button type="button" @click="openCharacterProfile"><span>角色主页</span></button>
-            <button type="button" @click="openProfileThemes"><span>主页自定义</span></button>
-            <button type="button" @click="openUserProfile"><span>我的主页</span></button>
             <button type="button" @click="openCoupleSpace"><span>情侣守护</span></button>
           </div>
         </section>
 
+        <section class="action-menu-group">
+          <div class="action-menu-group-title"><small>PROFILES</small></div>
+          <div class="action-menu-grid">
+            <button type="button" @click="openCharacterProfile"><span>角色主页</span></button>
+            <button type="button" @click="openProfileThemes"><span>主页自定义</span></button>
+            <button type="button" @click="openUserProfile"><span>我的主页</span></button>
+          </div>
+        </section>
+
         <section class="action-menu-group action-menu-group--danger">
-          <div class="action-menu-group-title"><span><small>RELATIONSHIP MANAGEMENT</small><strong>关系管理</strong></span></div>
+          <div class="action-menu-group-title"><small>RELATIONSHIP MANAGEMENT</small></div>
           <div class="action-menu-grid">
             <button class="danger-menu-action" type="button" :disabled="chatActionLocked" @click="openDeleteFriendConfirm"><span>删除好友</span></button>
             <button class="danger-menu-action" type="button" :disabled="chatActionLocked" @click="openBlockFriendConfirm"><span>拉黑好友</span></button>
@@ -544,6 +540,60 @@
       </section>
     </AppModal>
 
+    <AppModal v-model="showCommercePanel" :title="commerceKind === 'takeout' ? '点外卖' : '送礼物'" :show-header="false" variant="ins">
+      <section class="commerce-send-panel">
+        <div class="commerce-panel-head">
+          <div>
+            <p>{{ commerceKind === 'takeout' ? 'Delivery' : 'Gift' }}</p>
+            <h3>{{ commerceKind === 'takeout' ? `给 ${characterDisplayName} 点外卖` : `送礼物给 ${characterDisplayName}` }}</h3>
+          </div>
+        </div>
+
+        <section class="commerce-compose-preview" :class="`commerce-compose-preview--${commerceKind}`" aria-label="订单预览">
+          <span class="commerce-compose-head">
+            <span><i>{{ commerceKind === 'takeout' ? '🥡' : '🎁' }}</i> LINK {{ commerceKind === 'takeout' ? 'DELIVERY' : 'GIFT' }}</span>
+            <em>待发送</em>
+          </span>
+          <span class="commerce-compose-main">
+            <small>{{ commerceKind === 'takeout' ? `给 ${characterDisplayName} 点的外卖` : `送给 ${characterDisplayName} 的礼物` }}</small>
+            <strong>{{ commerceStoreNameDraft.trim() || '店铺名称' }}</strong>
+            <em>{{ commerceItemsPreview }}</em>
+          </span>
+          <span class="commerce-compose-payment"><span>{{ commerceKind === 'takeout' ? commerceEtaDraft.trim() || '订单提交后开始准备' : commerceCardMessageDraft.trim() || '可以附上一张专属卡片' }}</span><strong>¥{{ commerceAmountPreview }}</strong></span>
+        </section>
+
+        <label class="commerce-field">
+          <span>店铺名称</span>
+          <input v-model="commerceStoreNameDraft" maxlength="80" :placeholder="commerceKind === 'takeout' ? '例如：深夜食堂' : '例如：Bloom Letter'" />
+        </label>
+        <label class="commerce-field">
+          <span>{{ commerceKind === 'takeout' ? '餐品' : '礼物' }}（每行一项，可在末尾写 ×数量）</span>
+          <textarea v-model="commerceItemsDraft" maxlength="500" rows="3" :placeholder="commerceKind === 'takeout' ? '温泉蛋牛肉拌饭 ×2\n冰柠檬茶' : '纪念日雾粉花束 ×1'"></textarea>
+        </label>
+        <label class="commerce-field">
+          <span>实付金额</span>
+          <input v-model="commerceAmountDraft" inputmode="decimal" maxlength="12" placeholder="例如 68.00" />
+        </label>
+        <label v-if="commerceKind === 'takeout'" class="commerce-field">
+          <span>预计送达（可选）</span>
+          <input v-model="commerceEtaDraft" maxlength="60" placeholder="例如：预计 35 分钟送达" />
+        </label>
+        <label v-else class="commerce-field">
+          <span>专属卡片（可选）</span>
+          <textarea v-model="commerceCardMessageDraft" maxlength="200" rows="2" :placeholder="`写给 ${characterDisplayName} 的话`"></textarea>
+        </label>
+        <label class="commerce-field">
+          <span>订单备注（可选）</span>
+          <input v-model="commerceNoteDraft" maxlength="120" :placeholder="commerceKind === 'takeout' ? '例如：少辣，不要香菜' : '例如：礼盒包装，不显示价格'" />
+        </label>
+
+        <div class="commerce-actions">
+          <button class="secondary-action" type="button" @click="showCommercePanel = false">取消</button>
+          <button class="primary-action" type="button" :disabled="!canSendCommerce || chatActionLocked" @click="sendCommerceMessage">确认付款并发送</button>
+        </div>
+      </section>
+    </AppModal>
+
     <AppModal v-model="showNarrationPanel" title="添加旁白" :show-header="false" variant="ins">
       <section class="narration-send-panel">
         <div class="narration-panel-head">
@@ -647,11 +697,29 @@
 
     <AppModal v-model="showDeleteFriendConfirm" title="确认删除" :show-header="false" variant="ins">
       <section class="delete-confirm-sheet">
-        <h3>{{ relationshipUserName }} 删除 {{ relationshipCharacterName }}？</h3>
-        <p>删除后 {{ relationshipUserName }} 与 {{ relationshipCharacterName }} 无法继续聊天，但会保留聊天记录、{{ relationshipCharacterName }} 的资料、记忆和世界书。以后 {{ relationshipUserName }} 可以重新发送好友验证，由 {{ relationshipCharacterName }} 按人设决定是否通过。</p>
+        <h3>删除 {{ relationshipCharacterName }}？</h3>
+        <p>请选择删除方式。两种方式的清理范围不同，请确认后再继续。</p>
+        <div class="friend-delete-options">
+          <button class="friend-delete-option" type="button" :disabled="deletingFriend || purgingFriend || chatActionLocked" @click="confirmDeleteFriend">
+            <strong>{{ deletingFriend ? '删除中' : '仅删除好友' }}</strong>
+            <span>保持现在的删除方式：无法继续聊天，但保留聊天记录、角色资料、记忆和世界书，以后仍可重新发送好友验证。</span>
+          </button>
+          <button class="friend-delete-option friend-delete-option--purge" type="button" :disabled="deletingFriend || purgingFriend || chatActionLocked" @click="openPurgeFriendConfirm">
+            <strong>彻底删除并清理</strong>
+            <span>永久删除这个好友及其全部专属数据，不保留重新添加所需的旧资料。</span>
+          </button>
+        </div>
+        <button class="secondary-action friend-delete-cancel" type="button" :disabled="deletingFriend || purgingFriend" @click="showDeleteFriendConfirm = false">取消</button>
+      </section>
+    </AppModal>
+
+    <AppModal v-model="showPurgeFriendConfirm" title="确认彻底删除" :show-header="false" variant="ins">
+      <section class="delete-confirm-sheet">
+        <h3>彻底删除 {{ relationshipCharacterName }} 的全部专属数据？</h3>
+        <p><strong>此操作无法撤销。</strong>会删除角色资料、私聊与线下 RP、消息和收藏、记忆、情侣空间、VOOM、主页、小剧场、专属局部世界书、同人书及商城和钱包关联。共享群聊本身会保留，但会移除 {{ relationshipCharacterName }} 和相关消息。</p>
         <div class="delete-confirm-actions">
-          <button class="secondary-action" type="button" :disabled="deletingFriend" @click="showDeleteFriendConfirm = false">取消</button>
-          <button class="danger-action" type="button" :disabled="deletingFriend || chatActionLocked" @click="confirmDeleteFriend">{{ deletingFriend ? '删除中' : '删除好友' }}</button>
+          <button class="secondary-action" type="button" :disabled="purgingFriend" @click="showPurgeFriendConfirm = false; showDeleteFriendConfirm = true">返回选择</button>
+          <button class="danger-action" type="button" :disabled="purgingFriend || chatActionLocked" @click="confirmPurgeFriend">{{ purgingFriend ? '清理中' : '确认彻底删除' }}</button>
         </div>
       </section>
     </AppModal>
@@ -727,6 +795,7 @@ import StickerLibraryModal from '@/components/stickers/StickerLibraryModal.vue';
 import { useAppStore, type AppActiveCallState } from '@/stores/appStore';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import { generateImageByProvider } from '@/services/ai';
+import { purgeFriendData } from '@/services/friendDeletion';
 import { synthesizeSpeech } from '@/services/tts';
 import type { AppSettings, CharacterImageProfile, CharacterProfile, ChatCallMode, ChatCallStatus, ChatImageAttachment, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatTransferStatus, ChatVoiceAttachment, ImageProviderType, Sticker, UserProfile } from '@/types/domain';
 import { getCharacterAiName, getCharacterDisplayName, getFriendRelationship } from '@/utils/character';
@@ -820,6 +889,8 @@ type CallFloatDragState = {
 
 type CallCameraFacingMode = 'user' | 'environment';
 
+type UserCommerceKind = 'takeout' | 'gift';
+
 type CallVoicePlayback = {
   messageId: string;
   audioUrls: Array<Promise<string>>;
@@ -876,6 +947,7 @@ const showImagePanel = ref(false);
 const showVoicePanel = ref(false);
 const showLocationPanel = ref(false);
 const showTransferPanel = ref(false);
+const showCommercePanel = ref(false);
 const showMusicListenPanel = ref(false);
 const showStopListenConfirm = ref(false);
 const showNarrationPanel = ref(false);
@@ -883,11 +955,13 @@ const showMessageMenu = ref(false);
 const showEditModal = ref(false);
 const showDeleteConfirm = ref(false);
 const showDeleteFriendConfirm = ref(false);
+const showPurgeFriendConfirm = ref(false);
 const showBlockFriendConfirm = ref(false);
 const showFriendRequest = ref(false);
 const showClearHistoryConfirm = ref(false);
 const generatingVoom = ref(false);
 const deletingFriend = ref(false);
+const purgingFriend = ref(false);
 const requestingFriend = ref(false);
 const friendRequestDraft = ref('');
 const clearingHistory = ref(false);
@@ -927,6 +1001,13 @@ const locationAddressDraft = ref('');
 const locationDistanceDraft = ref('');
 const transferAmountDraft = ref('');
 const transferNoteDraft = ref('');
+const commerceKind = ref<UserCommerceKind>('takeout');
+const commerceStoreNameDraft = ref('');
+const commerceItemsDraft = ref('');
+const commerceAmountDraft = ref('');
+const commerceEtaDraft = ref('');
+const commerceNoteDraft = ref('');
+const commerceCardMessageDraft = ref('');
 const musicListenNoteDraft = ref('');
 const narrationDraft = ref('');
 const regeneratePromptDraft = ref('');
@@ -1153,6 +1234,10 @@ const currentConversationReplying = computed(() => store.isConversationReplying(
 const selectedMessageCount = computed(() => selectedMessageIds.value.length);
 const hasUnreadMindState = computed(() => Boolean(character.value?.mindState?.lines.length
   && character.value.mindState.updatedAt > character.value.mindState.readAt));
+const unreadMindStateMessageId = computed(() => {
+  if (!hasUnreadMindState.value) return '';
+  return [...allOnlineMessages.value].reverse().find((message) => getMessageVisualSender(message) === 'char')?.id ?? '';
+});
 const activeMessageIsSynthetic = computed(() => Boolean(activeMessage.value?.id.includes('__')));
 const activeMessageTransferIsReceipt = computed(() => Boolean(activeMessage.value?.transfer?.responseToMessageId));
 const canRecallActiveMessage = computed(() => Boolean(activeMessage.value && activeMessage.value.sender === 'user' && !activeMessageIsSynthetic.value));
@@ -1187,6 +1272,28 @@ const canSendLocation = computed(() => Boolean(locationNameDraft.value.trim() &&
 const normalizedTransferAmount = computed(() => transferAmountDraft.value.replace(/[￥¥,\s]/g, '').trim());
 const transferAmountPreview = computed(() => normalizedTransferAmount.value || '0.00');
 const canSendTransfer = computed(() => /^\d+(?:\.\d{1,2})?$/.test(normalizedTransferAmount.value) && Number(normalizedTransferAmount.value) > 0);
+const commerceItems = computed(() => commerceItemsDraft.value
+  .split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter(Boolean)
+  .slice(0, 8)
+  .flatMap((line) => {
+    const quantityMatch = line.match(/\s*[×x*]\s*(\d+)\s*$/i);
+    const quantity = Math.min(99, Math.max(1, Number(quantityMatch?.[1]) || 1));
+    const name = quantityMatch?.index === undefined ? line : line.slice(0, quantityMatch.index).trim();
+    return name ? [{ name, quantity }] : [];
+  }));
+const normalizedCommerceAmount = computed(() => commerceAmountDraft.value.replace(/[￥¥,\s]/g, '').trim());
+const commerceAmountPreview = computed(() => normalizedCommerceAmount.value || '0.00');
+const commerceItemsPreview = computed(() => commerceItems.value.length
+  ? commerceItems.value.map((item) => `${item.name} ×${item.quantity}`).join(' · ')
+  : `填写${commerceKind.value === 'takeout' ? '餐品' : '礼物'}后会显示在这里`);
+const canSendCommerce = computed(() => Boolean(
+  commerceStoreNameDraft.value.trim()
+  && commerceItems.value.length
+  && /^\d+(?:\.\d{1,2})?$/.test(normalizedCommerceAmount.value)
+  && Number(normalizedCommerceAmount.value) > 0
+));
 const locationPreviewName = computed(() => locationNameDraft.value.trim() || '地点名称');
 const locationPreviewAddress = computed(() => locationAddressDraft.value.trim());
 const locationPreviewDistance = computed(() => locationDistanceDraft.value.trim() || '未知');
@@ -1215,7 +1322,6 @@ const latestCallTranscriptMessage = computed(() => callTranscriptMessages.value.
 const latestCharacterCallMessage = computed(() => [...callTranscriptMessages.value].reverse().find((message) => message.sender === 'char') ?? null);
 const callCharacterAiName = computed(() => character.value ? getCharacterAiName(character.value) : '角色');
 const callUserAiName = computed(() => getUserAiName(conversationUser.value ?? boundUser.value));
-const callCanonicalIdentityInstruction = computed(() => `通话称谓铁律：角色只能用真名「${callCharacterAiName.value}」指代，用户只能用真名「${callUserAiName.value}」指代；绝对禁止使用角色网名、角色备注、角色主页名、用户网名、用户主页名或任何昵称代指双方。`);
 const callPeerName = computed(() => characterDisplayName.value);
 const callModeLabel = computed(() => activeCall.value?.mode === 'video' ? '视频通话' : '语音通话');
 const callPrimaryStatus = computed(() => {
@@ -1882,8 +1988,8 @@ async function sendAndReply(content: string) {
   const blockedInteraction = !isFriendRelationship.value;
   const relationshipInstruction = blockedInteraction
     ? relationshipStatus.value === 'blocked-by-user' || relationshipStatus.value === 'deleted-by-user'
-      ? `黑名单互动：${relationshipUserName.value}已拉黑或删除${relationshipCharacterName.value}，${relationshipCharacterName.value}的普通消息会发送失败并显示感叹号，但${relationshipUserName.value}点击了“回复”让${relationshipCharacterName.value}继续行动。${relationshipCharacterName.value}可以按人设尝试发送消息，也可以在确实想恢复关系时用 relationshipAction.request_friend 重新申请${relationshipUserName.value}为好友；不要假装消息已正常送达。所有旁白只能使用${relationshipCharacterName.value}与${relationshipUserName.value}的真名。`
-      : `黑名单互动：${relationshipCharacterName.value}已拉黑或删除${relationshipUserName.value}，但${relationshipUserName.value}点击了“回复”让关系继续发展。请按${relationshipCharacterName.value}的人设决定保持边界、说出反应，或等待${relationshipUserName.value}通过正式好友验证恢复关系；不要把当前状态假装成正常好友聊天。所有旁白只能使用${relationshipCharacterName.value}与${relationshipUserName.value}的真名。`
+      ? `黑名单互动：${relationshipUserName.value}已拉黑或删除${relationshipCharacterName.value}，${relationshipCharacterName.value}的普通消息会发送失败并显示感叹号，但${relationshipUserName.value}点击了“回复”让${relationshipCharacterName.value}继续行动。${relationshipCharacterName.value}可以按人设尝试发送消息，也可以在确实想恢复关系时用 relationshipAction.request_friend 重新申请${relationshipUserName.value}为好友；不要假装消息已正常送达。`
+      : `黑名单互动：${relationshipCharacterName.value}已拉黑或删除${relationshipUserName.value}，但${relationshipUserName.value}点击了“回复”让关系继续发展。请按${relationshipCharacterName.value}的人设决定保持边界、说出反应，或等待${relationshipUserName.value}通过正式好友验证恢复关系；不要把当前状态假装成正常好友聊天。`
     : undefined;
   await store.requestRoleplayReply(props.id, {
     blockedInteraction,
@@ -1995,6 +2101,19 @@ function openTransferPanel() {
   showTransferPanel.value = true;
 }
 
+function openCommercePanel(kind: UserCommerceKind) {
+  if (chatActionLocked.value) return;
+  showActionMenu.value = false;
+  commerceKind.value = kind;
+  commerceStoreNameDraft.value = '';
+  commerceItemsDraft.value = '';
+  commerceAmountDraft.value = '';
+  commerceEtaDraft.value = '';
+  commerceNoteDraft.value = '';
+  commerceCardMessageDraft.value = '';
+  showCommercePanel.value = true;
+}
+
 function openMusicListenInvitePanel() {
   if (chatActionLocked.value) return;
   showActionMenu.value = false;
@@ -2030,6 +2149,27 @@ async function sendTransferMessage() {
   quoteTarget.value = null;
   showTransferPanel.value = false;
   await scrollMessagesToBottom();
+}
+
+async function sendCommerceMessage() {
+  if (!canSendCommerce.value || chatActionLocked.value) return;
+  releaseKeyboardScrollGuard();
+  try {
+    const userMessage = await store.appendUserCommerceMessage(props.id, {
+      kind: commerceKind.value,
+      storeName: commerceStoreNameDraft.value.trim(),
+      items: commerceItems.value,
+      totalAmount: normalizedCommerceAmount.value,
+      eta: commerceKind.value === 'takeout' ? commerceEtaDraft.value.trim() || undefined : undefined,
+      note: commerceNoteDraft.value.trim() || undefined,
+      cardMessage: commerceKind.value === 'gift' ? commerceCardMessageDraft.value.trim() || undefined : undefined
+    });
+    if (!userMessage) return;
+    showCommercePanel.value = false;
+    await scrollMessagesToBottom();
+  } catch (error) {
+    store.showConfigAlert(error instanceof Error ? error.message : '订单发送失败。', '无法发送订单');
+  }
 }
 
 async function respondToTransfer(messageId: string, status: Exclude<ChatTransferStatus, 'pending'>) {
@@ -2757,7 +2897,7 @@ function endCallFloatDrag(event: PointerEvent) {
 async function requestCallReply(replyInstruction: string, options: { captureCamera?: boolean } = {}) {
   const call = activeCall.value;
   if (!call || call.status !== 'active') return;
-  const instruction = `${callCanonicalIdentityInstruction.value}\n${replyInstruction}`;
+  const instruction = replyInstruction;
   if (options.captureCamera !== false) await appendCallCameraFrameContext(call, instruction);
   callStatusText.value = `正在等待 ${callPeerName.value} 回复`;
   callReplyQueue.value.push({
@@ -2880,7 +3020,7 @@ async function startOutgoingCall(mode: ChatCallMode) {
   const scene = mode === 'video' ? '视频通话' : '语音通话';
   await store.requestRoleplayReply(props.id, {
     callResponseTargetMessageId: callEvent.id,
-    replyInstruction: `${callCanonicalIdentityInstruction.value}\n${callUserAiName.value}刚刚在 LINK 里向${callCharacterAiName.value}拨打${scene}。这仍然是一轮正常线上聊天回复：请让${callCharacterAiName.value}像平时一样发送 text、voice、sticker、image、location、transfer 等消息气泡，但必须同时在 messageActions.callResponse 写 accepted、rejected、busy 或 missed 表示${callCharacterAiName.value}是否接听。不要输出来电理由或拒绝说明字段；只有 accepted 才表示进入通话。如果接听，不要把接通后的通话内容放进普通 messages，通话页会单独承接后续内容。`
+    replyInstruction: `${callUserAiName.value}刚刚在 LINK 里向${callCharacterAiName.value}拨打${scene}。这仍然是一轮正常线上聊天回复：请让${callCharacterAiName.value}像平时一样发送 text、voice、sticker、image、location、transfer 等消息气泡，但必须同时在 messageActions.callResponse 写 accepted、rejected、busy 或 missed 表示${callCharacterAiName.value}是否接听。不要输出来电理由或拒绝说明字段；只有 accepted 才表示进入通话。如果接听，不要把接通后的通话内容放进普通 messages，通话页会单独承接后续内容。`
   });
   if (!activeCall.value || activeCall.value.callId !== callId || activeCall.value.status !== 'outgoing-ringing') return;
   const latestCall = store.messages.find((message) => message.id === callEvent.id)?.call;
@@ -2972,7 +3112,7 @@ async function handleCallHangup() {
     store.cancelConversationReply(props.id);
     const scene = call.mode === 'video' ? '视频通话' : '语音通话';
     void store.requestRoleplayReply(props.id, {
-      replyInstruction: `${callCanonicalIdentityInstruction.value}\n${callUserAiName.value}刚刚向${callCharacterAiName.value}拨打${scene}，但在${callCharacterAiName.value}接听或拒绝前，${callUserAiName.value}已经主动取消了呼叫。请立刻终止“是否接听通话”的判断，把这当成线上聊天里一次未接通的小插曲，自然回应最近聊天；绝对不要说${callCharacterAiName.value}拒绝了、挂断了或接听了这次呼叫。`
+      replyInstruction: `${callUserAiName.value}刚刚向${callCharacterAiName.value}拨打${scene}，但在${callCharacterAiName.value}接听或拒绝前，${callUserAiName.value}已经主动取消了呼叫。请立刻终止“是否接听通话”的判断，把这当成线上聊天里一次未接通的小插曲，自然回应最近聊天；绝对不要说${callCharacterAiName.value}拒绝了、挂断了或接听了这次呼叫。`
     });
     return;
   }
@@ -3598,7 +3738,14 @@ function openModelSwitch() {
 function openDeleteFriendConfirm() {
   if (chatActionLocked.value) return;
   showActionMenu.value = false;
+  showPurgeFriendConfirm.value = false;
   showDeleteFriendConfirm.value = true;
+}
+
+function openPurgeFriendConfirm() {
+  if (deletingFriend.value || purgingFriend.value || chatActionLocked.value) return;
+  showDeleteFriendConfirm.value = false;
+  showPurgeFriendConfirm.value = true;
 }
 
 function openBlockFriendConfirm() {
@@ -3669,6 +3816,26 @@ async function confirmDeleteFriend() {
     store.showConfigAlert(`${relationshipUserName.value}已删除${relationshipCharacterName.value}，聊天记录和${relationshipCharacterName.value}的资料已保留。`, '删除完成');
   } finally {
     deletingFriend.value = false;
+  }
+}
+
+async function confirmPurgeFriend() {
+  const currentCharacter = character.value;
+  if (!currentCharacter || purgingFriend.value || chatActionLocked.value) return;
+  const userName = relationshipUserName.value;
+  const characterName = relationshipCharacterName.value;
+  purgingFriend.value = true;
+  try {
+    const purged = await purgeFriendData(currentCharacter.id);
+    if (!purged) throw new Error('好友资料不存在或已经被删除。');
+    showPurgeFriendConfirm.value = false;
+    writeComposerDraft(props.id, '');
+    await router.replace({ name: 'home' });
+    store.showConfigAlert(`${characterName}及其全部专属数据已彻底删除，无法恢复。`, '彻底删除完成');
+  } catch (error) {
+    store.showConfigAlert(error instanceof Error ? error.message : `无法彻底删除${characterName}，请稍后再试。`, '彻底删除失败');
+  } finally {
+    purgingFriend.value = false;
   }
 }
 
@@ -4980,6 +5147,7 @@ onBeforeUnmount(() => {
 }
 
 .transfer-send-panel,
+.commerce-send-panel,
 .narration-send-panel {
   display: grid;
   gap: 12px;
@@ -4988,6 +5156,7 @@ onBeforeUnmount(() => {
 }
 
 .transfer-panel-head,
+.commerce-panel-head,
 .narration-panel-head {
   display: flex;
   align-items: center;
@@ -4997,11 +5166,13 @@ onBeforeUnmount(() => {
 }
 
 .transfer-panel-head > div,
+.commerce-panel-head > div,
 .narration-panel-head > div {
   min-width: 0;
 }
 
 .transfer-panel-head p,
+.commerce-panel-head p,
 .narration-panel-head p {
   margin: 0 0 3px;
   color: #60646b;
@@ -5012,6 +5183,7 @@ onBeforeUnmount(() => {
 }
 
 .transfer-panel-head h3,
+.commerce-panel-head h3,
 .narration-panel-head h3 {
   margin: 0;
   color: #211f24;
@@ -5436,7 +5608,113 @@ onBeforeUnmount(() => {
   word-break: break-word;
 }
 
+.commerce-compose-preview {
+  display: grid;
+  justify-self: center;
+  width: min(286px, 100%);
+  overflow: hidden;
+  border: 1px solid rgba(12, 20, 28, 0.08);
+  border-radius: 14px;
+  background: #ffffff;
+  color: #111111;
+  box-shadow: 0 14px 34px rgba(26, 32, 38, 0.1);
+}
+
+.commerce-compose-head,
+.commerce-compose-payment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+}
+
+.commerce-compose-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: #303238;
+  font-size: 11px;
+  font-weight: 920;
+}
+
+.commerce-compose-head i {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: #f2e9e2;
+  font-size: 13px;
+  font-style: normal;
+}
+
+.commerce-compose-head em {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #f3f5f6;
+  color: #737983;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.commerce-compose-main {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 13px 14px 15px;
+  background: linear-gradient(135deg, rgba(228, 205, 190, 0.58), rgba(249, 244, 239, 0.94));
+}
+
+.commerce-compose-preview--gift .commerce-compose-main {
+  background: linear-gradient(135deg, rgba(232, 208, 218, 0.62), rgba(249, 242, 245, 0.94));
+}
+
+.commerce-compose-main small {
+  color: #8c6860;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.commerce-compose-main strong {
+  color: #342c2a;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.commerce-compose-main em {
+  color: #756b69;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.commerce-compose-payment {
+  border-top: 1px solid rgba(17, 17, 17, 0.06);
+  color: #737983;
+  font-size: 10px;
+}
+
+.commerce-compose-payment span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commerce-compose-payment strong {
+  flex: 0 0 auto;
+  color: #282226;
+  font-size: 15px;
+}
+
 .transfer-field,
+.commerce-field,
 .narration-field {
   display: grid;
   gap: 6px;
@@ -5444,6 +5722,7 @@ onBeforeUnmount(() => {
 }
 
 .transfer-field span,
+.commerce-field span,
 .narration-field span {
   color: #686b70;
   font-size: 12px;
@@ -5452,6 +5731,8 @@ onBeforeUnmount(() => {
 
 .transfer-field input,
 .transfer-field select,
+.commerce-field input,
+.commerce-field textarea,
 .narration-field textarea {
   width: 100%;
   min-width: 0;
@@ -5464,6 +5745,13 @@ onBeforeUnmount(() => {
   font: inherit;
 }
 
+.commerce-field textarea {
+  min-height: 64px;
+  padding: 9px 10px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
 .narration-field textarea {
   min-height: 118px;
   padding: 10px;
@@ -5472,6 +5760,7 @@ onBeforeUnmount(() => {
 }
 
 .transfer-actions-sheet,
+.commerce-actions,
 .narration-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -5479,17 +5768,20 @@ onBeforeUnmount(() => {
 }
 
 .transfer-actions-sheet button,
+.commerce-actions button,
 .narration-actions button {
   min-height: 40px;
 }
 
 .transfer-actions-sheet .primary-action,
+.commerce-actions .primary-action,
 .narration-actions .primary-action {
   background: #d8dce0;
   color: #202329;
 }
 
 .transfer-actions-sheet .primary-action:disabled,
+.commerce-actions .primary-action:disabled,
 .narration-actions .primary-action:disabled {
   background: #eceef1;
   color: #9ba1a8;
@@ -5990,49 +6282,22 @@ onBeforeUnmount(() => {
 
 .action-menu {
   display: grid;
-  gap: 16px;
+  gap: 9px;
   min-width: 0;
 }
 
-.action-menu-intro {
-  display: grid;
-  gap: 5px;
-  padding: 2px 3px 0;
-}
-
-.action-menu-intro small,
 .action-menu-group-title small {
   color: #9b7f88;
   font-size: 8px;
+  line-height: 1;
   font-weight: 900;
   letter-spacing: 0.13em;
 }
 
-.action-menu-intro strong {
-  color: #332e30;
-  font-size: 17px;
-  font-weight: 900;
-}
-
-.action-menu-intro > span {
-  color: #8a8184;
-  font-size: 10px;
-  line-height: 1.45;
-}
-
 .action-menu-group {
   display: grid;
-  gap: 8px;
+  gap: 5px;
   min-width: 0;
-  padding-top: 13px;
-  border-top: 1px solid rgba(64, 53, 57, 0.08);
-}
-
-.action-menu-group--relationship {
-  padding: 13px;
-  border: 1px solid rgba(134, 99, 111, 0.11);
-  border-radius: 18px;
-  background: linear-gradient(145deg, rgba(239, 221, 226, 0.76), rgba(230, 235, 226, 0.7));
 }
 
 .action-menu-group-title {
@@ -6042,31 +6307,10 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
-.action-menu-group-title > span {
-  display: grid;
-  gap: 3px;
-}
-
-.action-menu-group-title strong {
-  color: #484043;
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.action-menu-group-title em {
-  padding: 4px 7px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.62);
-  color: #846d75;
-  font-size: 8px;
-  font-style: normal;
-  font-weight: 900;
-}
-
 .action-menu-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .message-action-menu {
@@ -6153,6 +6397,52 @@ onBeforeUnmount(() => {
   line-height: 1.45;
 }
 
+.delete-confirm-sheet p strong {
+  color: #b42332;
+}
+
+.friend-delete-options {
+  display: grid;
+  gap: 8px;
+}
+
+.friend-delete-option {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(60, 66, 75, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #252930;
+  text-align: left;
+}
+
+.friend-delete-option strong {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.friend-delete-option span {
+  color: #69707a;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.friend-delete-option--purge {
+  border-color: rgba(188, 53, 69, 0.22);
+  background: rgba(255, 241, 243, 0.82);
+}
+
+.friend-delete-option--purge strong {
+  color: #b42332;
+}
+
+.friend-delete-cancel {
+  width: 100%;
+  min-height: 38px;
+}
+
 .delete-confirm-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -6230,8 +6520,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 58px;
-  padding: 8px 10px;
+  min-height: 44px;
+  padding: 6px 8px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.72);
   color: #202329;
@@ -6239,21 +6529,6 @@ onBeforeUnmount(() => {
   font-weight: 800;
   text-align: center;
   line-height: 1.2;
-}
-
-.action-menu-grid--relationship button {
-  align-content: center;
-  gap: 4px;
-  min-height: 66px;
-  background: rgba(255, 255, 255, 0.68);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.48);
-}
-
-.action-menu-grid--relationship button small {
-  color: #988b8f;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1.25;
 }
 
 .action-menu button span {

@@ -196,13 +196,14 @@ public class LinkUpdaterPlugin extends Plugin {
         PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         params.setAppPackageName(getContext().getPackageName());
         int sessionId = installer.createSession(params);
-        try (PackageInstaller.Session session = installer.openSession(sessionId);
-             InputStream input = new FileInputStream(apkFile);
-             OutputStream output = session.openWrite("babylink-update.apk", 0, apkFile.length())) {
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-            session.fsync(output);
+        try (PackageInstaller.Session session = installer.openSession(sessionId)) {
+            try (InputStream input = new FileInputStream(apkFile);
+                 OutputStream output = session.openWrite("babylink-update.apk", 0, apkFile.length())) {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+                session.fsync(output);
+            }
             Intent statusIntent = new Intent(getContext(), LinkUpdateInstallReceiver.class);
             statusIntent.setAction(getContext().getPackageName() + ".UPDATE_INSTALL_STATUS");
             int flags = PendingIntent.FLAG_UPDATE_CURRENT;

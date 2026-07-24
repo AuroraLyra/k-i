@@ -3,18 +3,18 @@
     <header class="top-bar fanfic-topbar">
       <button class="fanfic-wordmark" type="button" aria-label="返回主页" @click="goHome">
         <span>Fanfic</span>
-        <small>stories for two</small>
+        <small>stories about you two</small>
       </button>
       <div class="fanfic-actions">
-        <button class="round-action" type="button" aria-label="搜索小说" @click="showSearch = !showSearch"><Search :size="18" /></button>
-        <button class="round-action primary" type="button" aria-label="新建小说" @click="createBook"><Plus :size="20" /></button>
+        <button class="round-action" type="button" aria-label="搜索同人文" @click="showSearch = !showSearch"><Search :size="18" /></button>
+        <button class="round-action primary" type="button" aria-label="新建同人文" @click="createBook"><Plus :size="20" /></button>
       </div>
     </header>
 
     <main class="fanfic-main">
       <label v-if="showSearch" class="search-panel">
         <Search :size="15" />
-        <input v-model="searchText" autofocus placeholder="搜索书名、作者或题材" />
+        <input v-model="searchText" autofocus placeholder="搜索同人文、作者或题材" />
         <button v-if="searchText" type="button" aria-label="清空搜索" @click="searchText = ''"><X :size="14" /></button>
       </label>
 
@@ -48,7 +48,7 @@
 
       <section class="library-section">
         <header class="section-head">
-          <span><small>MY LIBRARY</small><strong>{{ searchText ? '搜索结果' : '双人书架' }}</strong></span>
+          <span><small>MY FANWORKS</small><strong>{{ searchText ? '搜索结果' : '同人书架' }}</strong></span>
           <em>{{ filteredBooks.length }} 本</em>
         </header>
 
@@ -66,9 +66,9 @@
         <section v-else class="empty-library">
           <span class="empty-mark"><BookHeart :size="30" /></span>
           <small>YOUR FIRST STORY</small>
-          <h2>{{ searchText ? '没有找到这本故事' : '把你们写进全新的世界' }}</h2>
-          <p>{{ searchText ? '换一个关键词，或回到书架继续阅读。' : '只保留双方真名与抽象人物气质，所有背景、剧情和设定都从零原创。' }}</p>
-          <button v-if="!searchText" type="button" @click="createBook"><Sparkles :size="15" /> 创建第一本小说</button>
+          <h2>{{ searchText ? '没有找到这篇同人文' : '把你和角色写进全新的世界' }}</h2>
+          <p>{{ searchText ? '换一个关键词，或回到书架继续阅读。' : '每篇作品都明确属于用户与所选角色；双方设定与角色绑定的局部世界书仅供创作参考，AU 背景与剧情由模型重新创作。' }}</p>
+          <button v-if="!searchText" type="button" @click="createBook"><Sparkles :size="15" /> 创建第一篇同人文</button>
         </section>
       </section>
     </main>
@@ -101,7 +101,7 @@ const filteredBooks = computed(() => {
   return activeUserBooks.value.filter((book) => [book.title, book.authorName, book.genre, book.topicTitle, ...book.tags].some((value) => value.toLocaleLowerCase().includes(keyword)));
 });
 const continueBook = computed(() => activeUserBooks.value.find((book) => fanficStore.chaptersForBook(book.id).length) ?? null);
-const featuredTopicTitles = ['女官', '现代先婚后爱', '魔法校园', '星际军校', '末世基建流', '法医言情'];
+const featuredTopicTitles = ['规则怪谈', '历史经营', '魔法校园', '星际军校', '末世基建流', '职场搞事业'];
 const featuredTopics = computed(() => {
   const curatedTopics = featuredTopicTitles
     .map((title) => fanficStore.builtInTopics.find((topic) => topic.title === title))
@@ -171,13 +171,15 @@ function continueReading(book: FanficBook) {
 .section-head > em { color: #a29698; font-size: 9px; font-style: normal; }
 .topic-scroller { display: flex; gap: 10px; margin: 0 -16px; padding: 2px 16px 12px; overflow-x: auto; scrollbar-width: none; }
 .topic-scroller::-webkit-scrollbar { display: none; }
-.book-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 12px; }
-.book-card { display: grid; gap: 9px; min-width: 0; }
-.book-copy { display: grid; gap: 4px; padding: 0 3px; }
-.book-copy strong { overflow: hidden; font-family: Georgia, "Songti SC", serif; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.book-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 8px; }
+.book-card { display: grid; gap: 7px; min-width: 0; }
+.book-card :deep(.fanfic-cover) { border-radius: 14px; }
+.book-card :deep(.fanfic-cover > em) { top: 7px; right: 7px; padding: 4px 6px; font-size: 7px; }
+.book-copy { display: grid; gap: 3px; padding: 0 2px; }
+.book-copy strong { overflow: hidden; font-family: Georgia, "Songti SC", serif; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .book-copy small { color: #948a8c; font-size: 8px; }
-.book-copy > span { display: flex; gap: 4px; overflow: hidden; }
-.book-copy em { flex: 0 0 auto; padding: 3px 6px; border-radius: 999px; background: #eee9e5; color: #897d7f; font-size: 7px; font-style: normal; }
+.book-copy > span { display: flex; gap: 3px; overflow: hidden; }
+.book-copy em { flex: 0 0 auto; padding: 2px 5px; border-radius: 999px; background: #eee9e5; color: #897d7f; font-size: 6px; font-style: normal; }
 .empty-library { display: grid; place-items: center; gap: 8px; padding: 42px 22px; border: 1px dashed rgba(104, 90, 93, 0.18); border-radius: 28px; background: rgba(255, 255, 255, 0.44); text-align: center; }
 .empty-mark { display: grid; place-items: center; width: 58px; height: 58px; margin-bottom: 5px; border-radius: 22px; background: #f0e2e5; color: #836a70; transform: rotate(-4deg); }
 .empty-library > small { color: #a48d91; font-size: 8px; font-weight: 900; letter-spacing: .17em; }

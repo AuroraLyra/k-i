@@ -1,4 +1,4 @@
-import type { CharacterProfile, CoupleActivityCategory, CoupleAppUsageRecord, CoupleDeviceScreenStatus, CoupleFootprintRecord, CoupleGalleryRecord, CoupleLifeRecord, CoupleMomentRecord, CoupleNetworkRecord, CoupleNoteRecord, CoupleNotificationRecord, CouplePhoneChatRecord, CoupleRouteStop, CoupleSpaceSnapshot, CoupleSpaceState, CoupleWishNote, UserProfile } from '@/types/domain';
+import type { CoupleActivityCategory, CoupleAppUsageRecord, CoupleDeviceScreenStatus, CoupleFootprintRecord, CoupleGalleryRecord, CoupleLifeRecord, CoupleMomentRecord, CoupleNetworkRecord, CoupleNoteRecord, CoupleNotificationRecord, CouplePhoneChatRecord, CoupleRouteStop, CoupleSpaceSnapshot, CoupleSpaceState, CoupleWishNote } from '@/types/domain';
 
 const routeKinds = new Set<CoupleRouteStop['kind']>(['start', 'pass', 'stay', 'arrival']);
 const activityCategories = new Set<CoupleActivityCategory>(['sleep', 'home', 'travel', 'work', 'meal', 'social', 'errand', 'leisure']);
@@ -13,11 +13,6 @@ const fallbackGalleryPalettes: Array<[string, string]> = [
   ['#ffe0c9', '#f6cbd8'],
   ['#d7dcfb', '#c9edf0']
 ];
-
-export interface CoupleSpaceIdentityAliases {
-  character: string[];
-  user: string[];
-}
 
 function text(value: unknown, fallback = '') {
   return String(value ?? '').trim() || fallback;
@@ -255,83 +250,6 @@ export function normalizeCoupleSpaceSnapshot(input: unknown, generatedAt = Date.
     },
     moments: normalizeMoments(source.moments)
   };
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function uniqueCoupleIdentityAliases(canonicalName: string, aliases: Array<string | null | undefined>) {
-  const canonicalKey = canonicalName.trim().toLocaleLowerCase();
-  const seen = new Set<string>();
-  return aliases
-    .map((alias) => String(alias ?? '').trim())
-    .filter((alias) => {
-      const key = alias.toLocaleLowerCase();
-      if (alias.length < 2 || key === canonicalKey || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-}
-
-export function createCoupleSpaceIdentityAliases(character: CharacterProfile | null | undefined, ...users: Array<UserProfile | null | undefined>): CoupleSpaceIdentityAliases {
-  const characterHistoryAliases = character?.profileHistory?.flatMap((entry) => entry.field === 'nickname'
-    ? [entry.previousValue, entry.nextValue]
-    : []) ?? [];
-  return {
-    character: [
-      character?.nickname,
-      character?.userNote,
-      character?.initialProfile?.nickname,
-      character?.profile?.nickname,
-      character?.profile?.handle,
-      ...characterHistoryAliases
-    ].map((alias) => String(alias ?? '').trim()).filter(Boolean),
-    user: [
-      character?.boundUserProfile?.nickname,
-      character?.boundUserProfile?.handle,
-      ...users.flatMap((user) => [user?.nickname, user?.profile?.nickname, user?.profile?.handle])
-    ].map((alias) => String(alias ?? '').trim()).filter(Boolean)
-  };
-}
-
-function createCoupleIdentityAliasReplacements(characterName: string, userName: string, aliases: Partial<CoupleSpaceIdentityAliases>) {
-  const candidates = [
-    ...uniqueCoupleIdentityAliases(characterName, aliases.character ?? []).map((alias) => ({ alias, canonicalName: characterName })),
-    ...uniqueCoupleIdentityAliases(userName, aliases.user ?? []).map((alias) => ({ alias, canonicalName: userName }))
-  ];
-  const owners = new Map<string, Set<string>>();
-  candidates.forEach(({ alias, canonicalName }) => {
-    const key = alias.toLocaleLowerCase();
-    const names = owners.get(key) ?? new Set<string>();
-    names.add(canonicalName);
-    owners.set(key, names);
-  });
-  return candidates
-    .filter(({ alias }) => owners.get(alias.toLocaleLowerCase())?.size === 1)
-    .sort((left, right) => right.alias.length - left.alias.length);
-}
-
-function normalizeCoupleIdentityText(value: string, characterName: string, userName: string, replacements: Array<{ alias: string; canonicalName: string }>) {
-  const withCanonicalTokens = value
-    .replace(/\{\{char\}\}/gi, () => characterName)
-    .replace(/\{\{user\}\}/gi, () => userName);
-  return replacements.reduce((text, replacement) => text.replace(
-    new RegExp(escapeRegExp(replacement.alias), 'gi'),
-    () => replacement.canonicalName
-  ), withCanonicalTokens);
-}
-
-function normalizeCoupleIdentityValue(value: unknown, characterName: string, userName: string, replacements: Array<{ alias: string; canonicalName: string }>): unknown {
-  if (typeof value === 'string') return normalizeCoupleIdentityText(value, characterName, userName, replacements);
-  if (Array.isArray(value)) return value.map((item) => normalizeCoupleIdentityValue(item, characterName, userName, replacements));
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeCoupleIdentityValue(item, characterName, userName, replacements)]));
-}
-
-export function normalizeCoupleSpaceIdentityReferences(snapshot: CoupleSpaceSnapshot, characterName: string, userName: string, aliases: Partial<CoupleSpaceIdentityAliases> = {}) {
-  const replacements = createCoupleIdentityAliasReplacements(characterName, userName, aliases);
-  return normalizeCoupleIdentityValue(snapshot, characterName, userName, replacements) as CoupleSpaceSnapshot;
 }
 
 function normalizeWishes(input: unknown): CoupleWishNote[] {

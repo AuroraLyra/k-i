@@ -1,5 +1,5 @@
 <template>
-  <section v-if="conversation && character" class="screen no-tabs profile-theme-page">
+  <section v-if="conversation && character" class="screen no-tabs profile-theme-page profile-theme-ins-view">
     <header class="top-bar profile-theme-topbar">
       <button class="profile-theme-title-button" type="button" aria-label="返回聊天" @click="goBack">
         <h1 class="top-title">Profile Themes</h1>
@@ -19,70 +19,104 @@
 
     <main class="profile-theme-main">
       <section class="profile-theme-panel">
-        <section v-if="activeTab === 'themes'" class="profile-theme-section" aria-label="主页主题管理">
-        <header class="profile-theme-section-head">
-          <div>
-            <p class="section-kicker">Random Pool</p>
-            <h2>主页主题池</h2>
-          </div>
-          <span class="section-count">{{ enabledThemes.length }}/{{ themes.length }}</span>
-        </header>
-
-        <article
-          v-for="theme in themes"
-          :key="theme.id"
-          class="profile-theme-card"
-          :class="{ disabled: !theme.enabled }"
-          role="button"
-          tabindex="0"
-          @click="openEditTheme(theme)"
-          @keydown.enter.prevent="openEditTheme(theme)"
-          @keydown.space.prevent="openEditTheme(theme)"
-        >
-          <button class="theme-switch" :class="{ active: theme.enabled }" type="button" role="switch" :aria-checked="theme.enabled" @click.stop="toggleTheme(theme)">
-            <span></span>
-          </button>
-          <div class="theme-copy">
-            <strong>{{ theme.name }}</strong>
-            <small>{{ theme.builtIn ? '默认 Mood 主题' : theme.source === 'imported' ? 'PNG 导入主题' : '自定义主题' }}</small>
-          </div>
-          <span class="theme-meta">{{ countPromptLines(theme.prompt) }} 行提示</span>
-        </article>
-
-        <section v-if="!themes.length" class="profile-theme-empty">
-          <Sparkles :size="28" />
-          <h2>还没有主页主题</h2>
-          <p>新增主题后，角色每次回复会从启用主题里随机选择一个更新主页。</p>
-          <button type="button" @click="openCreator">新增主题</button>
-        </section>
-        </section>
-
-        <section v-else class="profile-theme-section" aria-label="生成主页">
-          <header class="profile-theme-section-head">
+        <section v-if="activeTab === 'themes'" class="profile-theme-section theme-library-section" aria-label="主页主题管理">
+          <header class="profile-theme-section-head theme-library-head">
             <div>
-              <p class="section-kicker">Homepages</p>
-              <h2>生成主页</h2>
+              <p class="section-kicker">Theme Library</p>
+              <h2>主题管理</h2>
+              <p class="theme-library-intro">收藏角色主页的每一种氛围。</p>
             </div>
-            <span class="section-count">{{ homepages.length }}</span>
+            <span class="section-count theme-library-count">
+              <strong>{{ enabledThemes.length }}</strong>
+              <small>of {{ themes.length }} active</small>
+            </span>
           </header>
 
-          <article v-for="homepage in homepages" :key="homepage.id" class="homepage-record-card">
-            <button class="homepage-record-main" type="button" @click="openHomepagePreview(homepage.id)">
-              <span class="homepage-record-copy">
-                <strong>{{ homepage.themeName }}</strong>
-                <small>{{ formatHomepageTime(homepage.updatedAt || homepage.createdAt) }}</small>
-                <em>{{ homepagePreviewText(homepage) }}</em>
-              </span>
-            </button>
-            <button class="homepage-record-delete" type="button" aria-label="删除生成主页" title="删除" @click="deleteHomepage(homepage.id)">
-              <X :size="17" stroke-width="2.5" />
-            </button>
-          </article>
+          <div v-if="themes.length" class="theme-library-grid">
+            <article
+              v-for="(theme, index) in themes"
+              :key="theme.id"
+              class="profile-theme-card"
+              :class="{ disabled: !theme.enabled }"
+              role="button"
+              tabindex="0"
+              @click="openEditTheme(theme)"
+              @keydown.enter.prevent="openEditTheme(theme)"
+              @keydown.space.prevent="openEditTheme(theme)"
+            >
+              <span class="theme-card-number">{{ formatThemeSequence(index) }}</span>
+              <div class="theme-copy">
+                <small>{{ theme.builtIn ? 'Original theme' : theme.source === 'imported' ? 'Imported archive' : 'Personal archive' }}</small>
+                <strong>{{ theme.name }}</strong>
+                <span class="theme-card-meta">
+                  {{ countPromptLines(theme.prompt) }} lines
+                  <i></i>
+                  {{ theme.enabled ? 'In rotation' : 'Paused' }}
+                </span>
+              </div>
+              <button class="theme-switch" :class="{ active: theme.enabled }" type="button" role="switch" :aria-label="`${theme.name}随机生成`" :aria-checked="theme.enabled" @click.stop="toggleTheme(theme)">
+                <span></span>
+              </button>
+              <span class="theme-card-open" aria-hidden="true"><ArrowUpRight :size="15" stroke-width="2" /></span>
+            </article>
+          </div>
 
-          <section v-if="!homepages.length" class="profile-theme-empty">
-            <PanelsTopLeft :size="28" />
-            <h2>还没有生成主页</h2>
-            <p>启用自定义主页主题后，角色线上回复会把生成结果保存到这里。</p>
+          <section v-else class="profile-theme-empty theme-library-empty">
+            <div class="theme-library-empty-art" aria-hidden="true"><Sparkles :size="23" stroke-width="1.6" /></div>
+            <p class="theme-library-empty-kicker">Build your collection</p>
+            <h2>收藏第一种氛围</h2>
+            <p>新增主题后，角色回复时会从启用的收藏里随机选择并更新主页。</p>
+            <button type="button" @click="openCreator">新增主题</button>
+          </section>
+        </section>
+
+        <section v-else class="profile-theme-section homepage-archive-section" aria-label="生成主页时间轴">
+          <header class="profile-theme-section-head homepage-archive-head">
+            <div>
+              <p class="section-kicker">Private Archive</p>
+              <h2>生成主页</h2>
+              <p class="homepage-archive-intro">每一次回应，都是主页新的一页。</p>
+            </div>
+            <span class="section-count homepage-archive-count">
+              <strong>{{ homepages.length }}</strong>
+              <small>entries</small>
+            </span>
+          </header>
+
+          <div v-if="homepages.length" class="homepage-timeline">
+            <article v-for="(homepage, index) in homepages" :key="homepage.id" class="homepage-timeline-item">
+              <div class="homepage-timeline-stamp" aria-hidden="true">
+                <span>{{ formatHomepageMonth(homepage.updatedAt || homepage.createdAt) }}</span>
+                <strong>{{ formatHomepageDay(homepage.updatedAt || homepage.createdAt) }}</strong>
+                <i></i>
+              </div>
+              <div class="homepage-record-card">
+                <button class="homepage-record-main" type="button" @click="openHomepagePreview(homepage.id)">
+                  <span class="homepage-record-copy">
+                    <small>PAGE {{ formatHomepageSequence(index) }}</small>
+                    <strong>{{ homepage.themeName }}</strong>
+                    <em>{{ homepagePreviewText(homepage) }}</em>
+                  </span>
+                  <span class="homepage-record-footer">
+                    <time>{{ formatHomepageClock(homepage.updatedAt || homepage.createdAt) }}</time>
+                    <span class="homepage-record-open">View homepage <ArrowUpRight :size="14" stroke-width="2" /></span>
+                  </span>
+                </button>
+                <button class="homepage-record-delete" type="button" aria-label="删除生成主页" title="删除" @click="deleteHomepage(homepage.id)">
+                  <Trash2 :size="15" stroke-width="2" />
+                </button>
+              </div>
+            </article>
+          </div>
+
+          <section v-else class="profile-theme-empty homepage-timeline-empty">
+            <div class="homepage-empty-art" aria-hidden="true">
+              <span><Sparkles :size="22" stroke-width="1.6" /></span>
+            </div>
+            <p class="homepage-empty-kicker">Your story starts here</p>
+            <h2>等待第一张主页</h2>
+            <p>开启自定义主题后，每次线上回复生成的主页，都会按时间收进这本私人档案。</p>
+            <button type="button" @click="setActiveTab('themes')">去开启主题</button>
           </section>
         </section>
       </section>
@@ -99,7 +133,7 @@
       </button>
     </nav>
 
-    <AppModal v-model="showEditor" title="编辑主页主题" variant="ins">
+    <AppModal v-model="showEditor" title="编辑主页主题" eyebrow="PROFILE ARCHIVE" variant="profile-theme">
       <form class="profile-theme-editor" @submit.prevent="submitEditor">
         <label>
           <span>主题名称</span>
@@ -129,7 +163,7 @@
       </form>
     </AppModal>
 
-    <AppModal v-model="showCreator" title="添加主页主题" :show-header="false" fixed-height variant="ins">
+    <AppModal v-model="showCreator" title="添加主页主题" :show-header="false" fixed-height variant="profile-theme">
       <form class="profile-theme-editor profile-theme-creator" @submit.prevent="submitCreator">
         <section class="composer-hero">
           <span class="composer-avatar"><component :is="creatorTab === 'theme' ? Plus : Upload" :size="26" /></span>
@@ -185,7 +219,7 @@
       </form>
     </AppModal>
 
-    <AppModal v-model="showExporter" title="分享主页主题" :show-header="false" fixed-height variant="ins">
+    <AppModal v-model="showExporter" title="分享主页主题" :show-header="false" fixed-height variant="profile-theme">
       <section class="profile-theme-exporter style-export-composer">
         <section class="composer-hero">
           <span class="composer-avatar"><Share2 :size="26" /></span>
@@ -216,13 +250,13 @@
       </section>
     </AppModal>
 
-    <AppModal v-model="showHomepagePreview" title="生成主页预览" :show-header="false" variant="profile-ins">
+    <AppModal v-model="showHomepagePreview" title="生成主页预览" :show-header="false" variant="profile-theme">
       <section v-if="selectedHomepage" class="homepage-preview-sheet">
         <div class="homepage-preview-body" :data-profile-theme-scope="homepageScopeId(selectedHomepage)" v-html="homepageHtml(selectedHomepage)"></div>
       </section>
     </AppModal>
 
-    <AppModal v-model="showHomepageCleanupSettings" title="主页清理" variant="ins">
+    <AppModal v-model="showHomepageCleanupSettings" title="主页清理" eyebrow="PROFILE ARCHIVE" variant="profile-theme">
       <section class="homepage-cleanup-panel">
         <section class="cleanup-character-card single-character">
           <div class="cleanup-character-top">
@@ -298,7 +332,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ListChecks, PanelsTopLeft, Plus, Share2, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-vue-next';
+import { ArrowUpRight, ListChecks, PanelsTopLeft, Plus, Share2, SlidersHorizontal, Sparkles, Trash2, Upload } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import { pickNativePngFile, shareNativeDataUrl } from '@/services/nativeFile';
 import { useAppStore } from '@/stores/appStore';
@@ -343,9 +377,8 @@ const cleanupPresetOptions: Array<{ preset: ProfileHomepageAutoCleanupPreset; la
   { preset: 'custom', label: '自定义', days: 14 }
 ];
 
-const homepageTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
-  month: '2-digit',
-  day: '2-digit',
+const homepageMonthFormatter = new Intl.DateTimeFormat('en-US', { month: 'short' });
+const homepageClockFormatter = new Intl.DateTimeFormat('zh-CN', {
   hour: '2-digit',
   minute: '2-digit',
   hourCycle: 'h23'
@@ -440,6 +473,10 @@ function countPromptLines(value: string) {
   return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).length || 1;
 }
 
+function formatThemeSequence(index: number) {
+  return String(index + 1).padStart(2, '0');
+}
+
 function normalizeHomepageCleanupDays(value: unknown) {
   return Math.min(3650, Math.max(1, Math.round(Number(value) || 1)));
 }
@@ -482,9 +519,23 @@ function homepageCleanupCountForDays(days: number) {
   return homepages.value.filter((homepage) => (homepage.updatedAt || homepage.createdAt) < cutoff).length;
 }
 
-function formatHomepageTime(timestamp: number) {
+function formatHomepageMonth(timestamp: number) {
+  if (!timestamp) return '--';
+  return homepageMonthFormatter.format(new Date(timestamp)).toUpperCase();
+}
+
+function formatHomepageDay(timestamp: number) {
+  if (!timestamp) return '--';
+  return String(new Date(timestamp).getDate()).padStart(2, '0');
+}
+
+function formatHomepageClock(timestamp: number) {
   if (!timestamp) return '未知时间';
-  return homepageTimeFormatter.format(new Date(timestamp));
+  return homepageClockFormatter.format(new Date(timestamp));
+}
+
+function formatHomepageSequence(index: number) {
+  return String(Math.max(1, homepages.value.length - index)).padStart(2, '0');
 }
 
 function homepagePreviewText(homepage: ProfileHomepageRecord) {
@@ -811,6 +862,13 @@ async function exportSelectedThemes() {
   color: #111111;
 }
 
+.profile-theme-page.profile-theme-ins-view {
+  background:
+    radial-gradient(circle at 88% 3%, rgba(234, 214, 204, 0.36), transparent 25%),
+    linear-gradient(180deg, #f8f5f0 0%, #f6f3ee 58%, #f9f7f3 100%);
+  color: #302b29;
+}
+
 .profile-theme-topbar {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -818,6 +876,10 @@ async function exportSelectedThemes() {
   padding: calc(8px + var(--safe-top)) calc(12px + var(--safe-right)) 8px calc(12px + var(--safe-left));
   background: rgba(246, 248, 247, 0.94);
   backdrop-filter: blur(18px);
+}
+
+.profile-theme-ins-view .profile-theme-topbar {
+  background: rgba(248, 245, 240, 0.88);
 }
 
 .profile-theme-title-button,
@@ -875,12 +937,26 @@ async function exportSelectedThemes() {
   width: 100%;
 }
 
+.homepage-archive-section {
+  gap: 16px;
+}
+
 .profile-theme-section-head {
   display: flex;
   align-items: end;
   justify-content: space-between;
   gap: 12px;
   padding: 4px 2px 6px;
+}
+
+.homepage-archive-head {
+  align-items: start;
+  padding: 10px 4px 8px;
+}
+
+.homepage-archive-head > div {
+  display: grid;
+  gap: 2px;
 }
 
 .section-kicker,
@@ -899,13 +975,36 @@ async function exportSelectedThemes() {
   color: #7b838c;
   font-size: 10px;
   font-weight: 900;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.homepage-archive-head .section-kicker {
+  color: #a68e83;
+  font-size: 8px;
+  letter-spacing: 0.2em;
 }
 
 .profile-theme-section-head h2 {
   margin-top: 2px;
   font-size: 18px;
   font-weight: 900;
+}
+
+.homepage-archive-head h2 {
+  margin-top: 1px;
+  color: #302b29;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+.homepage-archive-intro {
+  margin: 4px 0 0;
+  color: #9b8f88;
+  font-size: 10px;
+  letter-spacing: 0.04em;
 }
 
 .section-count {
@@ -920,32 +1019,253 @@ async function exportSelectedThemes() {
   font-weight: 900;
 }
 
-.profile-theme-card {
+.homepage-archive-count {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0;
+  width: 56px;
+  height: 56px;
+  border: 1px solid rgba(123, 100, 89, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: 0 12px 30px rgba(87, 68, 59, 0.06);
+}
+
+.homepage-archive-count strong {
+  color: #4a403b;
+  font-family: Georgia, serif;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.homepage-archive-count small {
+  color: #ad9a90;
+  font-size: 6px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.theme-library-section {
+  gap: 16px;
+}
+
+.theme-library-head {
+  align-items: start;
+  padding: 10px 4px 8px;
+}
+
+.theme-library-head > div {
+  display: grid;
+  gap: 2px;
+}
+
+.theme-library-head .section-kicker {
+  color: #9a887f;
+  font-size: 8px;
+  letter-spacing: 0.2em;
+}
+
+.theme-library-head h2 {
+  margin-top: 1px;
+  color: #302b29;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+.theme-library-intro {
+  margin: 4px 0 0;
+  color: #9b8f88;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.theme-library-count {
+  display: grid;
+  gap: 0;
+  width: 62px;
+  height: 56px;
+  border: 1px solid rgba(123, 100, 89, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: 0 12px 30px rgba(87, 68, 59, 0.06);
+}
+
+.theme-library-count strong {
+  color: #4a403b;
+  font-family: Georgia, serif;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.theme-library-count small {
+  color: #ad9a90;
+  font-size: 6px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.theme-library-grid {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 24px;
+}
+
+.profile-theme-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  min-height: 68px;
-  padding: 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 10px 26px rgba(27, 37, 32, 0.05);
+  gap: 14px;
+  min-height: 116px;
+  padding: 17px 56px 17px 17px;
+  overflow: hidden;
+  border: 1px solid rgba(131, 105, 93, 0.075);
+  border-radius: 28px 28px 10px 28px;
+  background:
+    radial-gradient(circle at 94% 8%, rgba(229, 208, 198, 0.54), transparent 27%),
+    rgba(255, 255, 255, 0.74);
+  box-shadow: 0 16px 36px rgba(81, 63, 55, 0.07);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.profile-theme-card:nth-child(3n + 2) {
+  background:
+    radial-gradient(circle at 94% 8%, rgba(215, 220, 207, 0.58), transparent 27%),
+    rgba(255, 255, 255, 0.74);
+}
+
+.profile-theme-card:nth-child(3n) {
+  background:
+    radial-gradient(circle at 94% 8%, rgba(224, 215, 204, 0.58), transparent 27%),
+    rgba(255, 255, 255, 0.74);
+}
+
+.profile-theme-card::before {
+  content: '';
+  position: absolute;
+  right: 16px;
+  bottom: -18px;
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(143, 117, 105, 0.1);
+  border-radius: 50%;
+}
+
+.profile-theme-card:active {
+  transform: scale(0.99);
 }
 
 .profile-theme-card.disabled {
-  opacity: 0.58;
+  opacity: 0.62;
+}
+
+.theme-card-number {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 52px;
+  border-right: 1px solid rgba(131, 105, 93, 0.11);
+  color: #a98f83;
+  font-family: Georgia, serif;
+  font-size: 16px;
+}
+
+.theme-card-open {
+  position: absolute;
+  right: 18px;
+  bottom: 15px;
+  display: grid;
+  place-items: center;
+  color: #9d887e;
+}
+
+.homepage-timeline {
+  position: relative;
+  display: grid;
+  gap: 18px;
+  padding: 4px 0 24px;
+}
+
+.homepage-timeline::before {
+  content: '';
+  position: absolute;
+  top: 15px;
+  bottom: 12px;
+  left: 27px;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(170, 145, 132, 0.16), rgba(170, 145, 132, 0.46) 16%, rgba(170, 145, 132, 0.16));
+}
+
+.homepage-timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.homepage-timeline-stamp {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 0;
+  padding-top: 8px;
+  color: #76655c;
+}
+
+.homepage-timeline-stamp span {
+  color: #ab958a;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+}
+
+.homepage-timeline-stamp strong {
+  font-family: Georgia, serif;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.homepage-timeline-stamp i {
+  width: 7px;
+  height: 7px;
+  margin-top: 7px;
+  border: 2px solid #f8f5f0;
+  border-radius: 50%;
+  background: #c8aa9b;
+  box-shadow: 0 0 0 1px rgba(155, 126, 113, 0.24);
 }
 
 .homepage-record-card {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-  min-height: 76px;
-  padding: 11px 34px 11px 11px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 10px 26px rgba(27, 37, 32, 0.05);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(131, 105, 93, 0.08);
+  border-radius: 25px 25px 25px 8px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(229, 210, 200, 0.36), transparent 30%),
+    rgba(255, 255, 255, 0.76);
+  box-shadow: 0 16px 36px rgba(81, 63, 55, 0.075);
+}
+
+.homepage-record-card::after {
+  content: '';
+  position: absolute;
+  top: -22px;
+  right: 34px;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(154, 126, 113, 0.1);
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 .homepage-record-main,
@@ -959,12 +1279,11 @@ async function exportSelectedThemes() {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: stretch;
+  gap: 15px;
   width: 100%;
-  min-height: 54px;
+  min-height: 132px;
   min-width: 0;
-  padding: 0;
+  padding: 18px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -972,55 +1291,89 @@ async function exportSelectedThemes() {
 
 .homepage-record-copy {
   display: grid;
-  gap: 3px;
+  align-content: start;
+  gap: 5px;
   min-width: 0;
 }
 
 .homepage-record-copy strong,
-.homepage-record-copy small,
 .homepage-record-copy em {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .homepage-record-copy strong {
-  color: #151719;
-  font-size: 14px;
-  font-weight: 900;
+  color: #3b3230;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
 }
 
 .homepage-record-copy small {
-  color: #8a928c;
-  font-size: 11px;
-  font-weight: 760;
+  color: #b09285;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
 }
 
 .homepage-record-copy em {
-  color: #5f676f;
-  font-size: 12px;
+  display: -webkit-box;
+  color: #8b7e78;
+  font-size: 10px;
   font-style: normal;
-  line-height: 1.35;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.homepage-record-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(126, 101, 90, 0.09);
+}
+
+.homepage-record-footer time {
+  color: #a79992;
+  font-family: Georgia, serif;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.homepage-record-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #705d55;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
 }
 
 .homepage-record-delete {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: 10px;
+  right: 10px;
   z-index: 2;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border-radius: 999px;
-  background: transparent;
-  color: #8a928c;
+  background: rgba(255, 255, 255, 0.54);
+  color: #b19e95;
 }
 
 .homepage-record-delete:active {
-  background: rgba(17, 17, 17, 0.06);
-  color: #202329;
+  background: rgba(131, 99, 87, 0.1);
+  color: #755f56;
 }
 
 .profile-theme-bottom-tabs {
@@ -1035,6 +1388,11 @@ async function exportSelectedThemes() {
   background: rgba(255, 255, 255, 0.96);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
+}
+
+.profile-theme-ins-view .profile-theme-bottom-tabs {
+  border-top-color: rgba(99, 77, 67, 0.05);
+  background: rgba(253, 251, 248, 0.94);
 }
 
 .profile-theme-bottom-tabs button {
@@ -1059,6 +1417,11 @@ async function exportSelectedThemes() {
   color: #111111;
 }
 
+.profile-theme-ins-view .profile-theme-bottom-tabs button.active {
+  background: #efe5df;
+  color: #4e403a;
+}
+
 .profile-theme-bottom-tabs span {
   max-width: 100%;
   overflow: hidden;
@@ -1068,18 +1431,25 @@ async function exportSelectedThemes() {
 
 .homepage-preview-sheet {
   display: grid;
+  padding: 5px;
+  border: 1px solid rgba(133, 106, 94, 0.08);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 18px 44px rgba(72, 54, 47, 0.08);
   color: #111111;
 }
 
 .homepage-preview-body {
   min-width: 0;
   overflow: hidden;
+  border-radius: 22px;
+  background: #ffffff;
 }
 
 .homepage-cleanup-panel {
   display: grid;
-  gap: 12px;
-  color: #151719;
+  gap: 10px;
+  color: #443a36;
 }
 
 .cleanup-manual-card,
@@ -1087,14 +1457,16 @@ async function exportSelectedThemes() {
   display: grid;
   gap: 10px;
   min-width: 0;
-  padding: 13px 0;
-  border-top: 1px solid rgba(17, 17, 17, 0.06);
-  background: transparent;
+  padding: 14px;
+  border: 1px solid rgba(128, 100, 88, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 12px 30px rgba(75, 56, 48, 0.045);
 }
 
 .cleanup-character-card.single-character {
-  padding-top: 0;
-  border-top: 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(128, 100, 88, 0.08);
 }
 
 .cleanup-section-head,
@@ -1107,14 +1479,14 @@ async function exportSelectedThemes() {
 }
 
 .cleanup-section-head span {
-  color: #202329;
+  color: #4a3e39;
   font-size: 13px;
   font-weight: 900;
 }
 
 .cleanup-section-head small,
 .cleanup-notice {
-  color: #767b82;
+  color: #9b8b84;
   font-size: 12px;
 }
 
@@ -1129,7 +1501,9 @@ async function exportSelectedThemes() {
 .cleanup-character-head img {
   width: 36px;
   height: 36px;
-  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.82);
+  border-radius: 14px;
+  box-shadow: 0 7px 16px rgba(75, 55, 48, 0.1);
   object-fit: cover;
 }
 
@@ -1148,12 +1522,13 @@ async function exportSelectedThemes() {
 }
 
 .cleanup-character-head strong {
+  color: #493e39;
   font-size: 13px;
   font-weight: 900;
 }
 
 .cleanup-character-head small {
-  color: #767b82;
+  color: #9b8b84;
   font-size: 11px;
 }
 
@@ -1173,7 +1548,7 @@ async function exportSelectedThemes() {
   width: 42px;
   height: 24px;
   border-radius: 999px;
-  background: #d8dde2;
+  background: #d9d0ca;
   transition: background 0.18s ease;
 }
 
@@ -1190,7 +1565,7 @@ async function exportSelectedThemes() {
 }
 
 .cleanup-switch-card input:checked + .cleanup-switch-track {
-  background: #c9ecd5;
+  background: #92776b;
 }
 
 .cleanup-switch-card input:checked + .cleanup-switch-track::after {
@@ -1212,7 +1587,7 @@ async function exportSelectedThemes() {
 .cleanup-days-field {
   display: grid;
   gap: 5px;
-  color: #5f6761;
+  color: #8f7b72;
   font-size: 11px;
   font-weight: 900;
 }
@@ -1220,10 +1595,10 @@ async function exportSelectedThemes() {
 .cleanup-select-field select,
 .cleanup-days-field input {
   height: 38px;
-  border: 1px solid rgba(20, 20, 20, 0.08);
-  border-radius: 12px;
-  background: #f6f7f8;
-  color: #151719;
+  border: 1px solid rgba(128, 100, 88, 0.1);
+  border-radius: 14px;
+  background: #f7f2ed;
+  color: #493e39;
   font: inherit;
 }
 
@@ -1239,7 +1614,7 @@ async function exportSelectedThemes() {
 
 .cleanup-days-field span {
   padding-bottom: 10px;
-  color: #767b82;
+  color: #9b8b84;
 }
 
 .cleanup-days-field input {
@@ -1254,17 +1629,17 @@ async function exportSelectedThemes() {
   min-width: 58px;
   height: 38px;
   border: 0;
-  border-radius: 12px;
-  background: #eef8f1;
-  color: #24613a;
+  border-radius: 14px;
+  background: #eadfd9;
+  color: #6e564c;
   font: inherit;
   font-size: 12px;
   font-weight: 900;
 }
 
 .cleanup-text-action.danger {
-  background: rgba(229, 72, 77, 0.1);
-  color: #e5484d;
+  background: rgba(170, 92, 92, 0.1);
+  color: #a25e5e;
 }
 
 .cleanup-notice {
@@ -1274,54 +1649,126 @@ async function exportSelectedThemes() {
 
 .theme-switch {
   position: relative;
-  width: 44px;
-  height: 26px;
+  width: 38px;
+  height: 22px;
   border: 0;
   border-radius: 999px;
-  background: #d8dde2;
+  background: #d9d0ca;
   padding: 3px;
+}
+
+.profile-theme-card > .theme-switch {
+  position: absolute;
+  top: 14px;
+  right: 14px;
 }
 
 .theme-switch span {
   display: block;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   border-radius: 999px;
   background: #ffffff;
+  box-shadow: 0 2px 7px rgba(78, 60, 52, 0.16);
   transition: transform 0.18s ease;
 }
 
 .theme-switch.active {
-  background: #06c755;
+  background: #8f766b;
 }
 
 .theme-switch.active span {
-  transform: translateX(18px);
+  transform: translateX(16px);
 }
 
 .theme-copy {
   display: grid;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
 .theme-copy strong {
   overflow: hidden;
-  font-size: 14px;
-  font-weight: 900;
+  color: #403633;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.theme-copy small,
-.theme-meta {
-  color: #737b85;
-  font-size: 11px;
-  font-weight: 750;
+.theme-copy > small {
+  overflow: hidden;
+  color: #aa8e82;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.theme-meta {
-  white-space: nowrap;
+.theme-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #998b84;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.theme-card-meta i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #cbb5aa;
+}
+
+.theme-library-empty {
+  align-content: center;
+  gap: 7px;
+  min-height: min(62vh, 560px);
+  color: #978b85;
+}
+
+.theme-library-empty-art {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(156, 128, 115, 0.1);
+  border-radius: 50% 50% 18px 50%;
+  background: #eee2dc;
+  color: #856d63;
+  box-shadow: 0 16px 36px rgba(83, 63, 54, 0.08);
+}
+
+.profile-theme-empty .theme-library-empty-kicker {
+  color: #aa8f83;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.theme-library-empty h2 {
+  color: #443a36;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.theme-library-empty > button {
+  margin-top: 10px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: #51443e;
+  box-shadow: 0 10px 24px rgba(78, 59, 51, 0.12);
+  font-size: 10px;
 }
 
 .profile-theme-empty {
@@ -1357,11 +1804,121 @@ async function exportSelectedThemes() {
   font-weight: 900;
 }
 
+.homepage-timeline-empty {
+  position: relative;
+  align-content: center;
+  gap: 7px;
+  min-height: min(62vh, 560px);
+  padding: 38px 24px 82px;
+  color: #978b85;
+}
+
+.homepage-timeline-empty::before {
+  content: '';
+  position: absolute;
+  top: 36px;
+  bottom: 46px;
+  left: 50%;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(182, 156, 143, 0.2) 24%, rgba(182, 156, 143, 0.2) 76%, transparent);
+}
+
+.homepage-empty-art {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 78px;
+  height: 78px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(164, 136, 123, 0.12);
+  border-radius: 28px 28px 28px 8px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 18px 40px rgba(91, 70, 61, 0.08);
+  transform: rotate(-3deg);
+}
+
+.homepage-empty-art::before,
+.homepage-empty-art::after {
+  content: '';
+  position: absolute;
+  border: 1px solid rgba(171, 143, 130, 0.12);
+  border-radius: 50%;
+}
+
+.homepage-empty-art::before {
+  top: -11px;
+  right: -10px;
+  width: 32px;
+  height: 32px;
+}
+
+.homepage-empty-art::after {
+  bottom: 12px;
+  left: 12px;
+  width: 9px;
+  height: 9px;
+  background: #e8d7ce;
+}
+
+.homepage-empty-art span {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 16px;
+  background: #f1e6e0;
+  color: #8f7468;
+}
+
+.profile-theme-empty .homepage-empty-kicker {
+  position: relative;
+  z-index: 1;
+  color: #b09487;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.homepage-timeline-empty h2,
+.homepage-timeline-empty > p,
+.homepage-timeline-empty > button {
+  position: relative;
+  z-index: 1;
+}
+
+.homepage-timeline-empty h2 {
+  color: #443a36;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.homepage-timeline-empty > p:not(.homepage-empty-kicker) {
+  max-width: 255px;
+  color: #978b85;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.homepage-timeline-empty > button {
+  min-height: 38px;
+  margin-top: 12px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: #51443e;
+  box-shadow: 0 10px 24px rgba(78, 59, 51, 0.12);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
 .profile-theme-editor,
 .profile-theme-exporter {
   display: grid;
-  gap: 12px;
-  color: #202329;
+  gap: 14px;
+  color: #443a36;
 }
 
 .profile-theme-creator,
@@ -1380,7 +1937,7 @@ async function exportSelectedThemes() {
 .composer-section {
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 14px;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -1389,26 +1946,34 @@ async function exportSelectedThemes() {
 
 .profile-theme-editor label {
   display: grid;
-  gap: 6px;
+  gap: 7px;
 }
 
 .profile-theme-editor label span {
-  color: #4f565f;
-  font-size: 12px;
-  font-weight: 850;
+  color: #7f6b62;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
 }
 
 .profile-theme-editor input,
 .profile-theme-editor textarea {
   width: 100%;
-  border: 1px solid rgba(20, 20, 20, 0.08);
-  border-radius: 8px;
-  padding: 10px;
+  border: 1px solid rgba(128, 100, 88, 0.1);
+  border-radius: 16px;
+  padding: 11px 12px;
   outline: 0;
-  background: rgba(255, 255, 255, 0.86);
-  color: #202329;
+  background: rgba(255, 255, 255, 0.68);
+  color: #443a36;
   font: inherit;
   line-height: 1.5;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.profile-theme-editor input:focus,
+.profile-theme-editor textarea:focus {
+  border-color: rgba(139, 108, 94, 0.28);
+  box-shadow: 0 0 0 3px rgba(166, 135, 121, 0.08);
 }
 
 .profile-theme-editor textarea {
@@ -1419,20 +1984,25 @@ async function exportSelectedThemes() {
   display: flex !important;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 8px !important;
+  gap: 10px !important;
+  padding: 12px;
+  border: 1px solid rgba(128, 100, 88, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.54);
 }
 
 .theme-editor-switch input {
   width: 18px;
   height: 18px;
   padding: 0;
+  accent-color: #8f766b;
 }
 
 .theme-editor-actions,
 .profile-theme-modal-footer {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 9px;
 }
 
 .theme-editor-actions.editing {
@@ -1444,38 +2014,41 @@ async function exportSelectedThemes() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 38px;
-  border-radius: 8px;
+  min-height: 42px;
+  border-radius: 999px;
   font-size: 12px;
   font-weight: 900;
 }
 
 .theme-editor-actions .secondary,
 .footer-cancel {
-  background: #eef0f2;
-  color: #2b3036;
+  background: #e9dfd9;
+  color: #6f5a51;
 }
 
 .theme-editor-actions .primary,
 .footer-save {
-  background: #202329;
+  background: #51443e;
   color: #ffffff;
+  box-shadow: 0 10px 22px rgba(76, 57, 49, 0.12);
 }
 
 .theme-editor-actions .danger {
-  background: rgba(229, 72, 77, 0.1);
-  color: #e5484d;
+  background: rgba(170, 92, 92, 0.1);
+  color: #a25e5e;
 }
 
 .composer-hero {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
   gap: 12px;
-  padding: 14px;
-  border-radius: 24px;
+  padding: 16px;
+  border: 1px solid rgba(134, 103, 90, 0.07);
+  border-radius: 28px 28px 28px 10px;
   background:
-    radial-gradient(circle at top right, rgba(255, 209, 224, 0.65), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 248, 252, 0.94));
+    radial-gradient(circle at top right, rgba(228, 205, 194, 0.68), transparent 32%),
+    rgba(255, 255, 255, 0.64);
+  box-shadow: 0 14px 34px rgba(75, 56, 48, 0.055);
 }
 
 .composer-avatar {
@@ -1484,14 +2057,14 @@ async function exportSelectedThemes() {
   flex: 0 0 auto;
   width: 56px;
   height: 56px;
-  border-radius: 20px;
-  background: #eef8f1;
-  color: #057a35;
+  border-radius: 20px 20px 20px 7px;
+  background: #eaded8;
+  color: #775f55;
 }
 
 .composer-avatar.composer-avatar {
   display: grid;
-  color: #057a35;
+  color: #775f55;
   letter-spacing: 0;
   text-transform: none;
 }
@@ -1515,47 +2088,53 @@ async function exportSelectedThemes() {
 }
 
 .composer-hero span {
-  color: #9d7a86;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  color: #a18478;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 .composer-hero strong {
-  font-size: 16px;
-  font-weight: 900;
+  color: #443936;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .composer-hero p {
   margin: 4px 0 0;
-  color: #77808a;
-  font-size: 12px;
-  line-height: 1.5;
+  color: #91837c;
+  font-size: 10px;
+  line-height: 1.6;
 }
 
 .composer-tabs {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: #eae0da;
 }
 
 .composer-tab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 40px;
+  min-height: 36px;
   border: 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
-  color: #6f7079;
-  font-size: 12px;
+  background: transparent;
+  color: #927f76;
+  font-size: 10px;
   font-weight: 800;
 }
 
 .composer-tab.active {
-  background: linear-gradient(180deg, #111111, #2c2f39);
-  color: #ffffff;
+  background: rgba(255, 255, 255, 0.8);
+  color: #564741;
+  box-shadow: 0 6px 16px rgba(78, 59, 51, 0.08);
 }
 
 .file-drop-card {
@@ -1563,11 +2142,11 @@ async function exportSelectedThemes() {
   display: grid;
   place-items: center;
   gap: 7px;
-  min-height: 138px;
-  border: 1px dashed rgba(20, 20, 20, 0.18);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.74);
-  color: #4f565f;
+  min-height: 154px;
+  border: 1px dashed rgba(131, 102, 89, 0.24);
+  border-radius: 26px 26px 26px 9px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #806c63;
   text-align: center;
 }
 
@@ -1579,20 +2158,20 @@ async function exportSelectedThemes() {
 }
 
 .file-drop-card strong {
-  color: #202329;
+  color: #493e39;
   font-size: 14px;
 }
 
 .file-drop-card span,
 .export-theme-item small {
-  color: #727b85;
+  color: #998a83;
   font-size: 12px;
 }
 
 .export-theme-list {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 9px;
   min-height: auto;
   overflow: auto;
 }
@@ -1603,15 +2182,16 @@ async function exportSelectedThemes() {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: 12px;
-  border-radius: 16px;
-  background: rgba(246, 248, 251, 0.96);
+  padding: 13px;
+  border: 1px solid rgba(128, 100, 88, 0.08);
+  border-radius: 20px 20px 20px 8px;
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .export-theme-item input {
   width: 18px;
   height: 18px;
-  accent-color: #06c755;
+  accent-color: #8f766b;
 }
 
 .export-theme-item span {
@@ -1628,13 +2208,14 @@ async function exportSelectedThemes() {
 }
 
 .export-theme-item strong {
-  color: #111111;
+  color: #473c38;
+  font-family: Georgia, "Songti SC", serif;
   font-size: 14px;
-  font-weight: 900;
+  font-weight: 600;
 }
 
 .export-theme-item small {
-  color: #77808a;
+  color: #998a83;
   font-size: 12px;
 }
 
@@ -1661,7 +2242,7 @@ button:disabled {
 :global(.modal-panel .modal-body .style-export-composer.style-export-composer .profile-theme-modal-footer) {
   display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  gap: 0 !important;
+  gap: 9px !important;
   width: 100% !important;
 }
 
@@ -1673,17 +2254,7 @@ button:disabled {
   width: 100% !important;
   min-width: 0 !important;
   min-height: 42px !important;
-  border-radius: 0 !important;
-}
-
-:global(.modal-panel .modal-body .profile-theme-creator.profile-theme-creator .footer-cancel),
-:global(.modal-panel .modal-body .style-export-composer.style-export-composer .footer-cancel) {
-  border-radius: 16px 0 0 16px !important;
-}
-
-:global(.modal-panel .modal-body .profile-theme-creator.profile-theme-creator .footer-save),
-:global(.modal-panel .modal-body .style-export-composer.style-export-composer .footer-save) {
-  border-radius: 0 16px 16px 0 !important;
+  border-radius: 999px !important;
 }
 
 :global(.modal-panel .modal-body .profile-theme-editor:not(.profile-theme-creator) .theme-editor-actions) {
@@ -1717,5 +2288,119 @@ button:disabled {
 :global(.modal-panel .modal-body .style-export-composer.style-export-composer .composer-avatar svg) {
   width: 26px !important;
   height: 26px !important;
+}
+
+@media (max-width: 480px) {
+  .profile-theme-main {
+    padding-top: 8px;
+  }
+
+  .theme-library-section,
+  .homepage-archive-section {
+    gap: 12px;
+  }
+
+  .theme-library-grid {
+    gap: 8px;
+    padding-bottom: 16px;
+  }
+
+  .profile-theme-card {
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 11px;
+    min-height: 88px;
+    padding: 12px 48px 12px 12px;
+    border-radius: 22px 22px 9px 22px;
+    box-shadow: 0 10px 24px rgba(81, 63, 55, 0.06);
+  }
+
+  .profile-theme-card::before {
+    right: 12px;
+    bottom: -20px;
+    width: 40px;
+    height: 40px;
+  }
+
+  .theme-card-number {
+    width: 32px;
+    height: 42px;
+    font-size: 14px;
+  }
+
+  .profile-theme-card > .theme-switch {
+    top: 10px;
+    right: 10px;
+  }
+
+  .theme-card-open {
+    right: 14px;
+    bottom: 10px;
+  }
+
+  .theme-copy {
+    gap: 2px;
+  }
+
+  .theme-copy strong {
+    font-size: 16px;
+  }
+
+  .homepage-timeline {
+    gap: 12px;
+    padding-bottom: 16px;
+  }
+
+  .homepage-timeline-item {
+    grid-template-columns: 50px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .homepage-record-card {
+    border-radius: 20px 20px 20px 8px;
+    box-shadow: 0 10px 24px rgba(81, 63, 55, 0.06);
+  }
+
+  .homepage-record-main {
+    gap: 10px;
+    min-height: 106px;
+    padding: 14px;
+  }
+
+  .homepage-record-footer {
+    padding-top: 9px;
+  }
+
+  .homepage-timeline-empty {
+    min-height: clamp(250px, 36vh, 320px);
+    padding: 26px 18px 34px;
+  }
+
+  .homepage-timeline-empty::before {
+    top: 24px;
+    bottom: 24px;
+  }
+
+  .homepage-empty-art {
+    width: 60px;
+    height: 60px;
+    margin-bottom: 6px;
+    border-radius: 22px 22px 22px 7px;
+    box-shadow: 0 10px 24px rgba(91, 70, 61, 0.07);
+  }
+
+  .homepage-empty-art span {
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+  }
+
+  .homepage-timeline-empty h2 {
+    font-size: 19px;
+  }
+
+  .homepage-timeline-empty > button {
+    min-height: 36px;
+    margin-top: 6px;
+  }
 }
 </style>

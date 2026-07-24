@@ -78,6 +78,16 @@ export interface WalletTransaction {
   createdAt: number;
 }
 
+export interface CharacterEconomySnapshot {
+  balanceCents: number;
+  reservedTransferCents: number;
+  availableCents: number;
+  monthlyIncomeCents: number;
+  savingsGoalCents: number;
+  giftAllowanceCents: number;
+  spendingTraits: string[];
+}
+
 export interface ShopStorefront {
   id: string;
   name: string;

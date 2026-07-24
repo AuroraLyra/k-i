@@ -20,9 +20,6 @@
     <main class="music-content" :class="{ 'player-content': pageMode === 'player' }">
       <section v-if="pageMode === 'player'" class="player-panel">
         <div class="player-stage" @pointercancel="handlePlayerPointerCancel" @pointerdown="handlePlayerPointerDown" @pointermove="handlePlayerPointerMove" @pointerup="handlePlayerPointerUp">
-          <button class="player-home-button" type="button" aria-label="返回主页" @click.stop="goHome">
-            <ArrowLeft :size="22" />
-          </button>
           <div class="listen-pages" :style="playerSlideStyle">
             <section class="listen-page listen-cover-page" aria-label="一起听唱片页">
               <div class="listen-topline">
@@ -91,8 +88,10 @@
             </section>
 
             <section class="listen-page listen-lyrics-page" aria-label="一起听歌词页">
+              <div class="listen-lyrics-backdrop" aria-hidden="true">
+                <img :src="coverImageSrc(activeTrack)" alt="" @error="handleCoverError" />
+              </div>
               <div class="lyrics-card-head">
-                <span>LYRICS</span>
                 <strong>{{ nowPlayingTitle }}</strong>
                 <small>{{ nowPlayingArtists }}</small>
               </div>
@@ -258,7 +257,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, Disc3, Hash, Heart, ListMusic, ListOrdered, LoaderCircle, MessageCircle, MessageSquareText, Pause, Play, Repeat, Repeat1, Search, Send, Shuffle, SkipBack, SkipForward, Smile, ThumbsUp, X } from 'lucide-vue-next';
+import { Disc3, Hash, Heart, ListMusic, ListOrdered, LoaderCircle, MessageCircle, MessageSquareText, Pause, Play, Repeat, Repeat1, Search, Send, Shuffle, SkipBack, SkipForward, Smile, ThumbsUp, X } from 'lucide-vue-next';
 import { deleteEntity, getDb, putEntity } from '@/data/db';
 import { generateMusicCommentThread, hasTextGenerationConfig } from '@/services/ai';
 import { fetchMusicCoverUrl, fetchMusicLyricText, mergeMusicTrack, refreshPlayableMusicTrack, searchMusicTracks } from '@/services/music';
@@ -315,6 +314,7 @@ const searchInputRef = ref<HTMLInputElement | null>(null);
 const lyricScrollRef = ref<HTMLElement | null>(null);
 const lyricTextByTrackId = ref<Record<string, string>>({});
 let playerPointerStart: { x: number; y: number; pointerId: number } | null = null;
+let playerPointerTarget: HTMLElement | null = null;
 let playerSwipeTracking = false;
 let playRequestSerial = 0;
 
@@ -422,8 +422,11 @@ watch(activeLyricLine, (line) => {
 watch([activeLyricIndex, playerPageIndex], () => {
   if (playerPageIndex.value !== 1) return;
   void nextTick(() => {
+    const lyricScroller = lyricScrollRef.value;
     const activeLine = lyricScrollRef.value?.querySelector<HTMLElement>('p.active');
-    activeLine?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (!lyricScroller || !activeLine) return;
+    const targetTop = activeLine.offsetTop - (lyricScroller.clientHeight - activeLine.offsetHeight) / 2;
+    lyricScroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
   });
 });
 
@@ -699,8 +702,14 @@ function selectQueueTrack(track: MusicTrack) {
 
 function handlePlayerPointerDown(event: PointerEvent) {
   if (event.button !== 0 || event.isPrimary === false) return;
+  const eventTarget = event.target;
+  if (eventTarget instanceof Element && eventTarget.closest('button, a, input, textarea, select, [role="button"]')) return;
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) return;
   playerPointerStart = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+  playerPointerTarget = target;
   playerSwipeTracking = false;
+  target.setPointerCapture(event.pointerId);
 }
 
 function handlePlayerPointerMove(event: PointerEvent) {
@@ -724,13 +733,18 @@ function handlePlayerPointerUp(event: PointerEvent) {
   if (!playerPointerStart || event.pointerId !== playerPointerStart.pointerId) return;
   const deltaX = event.clientX - playerPointerStart.x;
   if (playerSwipeTracking && Math.abs(deltaX) > 48) {
-    playerPageIndex.value = deltaX < 0 ? 1 : 0;
+    const nextPage = playerPageIndex.value + (deltaX < 0 ? 1 : -1);
+    playerPageIndex.value = Math.max(0, Math.min(1, nextPage));
   }
   handlePlayerPointerCancel();
 }
 
 function handlePlayerPointerCancel() {
+  if (playerPointerStart && playerPointerTarget?.hasPointerCapture(playerPointerStart.pointerId)) {
+    playerPointerTarget.releasePointerCapture(playerPointerStart.pointerId);
+  }
   playerPointerStart = null;
+  playerPointerTarget = null;
   playerSwipeTracking = false;
 }
 
@@ -1026,22 +1040,6 @@ function playNeighbor(direction: -1 | 1) {
   touch-action: pan-y;
 }
 
-.player-home-button {
-  position: absolute;
-  top: calc(10px + var(--safe-top));
-  left: 12px;
-  z-index: 8;
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.28);
-  color: #ffffff;
-  backdrop-filter: blur(10px);
-}
-
 .player-stage::before {
   position: absolute;
   inset: 0;
@@ -1088,15 +1086,44 @@ function playNeighbor(direction: -1 | 1) {
 }
 
 .listen-cover-page {
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
+  grid-template-rows: repeat(6, auto);
+  align-content: start;
   justify-items: center;
-  gap: clamp(7px, 1.4dvh, 13px);
+  gap: 0;
 }
 
 .listen-lyrics-page {
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
-  background: #080808;
+  gap: 0;
+  isolation: isolate;
+  background: #151515;
+}
+
+.listen-lyrics-page::before {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(180deg, rgba(9, 9, 10, 0.52), rgba(12, 12, 13, 0.7) 40%, rgba(7, 7, 8, 0.86)),
+    radial-gradient(circle at 50% 38%, transparent, rgba(0, 0, 0, 0.42) 74%);
+  pointer-events: none;
+  content: '';
+}
+
+.listen-lyrics-backdrop {
+  position: absolute;
+  inset: -60px;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.listen-lyrics-backdrop img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(52px) brightness(0.56) saturate(0.72);
+  transform: scale(1.24);
 }
 
 .listen-topline {
@@ -1128,8 +1155,9 @@ function playNeighbor(direction: -1 | 1) {
 .listen-room-head {
   display: grid;
   justify-items: center;
-  gap: clamp(7px, 1.2dvh, 10px);
+  gap: clamp(7px, 1dvh, 10px);
   width: 100%;
+  margin-top: clamp(12px, 2.5dvh, 25px);
   text-align: center;
 }
 
@@ -1155,9 +1183,9 @@ function playNeighbor(direction: -1 | 1) {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: clamp(48px, 9.2dvh, 64px);
-  padding: 7px 18px 12px;
+  gap: 10px;
+  min-height: clamp(64px, 9dvh, 76px);
+  padding: 4px 18px 6px;
 }
 
 .listen-avatars span {
@@ -1165,8 +1193,8 @@ function playNeighbor(direction: -1 | 1) {
   z-index: 1;
   display: grid;
   place-items: center;
-  width: clamp(48px, 9.2dvh, 64px);
-  height: clamp(48px, 9.2dvh, 64px);
+  width: clamp(64px, 9dvh, 76px);
+  height: clamp(64px, 9dvh, 76px);
   overflow: hidden;
   border: 3px solid rgba(255, 255, 255, 0.95);
   border-radius: 50%;
@@ -1213,8 +1241,8 @@ function playNeighbor(direction: -1 | 1) {
 
 .record.listen-record {
   align-self: center;
-  width: min(72vw, 34dvh, 312px);
-  margin: 0;
+  width: min(82vw, 40dvh, 370px);
+  margin: clamp(22px, 5.4dvh, 54px) 0 0;
   background:
     radial-gradient(circle at 50% 50%, transparent 0 42%, rgba(255, 255, 255, 0.12) 42.5% 44%, transparent 44.5% 48%, rgba(255, 255, 255, 0.1) 49% 50.5%, transparent 51%),
     radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.22), transparent 19%),
@@ -1273,6 +1301,7 @@ function playNeighbor(direction: -1 | 1) {
   gap: 8px;
   width: min(86%, 360px);
   min-height: clamp(30px, 5.2dvh, 38px);
+  margin-top: clamp(6px, 1.4dvh, 14px);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.28);
   padding: 0 14px;
@@ -1294,6 +1323,7 @@ function playNeighbor(direction: -1 | 1) {
   align-items: end;
   gap: 7px;
   width: 100%;
+  margin-top: clamp(10px, 2.4dvh, 24px);
   padding: 0 18px;
 }
 
@@ -1380,6 +1410,7 @@ function playNeighbor(direction: -1 | 1) {
 .progress-panel.listen-progress-panel {
   width: 100%;
   gap: clamp(8px, 1.6dvh, 14px);
+  margin-top: clamp(14px, 4.5dvh, 45px);
   background: transparent !important;
   color: #ffffff;
   padding: 0;
@@ -1694,43 +1725,60 @@ function playNeighbor(direction: -1 | 1) {
 }
 
 .listen-lyrics-page .lyrics-card-head {
-  z-index: 1;
-  padding: 4px 0 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-}
-
-.listen-lyrics-page .lyrics-card-head span {
-  color: rgba(255, 255, 255, 0.54);
+  z-index: 2;
+  justify-items: center;
+  gap: 3px;
+  padding: 5px 36px 16px;
+  border: 0;
+  text-align: center;
 }
 
 .listen-lyrics-page .lyrics-card-head strong {
+  max-width: 100%;
   color: #ffffff;
-  font-size: 26px;
+  font-size: 17px;
+  font-weight: 750;
 }
 
 .listen-lyrics-page .lyrics-card-head small {
-  color: rgba(255, 255, 255, 0.64);
+  max-width: 100%;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+  font-weight: 550;
 }
 
 .listen-lyrics-page .full-lyrics {
-  padding: 18px 4px 48px;
-  mask-image: linear-gradient(180deg, transparent, #000 10%, #000 88%, transparent);
+  z-index: 2;
+  display: block;
+  overscroll-behavior-y: contain;
+  padding: clamp(210px, 44dvh, 460px) 10px clamp(240px, 48dvh, 500px);
+  mask-image: linear-gradient(180deg, transparent, #000 9%, #000 90%, transparent);
+  touch-action: pan-y;
 }
 
 .listen-lyrics-page .full-lyrics p {
-  color: rgba(255, 255, 255, 0.42);
-  font-size: 16px;
-  text-align: left;
+  margin: 0 0 clamp(18px, 2.8dvh, 28px);
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.75;
+  text-align: center;
+  transform: scale(1);
+  transform-origin: center;
+  transition: color 260ms ease, font-size 260ms ease, opacity 260ms ease, transform 260ms ease;
 }
 
 .listen-lyrics-page .full-lyrics p.passed {
-  color: rgba(255, 255, 255, 0.26);
+  color: rgba(255, 255, 255, 0.34);
 }
 
 .listen-lyrics-page .full-lyrics p.active {
   color: #ffffff;
-  font-size: 26px;
-  transform: translateX(8px);
+  font-size: 18px;
+  font-weight: 760;
+  line-height: 1.65;
+  transform: scale(1.04);
+  text-shadow: 0 3px 18px rgba(0, 0, 0, 0.45);
 }
 
 .signal-caption {

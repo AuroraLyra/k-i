@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import { deleteEntity, loadCommerceSnapshot, putEntity } from '@/data/db';
+import { deleteEntity, loadCommerceSnapshot, pruneUnusedStoredMediaCache, putEntity } from '@/data/db';
 import { createCharacterProducts, createCharacterStorefronts, createDefaultShopMoments, createDefaultWalletAccounts, createDefaultWalletTransactions, defaultShopProducts, defaultShopStorefronts } from '@/data/commerceSeed';
 import { chooseCharacterCommerceProduct, generateCharacterCommerceCatalog, generateCommerceProductImage } from '@/services/commerce';
 import type { AppSettings, CharacterProfile, ChatTransferStatus, UserProfile } from '@/types/domain';
@@ -253,7 +253,9 @@ export const useCommerceStore = defineStore('commerce', () => {
   }
 
   async function generateCharacterCatalog(character: CharacterProfile, user: UserProfile | null, settings: AppSettings) {
-    const catalog = await generateCharacterCommerceCatalog({ character, user, settings });
+    const existingWallet = walletForCharacter(character.id);
+    const recentTransactions = existingWallet ? transactionsForWallet(existingWallet.id).slice(0, 12) : [];
+    const catalog = await generateCharacterCommerceCatalog({ character, user, settings, currentWallet: existingWallet, recentTransactions });
     const now = Date.now();
     const storeId = `shop_character_${character.id}`;
     const existingStorefront = storefronts.value.find((entry) => entry.id === storeId);
@@ -298,15 +300,26 @@ export const useCommerceStore = defineStore('commerce', () => {
     const previousAiProductIds = new Set(previousAiProducts.map((product) => product.id));
     const removedCartItems = cartItems.value.filter((item) => previousAiProductIds.has(item.productId));
     const removedWishlistItems = wishlistItems.value.filter((item) => previousAiProductIds.has(item.productId));
-    const existingWallet = walletForCharacter(character.id);
+    const generatedTransactions: WalletTransaction[] = catalog.economy.transactions.map((transaction, index, entries) => ({
+      id: createId('wallet-life'),
+      walletId: existingWallet?.id ?? `wallet_character_${character.id}`,
+      type: transaction.type,
+      amountCents: transaction.amountCents,
+      title: transaction.title,
+      subtitle: transaction.subtitle,
+      createdAt: now - transaction.daysAgo * 86_400_000 - (entries.length - index) * 60_000
+    }));
+    const balanceDeltaCents = generatedTransactions.reduce((sum, transaction) => sum + transaction.amountCents, 0);
+    const generatedGiftSpendingCents = generatedTransactions.reduce((sum, transaction) => transaction.type === 'gift' ? sum + Math.abs(transaction.amountCents) : sum, 0);
+    const giftAllowanceCents = existingWallet?.generatedAt ? existingWallet.giftAllowanceCents : catalog.economy.giftAllowanceCents;
     const wallet: WalletAccount = {
       id: existingWallet?.id ?? `wallet_character_${character.id}`,
       ownerType: 'character',
       ownerId: character.id,
-      balanceCents: existingWallet?.generatedAt ? existingWallet.balanceCents : catalog.economy.balanceCents,
+      balanceCents: Math.max(0, (existingWallet?.balanceCents ?? catalog.economy.balanceCents) + balanceDeltaCents),
       monthlyIncomeCents: catalog.economy.monthlyIncomeCents,
       savingsGoalCents: catalog.economy.savingsGoalCents,
-      giftAllowanceCents: existingWallet?.generatedAt ? existingWallet.giftAllowanceCents : catalog.economy.giftAllowanceCents,
+      giftAllowanceCents: Math.max(0, giftAllowanceCents - generatedGiftSpendingCents),
       spendingTraits: catalog.economy.spendingTraits,
       generatedAt: now,
       updatedAt: now
@@ -322,17 +335,19 @@ export const useCommerceStore = defineStore('commerce', () => {
     const walletIndex = walletAccounts.value.findIndex((entry) => entry.id === wallet.id);
     if (walletIndex >= 0) walletAccounts.value[walletIndex] = wallet;
     else walletAccounts.value.push(wallet);
+    walletTransactions.value.push(...generatedTransactions);
 
     await Promise.all([
       putEntity('shopStorefronts', storefront),
       putEntity('walletAccounts', wallet),
+      ...generatedTransactions.map((transaction) => putEntity('walletTransactions', transaction)),
       ...nextProducts.map((product) => putEntity('shopProducts', product)),
       putEntity('shopMoments', moment),
       ...previousAiProducts.map((product) => deleteEntity('shopProducts', product.id)),
       ...removedCartItems.map((item) => deleteEntity('shopCartItems', item.id)),
       ...removedWishlistItems.map((item) => deleteEntity('shopWishlistItems', item.id))
     ]);
-    return { storefront, products: nextProducts, moment, wallet };
+    return { storefront, products: nextProducts, moment, wallet, transactions: generatedTransactions };
   }
 
   async function generateProductImage(productId: string, settings: AppSettings) {
@@ -444,6 +459,82 @@ export const useCommerceStore = defineStore('commerce', () => {
       putEntity('shopOrders', order),
       ...selectedItems.map((item) => deleteEntity('shopCartItems', item.id))
     ]);
+    return order;
+  }
+
+  async function recordUserChatPurchase(input: {
+    attachment: ChatCommerceAttachment;
+    userId: string;
+    userName: string;
+    characterId: string;
+    characterName: string;
+    conversationId: string;
+    sourceMessageId: string;
+  }) {
+    const existingOrder = orders.value.find((order) => order.id === input.attachment.orderId);
+    if (existingOrder) return existingOrder;
+    if (!['takeout', 'gift'].includes(input.attachment.kind)) throw new Error('用户只能给角色点外卖或送礼物。');
+    if (!input.attachment.items.length) throw new Error('请至少填写一项餐品或礼物。');
+    const totalCents = centsFromAmount(input.attachment.totalAmount);
+    if (totalCents <= 0) throw new Error('请输入有效的订单金额。');
+    const wallet = walletForUser(input.userId);
+    if (!wallet || wallet.balanceCents < totalCents) throw new Error('当前 Wallet 余额不足，请减少订单金额后再试。');
+    const quantityTotal = input.attachment.items.reduce((sum, item) => sum + Math.max(1, item.quantity), 0);
+    const now = Date.now();
+    const order: ShopOrder = {
+      id: input.attachment.orderId,
+      userId: input.userId,
+      purchaserType: 'user',
+      purchaserId: input.userId,
+      purchaserName: input.userName,
+      relationshipCharacterId: input.characterId,
+      recipientType: 'character',
+      recipientId: input.characterId,
+      recipientName: input.characterName,
+      storeName: input.attachment.storeName,
+      kind: input.attachment.kind,
+      status: input.attachment.status,
+      items: input.attachment.items.map((item) => ({
+        title: item.name,
+        quantity: Math.max(1, item.quantity),
+        unitPriceCents: parseItemPrice(item.price, totalCents, quantityTotal),
+        mark: input.attachment.kind === 'takeout' ? '🥡' : '🎁'
+      })),
+      totalCents,
+      eta: input.attachment.eta,
+      note: input.attachment.note,
+      cardMessage: input.attachment.cardMessage,
+      conversationId: input.conversationId,
+      sourceMessageId: input.sourceMessageId,
+      createdAt: now,
+      updatedAt: now
+    };
+    const nextWallet = { ...wallet, balanceCents: wallet.balanceCents - totalCents, updatedAt: now };
+    const transaction: WalletTransaction = {
+      id: `wallet_order_${order.id}_user`,
+      walletId: wallet.id,
+      type: input.attachment.kind === 'gift' ? 'gift' : 'purchase',
+      amountCents: -totalCents,
+      title: input.attachment.kind === 'takeout' ? `给 ${input.characterName} 点了外卖` : `送给 ${input.characterName} 的礼物`,
+      subtitle: input.attachment.items.map((item) => item.name).join('、'),
+      relatedOrderId: order.id,
+      relatedConversationId: input.conversationId,
+      relatedMessageId: input.sourceMessageId,
+      counterpartyType: 'character',
+      counterpartyId: input.characterId,
+      counterpartyName: input.characterName,
+      createdAt: now
+    };
+    walletAccounts.value[walletAccounts.value.indexOf(wallet)] = nextWallet;
+    walletTransactions.value.push(transaction);
+    orders.value.push(order);
+    const writeResults = await Promise.allSettled([
+      putEntity('walletAccounts', nextWallet),
+      putEntity('walletTransactions', transaction),
+      putEntity('shopOrders', order)
+    ]);
+    const failedWrite = writeResults.find((result) => result.status === 'rejected');
+    if (failedWrite?.status === 'rejected') throw failedWrite.reason;
     return order;
   }
 
@@ -628,6 +719,116 @@ export const useCommerceStore = defineStore('commerce', () => {
     await Promise.all(writes);
   }
 
+  async function rollbackChatFinancialActions(messageIds: string[]) {
+    const sourceMessageIds = new Set(messageIds.map((id) => id.trim()).filter(Boolean));
+    if (!sourceMessageIds.size) return 0;
+    const relatedOrders = orders.value.filter((order) => Boolean(order.sourceMessageId && sourceMessageIds.has(order.sourceMessageId)));
+    const relatedOrderIds = new Set(relatedOrders.map((order) => order.id));
+    const relatedTransactions = walletTransactions.value.filter((transaction) => Boolean(transaction.relatedMessageId && sourceMessageIds.has(transaction.relatedMessageId))
+      || Boolean(transaction.relatedOrderId && relatedOrderIds.has(transaction.relatedOrderId)));
+    const relatedMoments = moments.value.filter((moment) => Boolean(moment.sourceMessageId && sourceMessageIds.has(moment.sourceMessageId))
+      || Boolean(moment.orderId && relatedOrderIds.has(moment.orderId)));
+    const nextWallets = new Map<string, WalletAccount>();
+
+    for (const transaction of relatedTransactions) {
+      const wallet = nextWallets.get(transaction.walletId) ?? walletAccounts.value.find((entry) => entry.id === transaction.walletId);
+      if (!wallet) continue;
+      const nextBalanceCents = wallet.balanceCents - transaction.amountCents;
+      if (nextBalanceCents < 0) throw new Error('这笔旧回复产生的收入已经被后续消费，暂时无法重新回复。');
+      nextWallets.set(wallet.id, {
+        ...wallet,
+        balanceCents: nextBalanceCents,
+        giftAllowanceCents: wallet.ownerType === 'character' && transaction.type === 'gift' && transaction.amountCents < 0
+          ? wallet.giftAllowanceCents + Math.abs(transaction.amountCents)
+          : wallet.giftAllowanceCents,
+        updatedAt: Date.now()
+      });
+    }
+
+    for (const wallet of nextWallets.values()) {
+      const walletIndex = walletAccounts.value.findIndex((entry) => entry.id === wallet.id);
+      if (walletIndex >= 0) walletAccounts.value[walletIndex] = wallet;
+    }
+    walletTransactions.value = walletTransactions.value.filter((transaction) => !relatedTransactions.some((entry) => entry.id === transaction.id));
+    orders.value = orders.value.filter((order) => !relatedOrderIds.has(order.id));
+    moments.value = moments.value.filter((moment) => !relatedMoments.some((entry) => entry.id === moment.id));
+
+    await Promise.all([
+      ...[...nextWallets.values()].map((wallet) => putEntity('walletAccounts', wallet)),
+      ...relatedTransactions.map((transaction) => deleteEntity('walletTransactions', transaction.id)),
+      ...relatedOrders.map((order) => deleteEntity('shopOrders', order.id)),
+      ...relatedMoments.map((moment) => deleteEntity('shopMoments', moment.id))
+    ]);
+    return relatedTransactions.length + relatedOrders.length + relatedMoments.length;
+  }
+
+  async function deleteCharacterCommerceData(characterId: string, conversationIds: string[] = []) {
+    const normalizedCharacterId = characterId.trim();
+    if (!normalizedCharacterId) return 0;
+    await ensureReady();
+
+    const conversationIdSet = new Set(conversationIds.map((id) => id.trim()).filter(Boolean));
+    const relatedWallets = walletAccounts.value.filter((entry) => entry.ownerType === 'character' && entry.ownerId === normalizedCharacterId);
+    const relatedWalletIds = new Set(relatedWallets.map((entry) => entry.id));
+    const relatedStorefronts = storefronts.value.filter((entry) => entry.ownerType === 'character' && entry.ownerCharacterId === normalizedCharacterId);
+    const relatedStorefrontIds = new Set(relatedStorefronts.map((entry) => entry.id));
+    const relatedProducts = products.value.filter((entry) => relatedStorefrontIds.has(entry.storeId));
+    const relatedProductIds = new Set(relatedProducts.map((entry) => entry.id));
+    const relatedOrders = orders.value.filter((entry) => entry.purchaserId === normalizedCharacterId
+      || entry.relationshipCharacterId === normalizedCharacterId
+      || entry.recipientType === 'character' && entry.recipientId === normalizedCharacterId
+      || Boolean(entry.conversationId && conversationIdSet.has(entry.conversationId))
+      || Boolean(entry.storeId && relatedStorefrontIds.has(entry.storeId))
+      || entry.items.some((item) => Boolean(item.productId && relatedProductIds.has(item.productId))));
+    const relatedOrderIds = new Set(relatedOrders.map((entry) => entry.id));
+    const relatedTransactions = walletTransactions.value.filter((entry) => relatedWalletIds.has(entry.walletId)
+      || entry.counterpartyType === 'character' && entry.counterpartyId === normalizedCharacterId
+      || Boolean(entry.relatedConversationId && conversationIdSet.has(entry.relatedConversationId))
+      || Boolean(entry.relatedOrderId && relatedOrderIds.has(entry.relatedOrderId)));
+    const relatedCartItems = cartItems.value.filter((entry) => entry.characterId === normalizedCharacterId
+      || entry.relationshipCharacterId === normalizedCharacterId
+      || Boolean(entry.conversationId && conversationIdSet.has(entry.conversationId))
+      || relatedProductIds.has(entry.productId));
+    const relatedWishlistItems = wishlistItems.value.filter((entry) => entry.characterId === normalizedCharacterId
+      || entry.relationshipCharacterId === normalizedCharacterId
+      || Boolean(entry.conversationId && conversationIdSet.has(entry.conversationId))
+      || relatedProductIds.has(entry.productId));
+    const relatedMoments = moments.value.filter((entry) => entry.characterId === normalizedCharacterId
+      || Boolean(entry.conversationId && conversationIdSet.has(entry.conversationId))
+      || Boolean(entry.orderId && relatedOrderIds.has(entry.orderId))
+      || entry.productIds.some((id) => relatedProductIds.has(id)));
+
+    const relatedWalletIdSet = new Set(relatedWallets.map((entry) => entry.id));
+    const relatedTransactionIdSet = new Set(relatedTransactions.map((entry) => entry.id));
+    const relatedStorefrontIdSet = new Set(relatedStorefronts.map((entry) => entry.id));
+    const relatedProductIdSet = new Set(relatedProducts.map((entry) => entry.id));
+    const relatedCartItemIdSet = new Set(relatedCartItems.map((entry) => entry.id));
+    const relatedWishlistItemIdSet = new Set(relatedWishlistItems.map((entry) => entry.id));
+    const relatedOrderIdSet = new Set(relatedOrders.map((entry) => entry.id));
+    const relatedMomentIdSet = new Set(relatedMoments.map((entry) => entry.id));
+    walletAccounts.value = walletAccounts.value.filter((entry) => !relatedWalletIdSet.has(entry.id));
+    walletTransactions.value = walletTransactions.value.filter((entry) => !relatedTransactionIdSet.has(entry.id));
+    storefronts.value = storefronts.value.filter((entry) => !relatedStorefrontIdSet.has(entry.id));
+    products.value = products.value.filter((entry) => !relatedProductIdSet.has(entry.id));
+    cartItems.value = cartItems.value.filter((entry) => !relatedCartItemIdSet.has(entry.id));
+    wishlistItems.value = wishlistItems.value.filter((entry) => !relatedWishlistItemIdSet.has(entry.id));
+    orders.value = orders.value.filter((entry) => !relatedOrderIdSet.has(entry.id));
+    moments.value = moments.value.filter((entry) => !relatedMomentIdSet.has(entry.id));
+
+    await Promise.all([
+      ...relatedWallets.map((entry) => deleteEntity('walletAccounts', entry.id)),
+      ...relatedTransactions.map((entry) => deleteEntity('walletTransactions', entry.id)),
+      ...relatedStorefronts.map((entry) => deleteEntity('shopStorefronts', entry.id)),
+      ...relatedProducts.map((entry) => deleteEntity('shopProducts', entry.id)),
+      ...relatedCartItems.map((entry) => deleteEntity('shopCartItems', entry.id)),
+      ...relatedWishlistItems.map((entry) => deleteEntity('shopWishlistItems', entry.id)),
+      ...relatedOrders.map((entry) => deleteEntity('shopOrders', entry.id)),
+      ...relatedMoments.map((entry) => deleteEntity('shopMoments', entry.id))
+    ]);
+    await pruneUnusedStoredMediaCache();
+    return relatedWallets.length + relatedTransactions.length + relatedStorefronts.length + relatedProducts.length + relatedCartItems.length + relatedWishlistItems.length + relatedOrders.length + relatedMoments.length;
+  }
+
   return {
     ready,
     walletAccounts,
@@ -657,8 +858,11 @@ export const useCommerceStore = defineStore('commerce', () => {
     generateCharacterCatalog,
     generateProductImage,
     checkoutCart,
+    recordUserChatPurchase,
     recordChatPurchase,
     linkOrderToChat,
-    syncChatTransfer
+    syncChatTransfer,
+    rollbackChatFinancialActions,
+    deleteCharacterCommerceData
   };
 });
