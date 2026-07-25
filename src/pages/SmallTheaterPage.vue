@@ -2919,6 +2919,74 @@ async function deleteTheater(theaterId: string) {
     padding: 20px 18px;
     border-radius: 20px 20px 20px 8px;
   }
+
+  .theater-timeline {
+    gap: 10px;
+    padding: 2px 0 16px;
+  }
+
+  .theater-timeline::before {
+    left: 21px;
+  }
+
+  .theater-timeline-item {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .theater-timeline-stamp {
+    padding-top: 6px;
+  }
+
+  .theater-timeline-stamp strong {
+    font-size: 18px;
+  }
+
+  .theater-timeline-stamp i {
+    margin-top: 4px;
+  }
+
+  .theater-timeline .theater-card {
+    gap: 8px;
+    min-height: 0;
+    padding: 11px 12px;
+    border-radius: 18px 18px 18px 7px;
+    box-shadow: 0 9px 20px rgba(81, 63, 55, 0.055);
+  }
+
+  .theater-card-content {
+    gap: 2px;
+    padding-right: 78px;
+  }
+
+  .theater-card-content small {
+    line-height: 1.15;
+  }
+
+  .theater-card-content strong {
+    font-size: 16px;
+    line-height: 1.2;
+  }
+
+  .theater-card-content em {
+    line-height: 1.35;
+    -webkit-line-clamp: 1;
+  }
+
+  .theater-card-actions {
+    top: 7px;
+    right: 7px;
+    gap: 1px;
+  }
+
+  .theater-card-footer {
+    padding-top: 6px;
+  }
+
+  .theater-card-footer time,
+  .theater-card-footer > span {
+    line-height: 1.15;
+  }
 }
 
 @media (max-width: 380px) {
@@ -2927,7 +2995,18 @@ async function deleteTheater(theaterId: string) {
   }
 
   .generate-panel-actions {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 108px;
+    gap: 6px;
+  }
+
+  .generate-topic-trigger {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+
+  .generate-button {
+    gap: 5px;
+    padding-inline: 8px;
   }
 }
 </style>

@@ -190,7 +190,8 @@ export function normalizeWorldBookEntry(entry?: Partial<WorldBookEntry> | null):
     entries,
     scope: isTabooBook ? 'global-online' : normalizeScope(entry?.scope),
     enabled: isTabooBook ? true : entry?.enabled ?? true,
-    coverImage: String(entry?.coverImage ?? '').trim()
+    coverImage: String(entry?.coverImage ?? '').trim(),
+    ...(isTabooBook ? { includeInImageGeneration: entry?.includeInImageGeneration !== false } : {})
   };
 }
 
@@ -202,7 +203,8 @@ export function createTabooWorldBook(): WorldBookEntry {
     entries: [],
     scope: 'global-online',
     enabled: true,
-    coverImage: ''
+    coverImage: '',
+    includeInImageGeneration: true
   };
 }
 

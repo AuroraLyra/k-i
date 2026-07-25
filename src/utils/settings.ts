@@ -1521,8 +1521,18 @@ export function getSelectedImageModelOption(settings?: AppSettings | null, scope
   const options = getConfiguredImageModelOptions(settings);
   const scopedSelection = settings?.imageModelOverrides?.[scope];
   if (isImageModelSelectionDisabled(scopedSelection)) return null;
-  const selectedProvider = normalizeImageProvider(scopedSelection?.provider ?? settings?.voomImageProvider);
-  const selectedModel = String(scopedSelection?.model ?? settings?.voomImageModel ?? '').trim();
+  const voomSelection = settings?.imageModelOverrides?.voom;
+  const selectedProvider = normalizeImageProvider(
+    scopedSelection?.provider
+    || (scope !== 'voom' ? voomSelection?.provider : '')
+    || settings?.voomImageProvider
+  );
+  const selectedModel = String(
+    scopedSelection?.model
+    || (scope !== 'voom' ? voomSelection?.model : '')
+    || settings?.voomImageModel
+    || ''
+  ).trim();
   const selectedKey = selectedProvider ? createImageModelKey(selectedProvider, selectedModel) : '';
   return options.find((option) => option.key === selectedKey) ?? options[0] ?? null;
 }

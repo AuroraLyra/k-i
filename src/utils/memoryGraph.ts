@@ -41,6 +41,7 @@ export interface IntegrateMemoryExtractionInput extends MemoryGraphCollections {
   channel: MemoryEpisode['channel'];
   sourceMessages: ChatMessage[];
   extraction: MemoryExtractionResult;
+  existingEpisode?: MemoryEpisode;
   now?: number;
 }
 
@@ -101,6 +102,7 @@ export function estimateMemoryTokens(value: string): number {
 
 export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput): MemoryGraphUpserts {
   const now = input.now ?? Date.now();
+  const existingEpisode = input.existingEpisode?.brainId === input.brainId ? input.existingEpisode : undefined;
   const sourceMessages = input.sourceMessages;
   const sourceMessageIds = sourceMessages.map((message) => message.id);
   const sourceHash = hashMemoryText(sourceMessages.map((message) => `${message.id}:${message.content}`).join('\n'));
@@ -135,7 +137,7 @@ export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput)
   }
 
   const episode: MemoryEpisode = {
-    id: memoryId('episode'),
+    id: existingEpisode?.id ?? memoryId('episode'),
     brainId: input.brainId,
     characterId: input.characterId,
     userId: input.userId,
@@ -160,8 +162,8 @@ export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput)
     occurredEndAt: sourceMessages.length
       ? Math.max(...sourceMessages.map((message) => Number(message.createdAt) || occurredAt))
       : occurredAt,
-    learnedAt: now,
-    createdAt: now,
+    learnedAt: existingEpisode?.learnedAt ?? now,
+    createdAt: existingEpisode?.createdAt ?? now,
     updatedAt: now,
   };
 

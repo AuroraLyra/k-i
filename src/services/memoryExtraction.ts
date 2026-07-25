@@ -31,30 +31,85 @@ const assertionKinds = new Set<MemoryAssertionKind>(['fact', 'preference', 'prom
 const epistemicKinds = new Set<MemoryEpistemicKind>(['told', 'observed', 'inferred', 'hearsay', 'canon']);
 const stateKinds = new Set<MemoryStateKind>(['relationship', 'user-impression', 'adaptive-personality', 'mood', 'current-context']);
 
-export async function extractTemporalMemory(input: ExtractTemporalMemoryInput): Promise<MemoryExtractionResult> {
+export type TemporalMemoryDiaryResult = Pick<MemoryExtractionResult, 'title' | 'narrative' | 'location' | 'emotion' | 'valence' | 'arousal' | 'salience'>;
+export type TemporalMemoryGraphResult = Pick<MemoryExtractionResult, 'entities' | 'assertions' | 'themes' | 'stateDeltas'>;
+export interface TemporalMemoryExtractionResult extends MemoryExtractionResult {
+  graphErrorMessage?: string;
+}
+
+export async function extractTemporalMemory(input: ExtractTemporalMemoryInput): Promise<TemporalMemoryExtractionResult> {
   if (!hasTextGenerationConfig(input.settings, input.modelOverride)) {
     throw new Error('没有可用的总结模型。请先配置角色局部总结模型、全局总结模型或 API 默认模型。');
   }
-  const prompt = buildMemoryExtractionPrompt(input);
+  const diary = await generateTemporalMemoryDiary(input);
+  let graph: TemporalMemoryGraphResult = { entities: [], assertions: [], themes: [], stateDeltas: [] };
+  try {
+    graph = await extractTemporalMemoryGraph(input);
+  } catch (error) {
+    console.warn('Memory graph extraction failed; the completed diary was preserved.', error);
+    return {
+      ...diary,
+      ...graph,
+      graphErrorMessage: error instanceof Error ? error.message : '知识图谱生成失败。'
+    };
+  }
+  return { ...diary, ...graph };
+}
+
+export async function generateTemporalMemoryDiary(input: ExtractTemporalMemoryInput): Promise<TemporalMemoryDiaryResult> {
+  if (!hasTextGenerationConfig(input.settings, input.modelOverride)) {
+    throw new Error('没有可用的总结模型。请先配置角色局部总结模型、全局总结模型或 API 默认模型。');
+  }
+  const prompt = buildMemoryDiaryPrompt(input);
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const attemptPrompt = attempt === 0
       ? prompt
-      : `${prompt}\n\n重要重试要求：上一次响应在完整 JSON 前中断，或日记正文没有自然收束。不要修补或续写上一次的输出；请从头输出一个完整 JSON 对象。narrative 压缩到 160-380 字、最后必须以完整句末标点收束；entities 最多 8 条、assertions 最多 10 条、themes 最多 5 条、stateDeltas 最多 3 条，严格闭合所有数组、字符串和花括号。`;
+      : `${prompt}\n\n重要重试要求：上一次日记 JSON 不完整。请从头输出且只输出这 7 个字段；narrative 压缩到 160-380 字并以完整句末标点收束，随后立即闭合 JSON。`;
     const response = await requestTextGeneration(input.settings, attemptPrompt, input.modelOverride, {
       temperature: attempt === 0 ? 0.1 : 0.05,
-      maxTokens: attempt === 0 ? 3_600 : 4_096,
+      maxTokens: attempt === 0 ? 1_000 : 1_400,
       jsonMode: true,
       signal: input.signal,
     });
     try {
-      return parseTemporalMemoryExtractionResponse(response);
+      const parsed = parseTemporalMemoryExtractionResponse(response);
+      return pickTemporalMemoryDiary(parsed);
     } catch (error) {
       lastError = error;
     }
   }
   const reason = lastError instanceof Error ? lastError.message : 'JSON 结构无效。';
-  throw new Error(`${reason} 记忆模型已自动修复并重试仍未成功，请更换总结模型后再试。`);
+  throw new Error(`${reason} 日记模型已自动重试仍未成功，请更换总结模型后再试。`);
+}
+
+export async function extractTemporalMemoryGraph(input: ExtractTemporalMemoryInput): Promise<TemporalMemoryGraphResult> {
+  const prompt = buildMemoryGraphPrompt(input);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const attemptPrompt = attempt === 0
+      ? prompt
+      : `${prompt}\n\n上一次图谱 JSON 不完整。请压缩输出，只保留最重要且有消息证据的条目，从头输出完整 JSON。`;
+    try {
+      const response = await requestTextGeneration(input.settings, attemptPrompt, input.modelOverride, {
+        temperature: attempt === 0 ? 0.05 : 0,
+        maxTokens: attempt === 0 ? 2_600 : 3_400,
+        jsonMode: true,
+        signal: input.signal,
+      });
+      return parseTemporalMemoryGraphResponse(response);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('知识图谱提取失败。');
+}
+
+export function parseTemporalMemoryGraphResponse(raw: string): TemporalMemoryGraphResult {
+  const parsed = parseJsonObject(raw);
+  const graphFieldNames = ['entities', 'entityList', 'entity', 'assertions', 'memories', 'memoryItems', 'themes', 'theme', 'stateDeltas', 'stateDelta', 'states'];
+  if (!graphFieldNames.some((field) => field in parsed)) throw new Error('知识图谱模型没有返回图谱字段。');
+  return normalizeMemoryGraphResult(parsed);
 }
 
 export interface ConsolidateMemoryThemeInput {
@@ -99,7 +154,46 @@ ${evidence}`;
   return report;
 }
 
-function buildMemoryExtractionPrompt(input: ExtractTemporalMemoryInput): string {
+function buildMemoryDiaryPrompt(input: ExtractTemporalMemoryInput): string {
+  const messageRows = input.messages
+    .map((message) => JSON.stringify({
+      sender: message.sender === 'user' ? input.userName : message.sender === 'char' ? input.characterName : '系统',
+      sentAt: new Date(message.createdAt).toISOString(),
+      content: renderMessageContent(message),
+    }))
+    .join('\n');
+  return `请以${input.characterName}的第一人称写一篇私人日记，只输出一个小型 JSON 对象，不要提取知识图谱。
+
+写作要求：
+1. 只写下方对话里实际发生、${input.characterName}亲历或得知的内容，不补写未发生的事件。
+2. 保留事件顺序、${input.characterName}真正会注意的细节、感受、关系变化和未完成的牵挂；事件简单时宁短勿水，正文约 180-500 字。
+3. 口吻严格服从角色设定，使用${input.characterName}会使用的词汇、句子节奏和情绪强度；禁止套用通用抒情模板或机械使用“今天，我……”开头。
+4. narrative 必须以完整自然句收束。只输出以下 7 个字段，输出 narrative 后不要扩展分析，立即完成其余短字段并闭合 JSON。
+
+JSON 结构：
+{
+  "title":"简短经历标题",
+  "narrative":"完整的第一人称日记正文",
+  "location":"地点或空字符串",
+  "emotion":"主要情绪或空字符串",
+  "valence":-1到1,
+  "arousal":0到1,
+  "salience":0到1
+}
+
+角色设定与写作基准：
+${input.characterContext?.trim() || '未提供额外角色设定；保持克制，只依据本轮实际措辞确定口吻。'}
+
+本轮可用世界书背景：
+${input.worldBookContext?.trim() || '无启用且匹配的世界书条目。'}
+
+本轮对话：
+${messageRows || '无'}
+
+现在只输出日记 JSON。`;
+}
+
+function buildMemoryGraphPrompt(input: ExtractTemporalMemoryInput): string {
   const messageRows = input.messages
     .map((message) => JSON.stringify({
       id: message.id,
@@ -124,8 +218,8 @@ function buildMemoryExtractionPrompt(input: ExtractTemporalMemoryInput): string 
 
   return `你是${input.characterName}的“主观记忆编码器”，不是故事续写者，也不是全知数据库。请将本轮对话编码成时序知识图谱，只输出一个 JSON 对象。
 
-视角规则：
-1. narrative 与 perspectiveText 必须使用${input.characterName}的第一人称视角（我）。
+图谱规则：
+1. perspectiveText 与状态 summary 必须使用${input.characterName}的第一人称视角（我）。
 2. 只记录本轮消息有直接证据的信息。角色不知道的事不能记录；推断必须标为 inferred 并降低 confidence。
 3. 区分 told（用户告知）、observed（角色亲历/观察）、inferred（角色推断）、hearsay（转述）、canon（明确设定）。
 4. 不记录寒暄、措辞细节和无长期价值内容。优先记录偏好、边界、承诺、冲突、重要事件、关系变化、未完成事项。
@@ -133,23 +227,12 @@ function buildMemoryExtractionPrompt(input: ExtractTemporalMemoryInput): string 
 6. evidenceMessageIds 只能使用下方给出的消息 id。没有证据就不要输出断言。
 7. 新信息明确替代旧认知时，把旧 id 放入 supersedesAssertionIds；信息互相冲突但无法判断时放入 contradictsAssertionIds。不要因为对象不同就擅自覆盖可并存的喜好。
 8. adaptive-personality 只描述${input.characterName}在反复经历后形成的缓慢适应，不能修改核心人设。relationship/user-impression 也只输出小幅 delta；一次普通对话不得人格突变。
-9. narrative 要像${input.characterName}当天留下的一则私人日记或内心记录：保留事件顺序、感受、关系变化与未完成的牵挂，事件简单时宁可短而准确，约 180-500 字；不要写成技术摘要或全知旁白。
-10. 所有数值必须在指定范围内。不要输出 Markdown 或解释。
-11. 为确保 JSON 完整：entities 最多 8 条、assertions 最多 10 条、themes 最多 5 条、stateDeltas 最多 3 条；没有内容时输出空数组，不得省略字段。
-12. 日记口吻必须服从下方角色设定：使用${input.characterName}会使用的词汇、句子节奏、情绪表达强度和关注点。不要套用“今天，我……”开头、抒情散文、温柔总结或等待回应等通用模板，除非角色设定和本轮行为确实支持。
-13. 角色设定与世界书只用于确定口吻、身份关系和角色已知的背景事实，不能替代消息证据，也不能把未在本轮发生的设定写成刚发生的经历。
-14. 输出前在内部检查：如果遮住姓名，这篇日记是否仍能看出是${input.characterName}写的；若不能，先按角色设定重写 narrative，再输出 JSON。不要输出检查过程。
-15. narrative 必须在一个完整自然句结束（以 。！？!? 或 … 收束），再继续输出其余 JSON 字段并完整闭合 JSON；禁止半句、半段或未闭合 JSON。
+9. 角色设定与世界书只用于身份关系和角色已知背景，不能替代消息证据。
+10. 只输出图谱字段，不要输出 title、narrative、location、emotion、valence、arousal 或 salience。
+11. entities 最多 8 条、assertions 最多 10 条、themes 最多 5 条、stateDeltas 最多 3 条；没有内容时输出空数组，不得省略字段。
 
 JSON 结构：
 {
-  "title": "简短经历标题",
-  "narrative": "我的第一人称情景记忆，完整但简洁",
-  "location": "地点或空字符串",
-  "emotion": "我的主要情绪或空字符串",
-  "valence": -1到1,
-  "arousal": 0到1,
-  "salience": 0到1,
   "entities": [{"key":"本次唯一键","name":"名称","type":"character|user|person|place|object|organization|event|concept","aliases":[],"description":""}],
   "assertions": [{
     "subjectKey":"self|user|实体key",
@@ -232,8 +315,7 @@ function parseJsonObject(raw: string): Record<string, unknown> {
 
 export function parseTemporalMemoryExtractionResponse(raw: string): MemoryExtractionResult {
   const completeJson = extractCompleteJsonObject(raw);
-  if (!completeJson) throw new Error('记忆模型输出在 JSON 完整闭合前中断。');
-  const parsed = parseJsonObject(completeJson);
+  const parsed = parseJsonObject(completeJson || raw);
   const originalNarrative = cleanText(parsed.narrative ?? parsed.memory ?? parsed.summary ?? parsed.content, 900);
   if (!originalNarrative) throw new Error('记忆模型没有返回日记正文。');
   const result = normalizeExtractionResult(parsed);
@@ -241,6 +323,18 @@ export function parseTemporalMemoryExtractionResponse(raw: string): MemoryExtrac
     throw new Error('记忆模型返回的日记正文不完整。');
   }
   return result;
+}
+
+function pickTemporalMemoryDiary(result: MemoryExtractionResult): TemporalMemoryDiaryResult {
+  return {
+    title: result.title,
+    narrative: result.narrative,
+    location: result.location,
+    emotion: result.emotion,
+    valence: result.valence,
+    arousal: result.arousal,
+    salience: result.salience,
+  };
 }
 
 function extractCompleteJsonObject(raw: string): string {
@@ -278,12 +372,7 @@ function isIncompleteDiaryNarrative(value: string): boolean {
 }
 
 function normalizeExtractionResult(raw: Record<string, unknown>): MemoryExtractionResult {
-  const rawEntities = flexibleRecordArray(raw.entities ?? raw.entityList ?? raw.entity, ['key', 'name', 'type'], 'key').slice(0, 30);
-  const rawAssertions = flexibleRecordArray(raw.assertions ?? raw.memories ?? raw.memoryItems, ['subjectKey', 'predicate', 'perspectiveText']).slice(0, 40);
-  const rawStateDeltas = flexibleRecordArray(raw.stateDeltas ?? raw.stateDelta ?? raw.states, ['kind', 'summary']).slice(0, 10);
-  const entities = rawEntities.flatMap(normalizeEntityDraft);
-  const assertions = rawAssertions.flatMap(normalizeAssertionDraft);
-  const stateDeltas = rawStateDeltas.flatMap(normalizeStateDelta);
+  const graph = normalizeMemoryGraphResult(raw);
   const narrative = cleanText(raw.narrative ?? raw.memory ?? raw.summary ?? raw.content, 900)
     || '我记得我们最近有过一段值得留下的交流。';
   const title = cleanText(raw.title ?? raw.memoryTitle, 80)
@@ -297,6 +386,18 @@ function normalizeExtractionResult(raw: Record<string, unknown>): MemoryExtracti
     valence: boundedNumber(raw.valence, -1, 1, 0),
     arousal: boundedNumber(raw.arousal, 0, 1, 0.25),
     salience: boundedNumber(raw.salience, 0, 1, 0.45),
+    ...graph,
+  };
+}
+
+function normalizeMemoryGraphResult(raw: Record<string, unknown>): TemporalMemoryGraphResult {
+  const rawEntities = flexibleRecordArray(raw.entities ?? raw.entityList ?? raw.entity, ['key', 'name', 'type'], 'key').slice(0, 30);
+  const rawAssertions = flexibleRecordArray(raw.assertions ?? raw.memories ?? raw.memoryItems, ['subjectKey', 'predicate', 'perspectiveText']).slice(0, 40);
+  const rawStateDeltas = flexibleRecordArray(raw.stateDeltas ?? raw.stateDelta ?? raw.states, ['kind', 'summary']).slice(0, 10);
+  const entities = rawEntities.flatMap(normalizeEntityDraft);
+  const assertions = rawAssertions.flatMap(normalizeAssertionDraft);
+  const stateDeltas = rawStateDeltas.flatMap(normalizeStateDelta);
+  return {
     entities,
     assertions,
     themes: unique(flexibleStringArray(raw.themes ?? raw.theme).map((item) => cleanText(item, 60)).filter(Boolean)).slice(0, 12),

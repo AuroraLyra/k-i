@@ -3,12 +3,15 @@ import { getTabooWorldBookContent, isTabooWorldBook, TABOO_WORLD_BOOK_TITLE } fr
 
 let worldBookProvider: () => readonly WorldBookEntry[] = () => [];
 
+export type TabooWorldBookPromptTarget = 'text' | 'image';
+
 export function registerTabooWorldBookProvider(provider: () => readonly WorldBookEntry[]) {
   worldBookProvider = provider;
 }
 
-export function getTabooWorldBookPrompt() {
+export function getTabooWorldBookPrompt(target: TabooWorldBookPromptTarget = 'text') {
   const tabooBook = worldBookProvider().find((entry) => isTabooWorldBook(entry));
+  if (target === 'image' && tabooBook?.includeInImageGeneration === false) return '';
   const content = getTabooWorldBookContent(tabooBook);
   if (!content) return '';
   return [
@@ -19,7 +22,7 @@ export function getTabooWorldBookPrompt() {
   ].join('\n');
 }
 
-export function prependTabooWorldBookPrompt(prompt: string) {
-  const tabooPrompt = getTabooWorldBookPrompt();
+export function prependTabooWorldBookPrompt(prompt: string, target: TabooWorldBookPromptTarget = 'text') {
+  const tabooPrompt = getTabooWorldBookPrompt(target);
   return tabooPrompt ? `${tabooPrompt}\n\n${prompt}` : prompt;
 }

@@ -21,9 +21,30 @@
           <div>
             <p>Priority letter · no. 00</p>
             <h2>全站最先读取的私人规则</h2>
-            <small>这本书不会被删除、改名或停用。只有非空且已开启的条目会进入文本与图片生成请求；全部留空时不读取。</small>
+            <small>这本书不会被删除、改名或停用。非空且已开启的条目始终优先进入文本生成；图片生成是否读取由下方开关控制。</small>
           </div>
           <Sparkles :size="17" stroke-width="1.6" />
+        </section>
+
+        <section v-if="isTabooDraft" class="taboo-api-routing">
+          <span class="api-routing-icon"><ImageIcon :size="18" stroke-width="1.7" /></span>
+          <div class="api-routing-copy">
+            <p>Image generation route</p>
+            <h2>生图 API 读取禁忌之书</h2>
+            <small>关闭后，OpenAI、NovelAI 与 Pollinations 生图都不会附带本书内容。</small>
+          </div>
+          <button
+            class="api-routing-toggle"
+            :class="{ active: tabooImageGenerationReadEnabled }"
+            type="button"
+            role="switch"
+            :aria-checked="tabooImageGenerationReadEnabled"
+            :aria-label="tabooImageGenerationReadEnabled ? '生图 API 当前读取禁忌之书，点击关闭' : '生图 API 当前不读取禁忌之书，点击开启'"
+            @click="toggleTabooImageGenerationRead"
+          >
+            <span><i></i></span>
+            <strong>{{ tabooImageGenerationReadEnabled ? '读取' : '不读取' }}</strong>
+          </button>
         </section>
 
         <section class="book-identity">
@@ -308,6 +329,7 @@ const activationModes: Array<{ id: WorldBookEntryActivation; label: string; desc
 const isEditingRoute = computed(() => route.name === 'world-book-edit');
 const routeBookId = computed(() => String(route.params.id ?? '').trim());
 const isTabooDraft = computed(() => isTabooWorldBook(draft));
+const tabooImageGenerationReadEnabled = computed(() => draft.includeInImageGeneration !== false);
 const pageTitle = computed(() => isTabooDraft.value ? TABOO_WORLD_BOOK_TITLE : draft.title.trim() || (isEditingRoute.value ? 'Edit world book' : 'New world book'));
 const draftCoverImage = computed(() => resolveWorldBookCover(draft));
 const activeEntry = computed(() => draft.entries[activeEntryIndex.value] ?? draft.entries[0] ?? null);
@@ -484,6 +506,11 @@ async function finishEditing() {
 
 function toggleBookEnabled() {
   if (!isTabooDraft.value) draft.enabled = !draft.enabled;
+}
+
+function toggleTabooImageGenerationRead() {
+  if (!isTabooDraft.value) return;
+  draft.includeInImageGeneration = !tabooImageGenerationReadEnabled.value;
 }
 
 function parseEntryList(value: string) {
@@ -786,6 +813,114 @@ textarea {
   position: relative;
   z-index: 1;
   color: #dec0ba;
+}
+
+.taboo-api-routing {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 15px;
+  border: 1px solid rgba(112, 84, 78, 0.1);
+  border-radius: 28px 8px 28px 8px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(220, 191, 184, 0.24), transparent 38%),
+    rgba(255, 253, 249, 0.76);
+  box-shadow: 0 14px 30px rgba(74, 56, 50, 0.07);
+}
+
+.api-routing-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #eaded9;
+  color: #765b55;
+}
+
+.api-routing-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.api-routing-copy p,
+.api-routing-copy h2,
+.api-routing-copy small {
+  margin: 0;
+}
+
+.api-routing-copy p {
+  color: #b09287;
+  font-size: 7px;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.api-routing-copy h2 {
+  color: #443833;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.api-routing-copy small {
+  color: #978a83;
+  font-size: 8px;
+  line-height: 1.55;
+}
+
+.api-routing-toggle {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-width: 58px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #a07873;
+}
+
+.api-routing-toggle > span {
+  position: relative;
+  display: block;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: #d8ccc6;
+  box-shadow: inset 0 1px 3px rgba(67, 48, 43, 0.1);
+  transition: background 0.18s ease;
+}
+
+.api-routing-toggle i {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fffdf9;
+  box-shadow: 0 3px 8px rgba(65, 48, 43, 0.2);
+  transition: transform 0.18s ease;
+}
+
+.api-routing-toggle strong {
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.api-routing-toggle.active {
+  color: #6f7d68;
+}
+
+.api-routing-toggle.active > span {
+  background: #899d80;
+}
+
+.api-routing-toggle.active i {
+  transform: translateX(16px);
 }
 
 .book-identity {
@@ -1730,6 +1865,21 @@ textarea {
   .book-identity {
     grid-template-columns: 82px minmax(0, 1fr);
     gap: 11px;
+  }
+
+  .taboo-api-routing {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    gap: 8px;
+    padding-inline: 11px;
+  }
+
+  .api-routing-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .api-routing-copy small {
+    display: none;
   }
 
   .identity-cover {

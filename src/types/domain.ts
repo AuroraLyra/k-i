@@ -1175,6 +1175,7 @@ export interface WorldBookEntry {
   scope: WorldBookScope;
   enabled: boolean;
   coverImage: string;
+  includeInImageGeneration?: boolean;
 }
 
 export type ImageProviderType = 'openai' | 'novelai' | 'pollinations';

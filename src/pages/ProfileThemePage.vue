@@ -2306,12 +2306,12 @@ button:disabled {
   }
 
   .profile-theme-card {
-    grid-template-columns: 32px minmax(0, 1fr);
-    gap: 11px;
-    min-height: 88px;
-    padding: 12px 48px 12px 12px;
-    border-radius: 22px 22px 9px 22px;
-    box-shadow: 0 10px 24px rgba(81, 63, 55, 0.06);
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 8px;
+    min-height: 72px;
+    padding: 9px 44px 9px 10px;
+    border-radius: 18px 18px 8px 18px;
+    box-shadow: 0 8px 18px rgba(81, 63, 55, 0.05);
   }
 
   .profile-theme-card::before {
@@ -2322,19 +2322,19 @@ button:disabled {
   }
 
   .theme-card-number {
-    width: 32px;
-    height: 42px;
-    font-size: 14px;
+    width: 28px;
+    height: 36px;
+    font-size: 12px;
   }
 
   .profile-theme-card > .theme-switch {
-    top: 10px;
-    right: 10px;
+    top: 8px;
+    right: 8px;
   }
 
   .theme-card-open {
-    right: 14px;
-    bottom: 10px;
+    right: 12px;
+    bottom: 8px;
   }
 
   .theme-copy {
@@ -2342,37 +2342,90 @@ button:disabled {
   }
 
   .theme-copy strong {
-    font-size: 16px;
+    font-size: 15px;
+    line-height: 1.15;
+  }
+
+  .theme-copy > small,
+  .theme-card-meta {
+    line-height: 1.1;
   }
 
   .homepage-timeline {
-    gap: 12px;
-    padding-bottom: 16px;
+    gap: 10px;
+    padding: 2px 0 14px;
+  }
+
+  .homepage-timeline::before {
+    left: 21px;
   }
 
   .homepage-timeline-item {
-    grid-template-columns: 50px minmax(0, 1fr);
+    grid-template-columns: 44px minmax(0, 1fr);
     gap: 8px;
   }
 
+  .homepage-timeline-stamp {
+    padding-top: 6px;
+  }
+
+  .homepage-timeline-stamp strong {
+    font-size: 18px;
+  }
+
+  .homepage-timeline-stamp i {
+    margin-top: 4px;
+  }
+
   .homepage-record-card {
-    border-radius: 20px 20px 20px 8px;
-    box-shadow: 0 10px 24px rgba(81, 63, 55, 0.06);
+    border-radius: 18px 18px 18px 7px;
+    box-shadow: 0 9px 20px rgba(81, 63, 55, 0.055);
   }
 
   .homepage-record-main {
-    gap: 10px;
-    min-height: 106px;
-    padding: 14px;
+    gap: 6px;
+    min-height: 0;
+    padding: 11px 12px;
+  }
+
+  .homepage-record-copy {
+    gap: 2px;
+    padding-right: 28px;
+  }
+
+  .homepage-record-copy small {
+    line-height: 1.15;
+  }
+
+  .homepage-record-copy strong {
+    font-size: 16px;
+    line-height: 1.2;
+  }
+
+  .homepage-record-copy em {
+    line-height: 1.35;
+    -webkit-line-clamp: 1;
   }
 
   .homepage-record-footer {
-    padding-top: 9px;
+    padding-top: 6px;
+  }
+
+  .homepage-record-footer time,
+  .homepage-record-open {
+    line-height: 1.15;
+  }
+
+  .homepage-record-delete {
+    top: 7px;
+    right: 7px;
+    width: 28px;
+    height: 28px;
   }
 
   .homepage-timeline-empty {
-    min-height: clamp(250px, 36vh, 320px);
-    padding: 26px 18px 34px;
+    min-height: clamp(220px, 30vh, 260px);
+    padding: 22px 16px 26px;
   }
 
   .homepage-timeline-empty::before {

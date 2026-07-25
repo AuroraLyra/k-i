@@ -18,7 +18,7 @@
       @pointerup.stop="cancelAvatarLongPress"
     >
       <img class="avatar mini" :src="avatarSource" :alt="avatarAlt" />
-      <span v-if="showProfileAlert" class="mind-state-hearts" aria-hidden="true"><i>♥</i><i>♥</i><i>♥</i></span>
+      <span v-if="showProfileAlert" class="mind-state-hearts" aria-hidden="true"><Heart /><Heart /><Heart /></span>
     </button>
     <div class="bubble-wrap" :class="{ 'shop-share-wrap': message.shopShare }">
       <span v-if="canQuote" class="swipe-quote-cue" :class="{ visible: swipeOffset > 0, ready: swipeQuoteReady }" aria-hidden="true">
@@ -336,7 +336,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { ChevronRight, DoorOpen, Globe2, LoaderCircle, Music2, Pause, Play, Quote, X } from 'lucide-vue-next';
+import { ChevronRight, DoorOpen, Globe2, Heart, LoaderCircle, Music2, Pause, Play, Quote, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import type { CharacterProfile, ChatAppearanceSettings, ChatImageCandidate, ChatMessage, UserProfile } from '@/types/domain';
 import { useAppStore } from '@/stores/appStore';
@@ -1268,36 +1268,36 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.mind-state-hearts i {
+.mind-state-hearts svg {
   position: absolute;
   bottom: 0;
-  display: grid;
-  place-items: center;
-  color: rgba(255, 255, 255, 0.98);
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 11px;
-  font-style: normal;
-  line-height: 1;
-  -webkit-text-stroke: 0.6px rgba(82, 91, 103, 0.44);
-  text-shadow: 0 2px 8px rgba(53, 61, 72, 0.52), 0 0 5px rgba(255, 255, 255, 0.98);
+  display: block;
+  overflow: visible;
+  fill: rgba(255, 255, 255, 0.98);
+  stroke: rgba(82, 91, 103, 0.62);
+  stroke-width: 1.5px;
+  filter: drop-shadow(0 2px 3px rgba(53, 61, 72, 0.42)) drop-shadow(0 0 2px rgba(255, 255, 255, 0.98));
   animation: mind-state-heart-drift 2.7s ease-in-out infinite;
 }
 
-.mind-state-hearts i:nth-child(1) {
+.mind-state-hearts svg:nth-child(1) {
   left: 0;
-  font-size: 11px;
+  width: 11px;
+  height: 11px;
   animation-delay: -1.55s;
 }
 
-.mind-state-hearts i:nth-child(2) {
+.mind-state-hearts svg:nth-child(2) {
   left: 13px;
-  font-size: 15px;
+  width: 15px;
+  height: 15px;
   animation-delay: -0.75s;
 }
 
-.mind-state-hearts i:nth-child(3) {
+.mind-state-hearts svg:nth-child(3) {
   left: 28px;
-  font-size: 10px;
+  width: 10px;
+  height: 10px;
   animation-delay: -0.1s;
 }
 
@@ -1324,7 +1324,7 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mind-state-hearts i {
+  .mind-state-hearts svg {
     opacity: 0.88;
     animation: none;
     transform: none;

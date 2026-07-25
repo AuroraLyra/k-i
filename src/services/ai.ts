@@ -2338,7 +2338,7 @@ export async function fetchVendorModels(vendor: Pick<ApiVendor, 'apiUrl' | 'apiK
 
 export async function generateOpenAiImage(settings: AppSettings, overrides: ImageGenerationOverrides = {}): Promise<ImageGenerationResult> {
   const resolved = getResolvedOpenAiImageConfig(settings);
-  const positivePrompt = prependTabooWorldBookPrompt(overrides.positivePrompt ?? settings.imageOpenAi.positivePrompt);
+  const positivePrompt = prependTabooWorldBookPrompt(overrides.positivePrompt ?? settings.imageOpenAi.positivePrompt, 'image');
   const negativePrompt = overrides.negativePrompt ?? settings.imageOpenAi.negativePrompt;
   const referenceImage = await prepareReferenceImage(overrides.referenceImage ?? '', 'image/png', resolved.apiKey);
   const prompt = sanitizePrompt(positivePrompt, negativePrompt);
@@ -2414,7 +2414,7 @@ export async function generateOpenAiImage(settings: AppSettings, overrides: Imag
 
 export async function generateNovelAiImage(settings: AppSettings, overrides: ImageGenerationOverrides = {}): Promise<ImageGenerationResult> {
   const config = settings.imageNovelAi;
-  const positivePrompt = prependTabooWorldBookPrompt(overrides.positivePrompt ?? config.positivePrompt);
+  const positivePrompt = prependTabooWorldBookPrompt(overrides.positivePrompt ?? config.positivePrompt, 'image');
   const negativePrompt = overrides.negativePrompt ?? config.negativePrompt;
   const referenceImage = await prepareReferenceImage(overrides.referenceImage ?? '', 'image/png');
   const endpointBase = resolveNovelAiEndpointBase(settings);
@@ -2508,7 +2508,7 @@ export async function checkNovelAiImageAccess(settings: AppSettings): Promise<vo
 
 export async function generatePollinationsImage(settings: AppSettings, overrides: ImageGenerationOverrides = {}): Promise<ImageGenerationResult> {
   const config = settings.imagePollinations;
-  const positivePrompt = prependTabooWorldBookPrompt(overrides.positivePrompt ?? config.positivePrompt);
+  const positivePrompt = prependTabooWorldBookPrompt(overrides.positivePrompt ?? config.positivePrompt, 'image');
   const negativePrompt = overrides.negativePrompt ?? config.negativePrompt;
   const referenceImage = overrides.referenceImage ?? config.referenceImage;
 
