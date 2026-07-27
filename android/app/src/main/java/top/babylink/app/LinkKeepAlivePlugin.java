@@ -108,10 +108,22 @@ public class LinkKeepAlivePlugin extends Plugin {
         String tag = call.getString("tag", "babylink-message");
         String icon = call.getString("icon", "");
         String url = call.getString("url", "");
-        LinkKeepAliveService.showMessageNotification(getContext(), title, body, messages, tag, icon, url);
+        String kind = call.getString("kind", "message");
+        String conversationId = call.getString("conversationId", "");
+        String callId = call.getString("callId", "");
+        String callMode = call.getString("callMode", "voice");
+        LinkKeepAliveService.showNotification(getContext(), kind, title, body, messages, tag, icon, url, conversationId, callId, callMode);
         JSObject result = new JSObject();
         result.put("sent", true);
         call.resolve(result);
+    }
+
+    @PluginMethod
+    public void dismissCall(PluginCall call) {
+        String callId = call.getString("callId", "");
+        String tag = call.getString("tag", "");
+        LinkKeepAliveService.dismissCallNotification(getContext(), callId, tag);
+        call.resolve();
     }
 
     private JSObject createStatus() {

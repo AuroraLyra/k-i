@@ -1,6 +1,7 @@
 import type { ChatMode, ConversationOfflineSettings, OfflinePromptPreset, PromptContext, WorldBookEntry, WorldBookLoreEntry } from '@/types/domain';
 import { normalizeTimeAwarenessSettings, renderTimeAwarenessPrompt } from '@/utils/timeAwareness';
 import { activeOfflineTonePreset, activeOfflineWritingStylePreset, defaultOfflineSettings, normalizeOfflineSettings } from '@/utils/memory';
+import { getCurrentUserTurnMessages } from '@/utils/messageTurns';
 import { getCharacterAiName } from '@/utils/character';
 import { getUserAiName } from '@/utils/profile';
 import { isTabooWorldBook } from '@/utils/worldBook';
@@ -907,7 +908,7 @@ export function selectWorldBooks(context: PromptContext) {
   });
 }
 
-export function buildPrompt(context: PromptContext, options: { includeOnlineChatPunctuation?: boolean; includeOnlineStickerSemantics?: boolean; includeOnlineRoutineCare?: boolean; includeAvailableStickers?: boolean; includeOnlineReplyTools?: boolean; outputPromptOverride?: string } = {}) {
+export function buildPrompt(context: PromptContext, options: { includeOnlineChatPunctuation?: boolean; includeOnlineStickerSemantics?: boolean; includeOnlineRoutineCare?: boolean; includeAvailableStickers?: boolean; includeOnlineReplyTools?: boolean; includeCurrentTurnStickerImages?: boolean; outputPromptOverride?: string } = {}) {
   const selectedWorldBooks = selectWorldBooks(context);
   const outputPrompt = options.outputPromptOverride ?? (context.mode === 'online' ? profileMutationPrompt : offlineReplyOutputPrompt);
   const includeOnlineReplyTools = options.includeOnlineReplyTools !== false;
@@ -920,6 +921,12 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
   const timeAwarenessPrompt = renderTimeAwarenessPrompt(context.timeAwareness, {
     userName: boundUserName || userName
   }, timeAwarenessNow);
+  const attachedStickerMessageIds = new Set(context.stickerVisionEnabled && options.includeCurrentTurnStickerImages
+    ? getCurrentUserTurnMessages(context.messages)
+      .filter((message) => message.sticker?.imageUrl)
+      .slice(-4)
+      .map((message) => message.id)
+    : []);
   const history = context.messages
     .slice(-24)
     .map((message) => {
@@ -938,7 +945,11 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
         : '';
       const messageText = getMessageText(message);
       const visualText = message.sticker
-        ? `${messageText}${context.stickerVisionEnabled ? '（已随请求附带图片，可直接识图）' : '（识图关闭，仅可读取文字描述）'}`
+        ? `${messageText}${attachedStickerMessageIds.has(message.id)
+          ? '（已随本次请求附带图片，可直接识图）'
+          : context.stickerVisionEnabled
+            ? '（本次未附带图片，仅可读取文字描述）'
+            : '（识图关闭，仅可读取文字描述）'}`
         : messageText;
       const sentAtText = includeMessageTime ? `（发送时间：${formatPromptMessageTime(message.createdAt)}）` : '';
       return `[${message.id}] ${speaker}${sentAtText}: ${quoteText}${visualText}`;

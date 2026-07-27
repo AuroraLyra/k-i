@@ -7,6 +7,7 @@ import type {
   MemoryEntityType,
   MemoryEmbeddingCache,
   MemoryEpisode,
+  MemoryEpisodeLocation,
   MemoryExtractionResult,
   MemoryRecallItem,
   MemoryRecallResult,
@@ -15,6 +16,7 @@ import type {
   MemoryStateSnapshot,
   MemoryTheme,
 } from '@/types/memory';
+import { normalizeNarrativeText } from '@/utils/structuredText';
 
 const DAY_MS = 86_400_000;
 const SELF_KEYS = new Set(['self', 'character', 'ai', 'assistant', '角色', '我']);
@@ -42,6 +44,8 @@ export interface IntegrateMemoryExtractionInput extends MemoryGraphCollections {
   sourceMessages: ChatMessage[];
   extraction: MemoryExtractionResult;
   existingEpisode?: MemoryEpisode;
+  timeAwarenessEnabled?: boolean;
+  timeZone?: string;
   now?: number;
 }
 
@@ -62,6 +66,7 @@ export interface RecallCharacterMemoryInput extends MemoryGraphCollections {
   now?: number;
   embeddings?: MemoryEmbeddingCache[];
   queryVector?: number[];
+  timeAwarenessEnabled?: boolean;
 }
 
 export function createMemoryBrainId(characterId: string, userId: string): string {
@@ -93,6 +98,90 @@ export function hashMemoryText(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
+function memorySemanticAttachment(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => memorySemanticAttachment(item));
+  if (!value || typeof value !== 'object') return value;
+  const volatileKeys = new Set([
+    'image',
+    'imageUrl',
+    'cachedImageUrl',
+    'audioUrl',
+    'url',
+    'uri',
+    'referenceImage',
+    'base64',
+    'data',
+    'avatar',
+    'requestId',
+    'apiModel'
+  ]);
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !volatileKeys.has(key))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => [key, memorySemanticAttachment(entry)]));
+}
+
+function memoryMessageSourceSnapshot(message: ChatMessage) {
+  const quote = message.quote;
+  return {
+    id: message.id,
+    sender: message.sender,
+    authorType: message.authorType,
+    authorId: message.authorId,
+    authorName: message.authorName,
+    sourceConversationId: message.sourceConversationId,
+    sourceMessageIds: message.sourceMessageIds,
+    mode: message.mode,
+    content: message.content,
+    translation: message.translation,
+    createdAt: message.createdAt,
+    editedAt: message.editedAt,
+    displayStyle: message.displayStyle,
+    contextOnly: message.contextOnly,
+    replyBatchId: message.replyBatchId,
+    replyVariantGroupId: message.replyVariantGroupId,
+    replyVariantIndex: message.replyVariantIndex,
+    replyVariantState: message.replyVariantState,
+    plotChoices: message.plotChoices,
+    status: message.status,
+    sticker: memorySemanticAttachment(message.sticker),
+    image: memorySemanticAttachment(message.image),
+    voice: memorySemanticAttachment(message.voice),
+    location: memorySemanticAttachment(message.location),
+    transfer: memorySemanticAttachment(message.transfer),
+    commerce: memorySemanticAttachment(message.commerce),
+    shopShare: memorySemanticAttachment(message.shopShare),
+    musicListenInvite: memorySemanticAttachment(message.musicListenInvite),
+    theaterLink: memorySemanticAttachment(message.theaterLink),
+    offlineInvitation: memorySemanticAttachment(message.offlineInvitation),
+    call: memorySemanticAttachment(message.call),
+    gobang: memorySemanticAttachment(message.gobang),
+    quote: quote ? {
+      messageId: quote.messageId,
+      sender: quote.sender,
+      authorType: quote.authorType,
+      authorId: quote.authorId,
+      authorName: quote.authorName,
+      content: quote.content,
+      sticker: memorySemanticAttachment(quote.sticker),
+      image: memorySemanticAttachment(quote.image),
+      voice: memorySemanticAttachment(quote.voice),
+      location: memorySemanticAttachment(quote.location),
+      transfer: memorySemanticAttachment(quote.transfer),
+      commerce: memorySemanticAttachment(quote.commerce),
+      shopShare: memorySemanticAttachment(quote.shopShare),
+      musicListenInvite: memorySemanticAttachment(quote.musicListenInvite),
+      theaterLink: memorySemanticAttachment(quote.theaterLink),
+      offlineInvitation: memorySemanticAttachment(quote.offlineInvitation),
+      call: memorySemanticAttachment(quote.call)
+    } : undefined
+  };
+}
+
+export function createMemorySourceHash(messages: ChatMessage[]): string {
+  return hashMemoryText(messages.map((message) => JSON.stringify(memoryMessageSourceSnapshot(message))).join('\n'));
+}
+
 export function estimateMemoryTokens(value: string): number {
   const text = String(value ?? '');
   const cjkCount = (text.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu) ?? []).length;
@@ -105,7 +194,7 @@ export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput)
   const existingEpisode = input.existingEpisode?.brainId === input.brainId ? input.existingEpisode : undefined;
   const sourceMessages = input.sourceMessages;
   const sourceMessageIds = sourceMessages.map((message) => message.id);
-  const sourceHash = hashMemoryText(sourceMessages.map((message) => `${message.id}:${message.content}`).join('\n'));
+  const sourceHash = createMemorySourceHash(sourceMessages);
   const occurredAt = sourceMessages.length
     ? Math.min(...sourceMessages.map((message) => Number(message.createdAt) || now))
     : now;
@@ -114,6 +203,7 @@ export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput)
   const edgeUpserts: MemoryEdge[] = [];
   const themeUpserts: MemoryTheme[] = [];
   const stateUpserts: MemoryStateSnapshot[] = [];
+  const episodeLocations = resolveEpisodeLocations(input);
   const scopedEntities = input.entities.filter((entity) => entity.brainId === input.brainId);
   const entityById = new Map(scopedEntities.map((entity) => [entity.id, entity]));
   const entityByName = new Map<string, MemoryEntity>();
@@ -150,8 +240,9 @@ export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput)
     endFloor: Math.max(Math.max(1, Math.round(input.startFloor) || 1), Math.round(input.endFloor) || 1),
     sourceTokenEstimate: estimateMemoryTokens(sourceMessages.map((message) => String(message.content ?? '')).join('\n')),
     title: cleanText(input.extraction.title, 80) || '一段共同经历',
-    narrative: cleanText(input.extraction.narrative, 1_800) || '我记得我们有过一段交流。',
-    location: cleanText(input.extraction.location, 80),
+    narrative: normalizeNarrativeText(input.extraction.narrative) || '我记得我们有过一段交流。',
+    location: episodeLocations.at(-1)?.label || validatedLegacyLocation(input),
+    locations: episodeLocations,
     emotion: cleanText(input.extraction.emotion, 80),
     valence: clamp(input.extraction.valence, -1, 1),
     arousal: clamp(input.extraction.arousal, 0, 1),
@@ -162,6 +253,10 @@ export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput)
     occurredEndAt: sourceMessages.length
       ? Math.max(...sourceMessages.map((message) => Number(message.createdAt) || occurredAt))
       : occurredAt,
+    temporalBasis: input.channel === 'offline' ? 'sequence-only' : input.timeAwarenessEnabled ? 'message-time' : 'sequence-only',
+    timeAwarenessEnabled: Boolean(input.timeAwarenessEnabled),
+    timeZone: input.timeZone,
+    generation: input.extraction.generation,
     learnedAt: existingEpisode?.learnedAt ?? now,
     createdAt: existingEpisode?.createdAt ?? now,
     updatedAt: now,
@@ -176,6 +271,9 @@ export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput)
       .map((theme) => [normalizeMemoryName(theme.name), theme]),
   );
   const touchedThemes = new Map<string, MemoryTheme>();
+  let suppressedByForgottenAssertion = input.assertions.some((assertion) => assertion.brainId === input.brainId
+    && assertion.status === 'forgotten'
+    && assertion.sourceEpisodeIds.includes(episode.id));
 
   for (const draft of input.extraction.assertions ?? []) {
     const subject = resolveDraftEntity(draft.subjectKey) ?? selfEntity;
@@ -192,6 +290,13 @@ export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput)
       .map((theme) => theme.id);
     const objectValue = objectEntity?.id || objectText;
     const dedupeKey = assertionDedupeKey(subject.id, predicate, objectValue, draft.kind);
+    const forgotten = input.assertions.find((item) => item.brainId === input.brainId
+      && item.status === 'forgotten'
+      && (item.forgottenDedupeKey || assertionDedupeKey(item.subjectEntityId, item.predicate, item.objectEntityId || item.objectText, item.kind)) === dedupeKey);
+    if (forgotten) {
+      suppressedByForgottenAssertion = true;
+      continue;
+    }
     const existing = currentAssertions.find((item) => assertionDedupeKey(item.subjectEntityId, item.predicate, item.objectEntityId || item.objectText, item.kind) === dedupeKey);
     let assertion: MemoryAssertion;
     if (existing) {
@@ -268,6 +373,42 @@ export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput)
       assertionUpserts.push({ ...(alreadyUpdated ?? previous), status: 'disputed', updatedAt: now });
       edgeUpserts.push(createEdge(input.brainId, assertion.id, previous.id, 'contradicts', now, assertion.confidence));
     }
+  }
+
+  const existingEpisodeAssertions = currentAssertions.some((assertion) => assertion.sourceEpisodeIds.includes(episode.id) && assertion.status !== 'forgotten');
+  if (!existingEpisodeAssertions
+    && !assertionUpserts.some((assertion) => assertion.sourceEpisodeIds.includes(episode.id) && assertion.status !== 'forgotten')
+    && !suppressedByForgottenAssertion) {
+    const perspectiveText = cleanText(episode.narrative, 520);
+    const fallbackAssertion: MemoryAssertion = {
+      id: memoryId('assertion'),
+      brainId: input.brainId,
+      subjectEntityId: selfEntity.id,
+      predicate: '共同经历',
+      objectText: cleanText(episode.title, 240) || '一段交流',
+      kind: 'interpretation',
+      status: 'current',
+      epistemicKind: 'observed',
+      perspectiveText,
+      confidence: 0.72,
+      importance: clamp(episode.salience, 0, 1),
+      emotionalWeight: Math.max(0.2, Math.abs(episode.valence)),
+      relationshipImpact: 0,
+      evidenceMessageIds: sourceMessageIds,
+      sourceEpisodeIds: [episode.id],
+      themeIds: [],
+      searchText: buildAssertionSearchText(selfEntity.name, '共同经历', episode.title, perspectiveText),
+      validFrom: occurredAt,
+      learnedAt: now,
+      recallCount: 0,
+      pinned: false,
+      accessibility: Math.max(0.35, clamp(episode.salience, 0, 1)),
+      createdAt: now,
+      updatedAt: now
+    };
+    assertionUpserts.push(fallbackAssertion);
+    edgeUpserts.push(createEdge(input.brainId, episode.id, fallbackAssertion.id, 'supports', now, fallbackAssertion.confidence));
+    edgeUpserts.push(createEdge(input.brainId, selfEntity.id, fallbackAssertion.id, 'related-to', now, fallbackAssertion.confidence));
   }
 
   for (const name of input.extraction.themes ?? []) ensureTheme(name);
@@ -445,11 +586,19 @@ function stateLearningRate(kind: MemoryStateKind): number {
 
 export function recallCharacterMemory(input: RecallCharacterMemoryInput): MemoryRecallResult {
   const now = input.now ?? Date.now();
+  const timeAwarenessEnabled = input.timeAwarenessEnabled ?? true;
   const limit = Math.min(24, Math.max(4, input.limit ?? 12));
   const budgetTokens = Math.min(2_400, Math.max(300, Math.round(input.maxTokens ?? 900)));
   const query = cleanText(input.query, 1_000);
+  const forgottenEpisodeIds = new Set(
+    input.episodes
+      .filter((episode) => episode.brainId === input.brainId && episode.status === 'forgotten')
+      .map((episode) => episode.id),
+  );
   const scopedAssertions = input.assertions.filter(
-    (item) => item.brainId === input.brainId && (item.status === 'current' || item.status === 'open' || item.status === 'disputed'),
+    (item) => item.brainId === input.brainId
+      && (item.status === 'current' || item.status === 'open' || item.status === 'disputed')
+      && (!item.sourceEpisodeIds.length || item.sourceEpisodeIds.some((episodeId) => !forgottenEpisodeIds.has(episodeId))),
   );
   const scopedEntities = input.entities.filter((item) => item.brainId === input.brainId);
   const scopedEdges = input.edges.filter((item) => item.brainId === input.brainId);
@@ -523,17 +672,30 @@ export function recallCharacterMemory(input: RecallCharacterMemoryInput): Memory
   }
 
   const selectedEpisodeIds = unique(selected.flatMap((item) => item.assertion.sourceEpisodeIds));
+  const forgottenSourceEpisodeIds = new Set(input.assertions
+    .filter((assertion) => assertion.brainId === input.brainId && assertion.status === 'forgotten')
+    .flatMap((assertion) => assertion.sourceEpisodeIds));
   const selectedEpisodes = input.episodes
-    .filter((episode) => episode.brainId === input.brainId && selectedEpisodeIds.includes(episode.id) && episode.status === 'active')
+    .filter((episode) => episode.brainId === input.brainId
+      && selectedEpisodeIds.includes(episode.id)
+      && episode.status === 'active'
+      && !forgottenSourceEpisodeIds.has(episode.id))
     .sort((left, right) => right.occurredAt - left.occurredAt)
     .slice(0, 5);
-  const latestStates = latestMemoryStates(input.stateSnapshots.filter((item) => item.brainId === input.brainId));
+  const latestStates = latestMemoryStates(input.stateSnapshots.filter((item) => item.brainId === input.brainId))
+    .filter((state) => isMemoryStateFresh(state, now, timeAwarenessEnabled));
   const activeThemeIds = unique(selected.flatMap((item) => item.assertion.themeIds));
   const selectedThemes = input.themes
     .filter((theme) => theme.brainId === input.brainId && activeThemeIds.includes(theme.id))
+    .map((theme) => {
+      const activeAssertionCount = theme.assertionIds.filter((id) => scopedAssertions.some((assertion) => assertion.id === id)).length;
+      return theme.report && theme.reportAssertionCount !== activeAssertionCount
+        ? { ...theme, report: '', reportAssertionCount: activeAssertionCount }
+        : theme;
+    })
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, 6);
-  const formatted = formatMemoryContext(selected, selectedEpisodes, selectedThemes, latestStates, entityById, now, budgetTokens);
+  const formatted = formatMemoryContext(selected, selectedEpisodes, selectedThemes, latestStates, entityById, now, budgetTokens, timeAwarenessEnabled);
   const includedItemIds = new Set(formatted.itemIds);
   const includedEpisodeIds = new Set(formatted.episodeIds);
   const includedThemeIds = new Set(formatted.themeIds);
@@ -568,6 +730,13 @@ export function latestMemoryStates(snapshots: MemoryStateSnapshot[]): MemoryStat
   return [...latest.values()].sort((left, right) => left.kind.localeCompare(right.kind));
 }
 
+function isMemoryStateFresh(state: MemoryStateSnapshot, now: number, timeAwarenessEnabled: boolean) {
+  if (state.kind !== 'mood' && state.kind !== 'current-context') return true;
+  if (!timeAwarenessEnabled) return false;
+  const age = Math.max(0, now - state.createdAt);
+  return age <= (state.kind === 'current-context' ? 6 * 60 * 60 * 1_000 : 12 * 60 * 60 * 1_000);
+}
+
 export function refreshMemoryThemeReports(
   themes: MemoryTheme[],
   assertions: MemoryAssertion[],
@@ -588,7 +757,7 @@ export function refreshMemoryThemeReports(
         .slice(0, 6)
         .map((assertion) => assertion.perspectiveText)
         .join('；') || fallbackReport, 900);
-      return { ...theme, report, reportAssertionCount: Math.max(0, Number(theme.reportAssertionCount) || 0), reportUpdatedAt: now, updatedAt: now };
+      return { ...theme, report, reportAssertionCount: activeAssertions.length, reportUpdatedAt: now, updatedAt: now };
     });
 }
 
@@ -612,6 +781,7 @@ function formatMemoryContext(
   entityById: Map<string, MemoryEntity>,
   now: number,
   maxTokens: number,
+  timeAwarenessEnabled: boolean,
 ): {
   contextText: string;
   itemIds: string[];
@@ -699,7 +869,7 @@ function formatMemoryContext(
       const disputed = assertion.status === 'disputed' ? '；有矛盾' : '';
       return {
         id: assertion.id,
-        text: `${cleanText(assertion.perspectiveText, 220)}（${subject}；${certainty}；${relativeTime(assertion.validFrom, now)}${disputed}；确信${Math.round(assertion.confidence * 100)}%）`,
+        text: `${cleanText(assertion.perspectiveText, 220)}（${subject}；${certainty}${timeAwarenessEnabled ? `；${relativeTime(assertion.validFrom, now)}` : ''}${disputed}；确信${Math.round(assertion.confidence * 100)}%）`,
       };
     }),
     itemIds,
@@ -716,7 +886,7 @@ function formatMemoryContext(
       .slice(0, 2)
       .map((episode) => ({
         id: episode.id,
-        text: `${relativeTime(episode.occurredAt, now)}，${cleanText(episode.title, 80)}：${cleanText(episode.narrative, 320)}`,
+        text: `${timeAwarenessEnabled ? `${relativeTime(episode.occurredAt, now)}，` : ''}${cleanText(episode.title, 80)}：${cleanText(episode.narrative, 320)}`,
       })),
     episodeIds,
   );
@@ -867,6 +1037,10 @@ function assertionDedupeKey(subjectId: string, predicate: string, objectValue: s
   return [subjectId, normalizeMemoryName(predicate), normalizeMemoryName(objectValue), kind].join('|');
 }
 
+export function createMemoryAssertionDedupeKey(assertion: Pick<MemoryAssertion, 'subjectEntityId' | 'predicate' | 'objectEntityId' | 'objectText' | 'kind'>) {
+  return assertionDedupeKey(assertion.subjectEntityId, assertion.predicate, assertion.objectEntityId || assertion.objectText, assertion.kind);
+}
+
 function buildAssertionSearchText(subject: string, predicate: string, objectText: string, perspectiveText: string): string {
   return `${subject} ${predicate} ${objectText} ${perspectiveText}`.trim();
 }
@@ -882,13 +1056,115 @@ function dedupeById<T extends { id: string }>(items: T[]): T[] {
   return [...map.values()];
 }
 
+function resolveEpisodeLocations(input: IntegrateMemoryExtractionInput): MemoryEpisodeLocation[] {
+  const messageById = new Map(input.sourceMessages.map((message) => [message.id, message]));
+  const locations: MemoryEpisodeLocation[] = input.sourceMessages.flatMap((message) => {
+    if (!message.location) return [];
+    return [{
+      actor: message.sender === 'char' ? 'character' as const : message.sender === 'user' ? 'user' as const : 'unknown' as const,
+      source: 'attachment' as const,
+      label: cleanText(message.location.name, 160),
+      address: cleanText(message.location.address, 240) || undefined,
+      distance: cleanText(message.location.distance, 120) || undefined,
+      evidenceMessageIds: [message.id],
+      confidence: 1
+    }];
+  });
+
+  for (const draft of input.extraction.locations ?? []) {
+    const evidenceMessageIds = unique(draft.evidenceMessageIds.filter((id) => messageById.has(id)));
+    if (!evidenceMessageIds.length) continue;
+    if (draft.actor === 'shared-scene' && evidenceMessageIds.some((id) => messageById.get(id)?.mode !== 'offline')) continue;
+    const label = cleanText(draft.label, 160);
+    if (!label) continue;
+    const evidenceMessages = evidenceMessageIds.flatMap((id) => {
+      const message = messageById.get(id);
+      return message ? [message] : [];
+    });
+    if (!isLocationDraftSupported(draft.source, draft.actor, label, draft.address, evidenceMessages)) continue;
+    locations.push({
+      actor: draft.actor,
+      source: draft.source,
+      label,
+      address: cleanText(draft.address, 240) || undefined,
+      distance: cleanText(draft.distance, 120) || undefined,
+      evidenceMessageIds,
+      confidence: draft.source === 'inferred' ? Math.min(0.55, clamp(draft.confidence, 0, 1)) : clamp(draft.confidence, 0, 1)
+    });
+  }
+
+  const deduped = new Map<string, MemoryEpisodeLocation>();
+  for (const location of locations) {
+    const key = `${location.actor}:${normalizeMemoryName(location.label)}:${normalizeMemoryName(location.address ?? '')}`;
+    const previous = deduped.get(key);
+    deduped.set(key, previous
+      ? {
+          ...previous,
+          distance: location.distance || previous.distance,
+          evidenceMessageIds: unique([...previous.evidenceMessageIds, ...location.evidenceMessageIds]),
+          confidence: Math.max(previous.confidence, location.confidence)
+        }
+      : location);
+  }
+  return [...deduped.values()];
+}
+
+function isLocationDraftSupported(
+  source: MemoryEpisodeLocation['source'],
+  actor: MemoryEpisodeLocation['actor'],
+  label: string,
+  address: string | undefined,
+  messages: ChatMessage[],
+): boolean {
+  if (!messages.length) return false;
+  if (source === 'attachment') {
+    return messages.some((message) => {
+      const attachments = [message.location, message.quote?.location].filter(Boolean);
+      return attachments.some((attachment) => {
+        if (!attachment) return false;
+        const attachmentActor = message.sender === 'char' ? 'character' : message.sender === 'user' ? 'user' : 'unknown';
+        if (actor !== 'unknown' && actor !== attachmentActor) return false;
+        return normalizeMemoryName(attachment.name) === normalizeMemoryName(label)
+          || (Boolean(address) && normalizeMemoryName(attachment.address ?? '') === normalizeMemoryName(address ?? ''));
+      });
+    });
+  }
+  const normalizedLabel = normalizeMemoryName(label);
+  const normalizedAddress = normalizeMemoryName(address ?? '');
+  if (!normalizedLabel && !normalizedAddress) return false;
+  return messages.some((message) => {
+    const evidenceText = normalizeMemoryName([
+      message.content,
+      message.quote?.content,
+      message.offlineInvitation?.prompt,
+      message.location?.name,
+      message.location?.address,
+    ].filter(Boolean).join(' '));
+    return (normalizedLabel.length >= 2 && evidenceText.includes(normalizedLabel))
+      || (normalizedAddress.length >= 2 && evidenceText.includes(normalizedAddress));
+  });
+}
+
+function validatedLegacyLocation(input: IntegrateMemoryExtractionInput) {
+  const location = cleanText(input.extraction.location, 160);
+  if (!location) return '';
+  const normalizedSource = normalizeMemoryName(input.sourceMessages.map((message) => [
+    message.content,
+    message.location?.name,
+    message.location?.address
+  ].filter(Boolean).join(' ')).join('\n'));
+  return normalizedSource.includes(normalizeMemoryName(location)) ? location : '';
+}
+
 function cleanText(value: unknown, maxLength: number): string {
   return String(value ?? '').replace(/\u0000/g, '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
 function finiteTime(value: unknown): number | undefined {
   const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : undefined;
+  if (!Number.isFinite(number) || number <= 0) return undefined;
+  const milliseconds = number < 100_000_000_000 ? number * 1_000 : number;
+  return milliseconds >= Date.UTC(1900, 0, 1) && milliseconds <= Date.UTC(2300, 0, 1) ? milliseconds : undefined;
 }
 
 function clamp(value: unknown, minimum: number, maximum: number): number {

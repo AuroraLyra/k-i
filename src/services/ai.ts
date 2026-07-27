@@ -2,9 +2,11 @@ import { unzipSync } from 'fflate';
 import type { ApiVendor, AppSettings, CharacterProfile, ChatMessage, ConversationTimeAwarenessSettings, CoupleSpaceSnapshot, GenerateReplyInput, GroupDiscoveryCandidate, GroupMember, ImageProviderType, MusicComment, MusicTrack, NovelAiModelOption, PollinationsModelOption, PromptContext, SmallTheater, SmallTheaterTopic, UserProfile, VoomComment, VoomFrequency, VoomPost, WorldBookEntry } from '@/types/domain';
 import { createId } from '@/utils/id';
 import { getCharacterAiName } from '@/utils/character';
-import { getUserAiName } from '@/utils/profile';
+import { getUserAiName, getUserDisplayName, getUserVoomAuthorName } from '@/utils/profile';
 import { defaultNovelAiModels, defaultPollinationsModels, getResolvedApiConfig, getResolvedOpenAiImageConfig, isNovelAiV4FamilyModel, normalizeNovelAiUcPreset, novelAiOfficialApiUrl, novelAiProxyApiUrl } from '@/utils/settings';
 import { estimateTokenCount } from '@/utils/memory';
+import { getCurrentUserTurnMessages } from '@/utils/messageTurns';
+import { parseModelJsonResponse } from '@/utils/aiResponse';
 import { getStickerDisplayImageUrl } from '@/utils/stickers';
 import { assertRenderableSmallTheaterHtml, getSmallTheaterVisibleText, withSmallTheaterRuntimeGuard } from '@/utils/smallTheaterHtml';
 import { renderTimeAwarenessPrompt } from '@/utils/timeAwareness';
@@ -320,7 +322,7 @@ function normalizeBaseUrl(url: string) {
 
 function createImageDownloadUrl(url: string) {
   const trimmed = url.trim();
-  if (canUseLocalTextProxy() && /^https?:\/\//i.test(trimmed)) {
+  if (/^https?:\/\//i.test(trimmed)) {
     return `${imageDownloadProxyPath}?url=${encodeURIComponent(trimmed)}`;
   }
   return trimmed;
@@ -1921,8 +1923,7 @@ async function getPreparedVisualImageParts(input: Pick<GenerateReplyInput, 'mess
 }
 
 function getVisualImageParts(input: Pick<GenerateReplyInput, 'messages' | 'stickerVisionEnabled'>): TextApiContentPart[] {
-  const stickerParts = input.stickerVisionEnabled ? input.messages
-    .slice(-12)
+  const stickerParts = input.stickerVisionEnabled ? getCurrentUserTurnMessages(input.messages)
     .filter((message) => message.sender === 'user' && message.sticker?.imageUrl)
     .slice(-4)
     .flatMap((message) => [
@@ -1956,7 +1957,7 @@ function getVisualImageParts(input: Pick<GenerateReplyInput, 'messages' | 'stick
 }
 
 export function estimateRoleplayReplyInputTokens(input: GenerateReplyInput) {
-  const prompt = buildPrompt(input);
+  const prompt = buildPrompt(input, { includeCurrentTurnStickerImages: true });
   const imageParts = getVisualImageParts(input);
   const imageText = imageParts
     .filter((part) => part.type === 'text')
@@ -2194,9 +2195,30 @@ export interface TextGenerationOptions {
   jsonMode?: boolean;
 }
 
+export interface TextGenerationUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
+export interface TextGenerationResult {
+  text: string;
+  finishReason: string;
+  status: string;
+  incomplete: boolean;
+  incompleteReason: string;
+  requestId: string;
+  usage?: TextGenerationUsage;
+}
+
 export async function requestTextGeneration(settings: AppSettings | undefined, prompt: string, modelOverride = '', options: TextGenerationOptions = {}) {
   requireTextGenerationConfig(settings, modelOverride, '文本生成');
   return callTextApi(settings, prompt, modelOverride, [], options);
+}
+
+export async function requestTextGenerationDetailed(settings: AppSettings | undefined, prompt: string, modelOverride = '', options: TextGenerationOptions = {}) {
+  requireTextGenerationConfig(settings, modelOverride, '文本生成');
+  return callTextApiDetailed(settings, prompt, modelOverride, [], options);
 }
 
 export async function requestTextEmbedding(
@@ -2243,9 +2265,122 @@ export async function requestTextEmbeddings(
   return vectors.map((vector) => vector.map(Number));
 }
 
-async function callTextApi(settings: AppSettings | undefined, prompt: string, modelOverride = '', imageParts: TextApiContentPart[] = [], options: TextGenerationOptions = {}) {
+function normalizeTextApiReplyFragments(value: unknown, depth = 0): string[] {
+  if (depth > 6) return [];
+  if (Array.isArray(value)) return value.flatMap((item) => normalizeTextApiReplyFragments(item, depth + 1));
+  if (typeof value === 'string' || typeof value === 'number') {
+    const content = String(value);
+    return content ? [content] : [];
+  }
+  if (!value || typeof value !== 'object') return [];
+
+  const record = value as Record<string, unknown>;
+  for (const candidate of [record.text, record.output_text, record.outputText, record.value]) {
+    const fragments = normalizeTextApiReplyFragments(candidate, depth + 1);
+    if (fragments.length) return fragments;
+  }
+  for (const candidate of [record.content, record.parts, record.message, record.delta, record.output, record.response, record.data]) {
+    const fragments = normalizeTextApiReplyFragments(candidate, depth + 1);
+    if (fragments.length) return fragments;
+  }
+  return [];
+}
+
+function finiteTokenCount(value: unknown): number | undefined {
+  const count = Number(value);
+  return Number.isFinite(count) && count >= 0 ? Math.floor(count) : undefined;
+}
+
+function metadataText(value: unknown): string {
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if (!value || typeof value !== 'object') return '';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '';
+  }
+}
+
+function extractTextApiResult(payload: unknown): TextGenerationResult {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return {
+      text: normalizeTextApiReplyFragments(payload).join('').trim(),
+      finishReason: '',
+      status: '',
+      incomplete: false,
+      incompleteReason: '',
+      requestId: ''
+    };
+  }
+
+  const record = payload as Record<string, unknown>;
+  const choices = Array.isArray(record.choices) ? record.choices : [];
+  const firstChoice = choices[0] && typeof choices[0] === 'object' && !Array.isArray(choices[0])
+    ? choices[0] as Record<string, unknown>
+    : {};
+  const choiceMessage = firstChoice.message && typeof firstChoice.message === 'object' && !Array.isArray(firstChoice.message)
+    ? firstChoice.message as Record<string, unknown>
+    : {};
+  const candidates = Array.isArray(record.candidates) ? record.candidates : [];
+  const firstCandidate = candidates[0] && typeof candidates[0] === 'object' && !Array.isArray(candidates[0])
+    ? candidates[0] as Record<string, unknown>
+    : {};
+  const usageRecord = record.usage && typeof record.usage === 'object' && !Array.isArray(record.usage)
+    ? record.usage as Record<string, unknown>
+    : {};
+  const replyCandidates = [
+    choiceMessage.content,
+    firstChoice.text,
+    record.output_text,
+    record.outputText,
+    record.content,
+    firstCandidate.content,
+    record.response,
+    record.output
+  ];
+
+  let text = '';
+  for (const candidate of replyCandidates) {
+    const fragments = normalizeTextApiReplyFragments(candidate);
+    if (fragments.length) {
+      text = fragments.join('').trim();
+      break;
+    }
+  }
+
+  const finishReason = metadataText(
+    firstChoice.finish_reason
+    ?? firstChoice.finishReason
+    ?? firstCandidate.finishReason
+    ?? firstCandidate.finish_reason
+    ?? record.stop_reason
+    ?? record.stopReason
+  );
+  const status = metadataText(record.status ?? firstChoice.status ?? firstCandidate.status);
+  const incompleteDetails = record.incomplete_details ?? record.incompleteDetails ?? firstChoice.incomplete_details ?? firstCandidate.safetyRatings;
+  const incompleteReason = metadataText(incompleteDetails);
+  const completionMarker = `${finishReason} ${status} ${incompleteReason}`.toLocaleLowerCase();
+  const incomplete = /\b(incomplete|length|max[_ -]?tokens?|token[_ -]?limit|content[_ -]?filter|blocked|safety)\b/i.test(completionMarker);
+  const inputTokens = finiteTokenCount(usageRecord.prompt_tokens ?? usageRecord.input_tokens ?? usageRecord.promptTokenCount);
+  const outputTokens = finiteTokenCount(usageRecord.completion_tokens ?? usageRecord.output_tokens ?? usageRecord.candidatesTokenCount);
+  const totalTokens = finiteTokenCount(usageRecord.total_tokens ?? usageRecord.totalTokenCount);
+  const usage = inputTokens !== undefined || outputTokens !== undefined || totalTokens !== undefined
+    ? { inputTokens, outputTokens, totalTokens }
+    : undefined;
+  return {
+    text,
+    finishReason,
+    status,
+    incomplete,
+    incompleteReason,
+    requestId: metadataText(record.id ?? record.request_id ?? record.requestId),
+    ...(usage ? { usage } : {})
+  };
+}
+
+async function callTextApiDetailed(settings: AppSettings | undefined, prompt: string, modelOverride = '', imageParts: TextApiContentPart[] = [], options: TextGenerationOptions = {}): Promise<TextGenerationResult> {
   const resolved = getResolvedTextApiConfig(settings, modelOverride);
-  if (!resolved.endpoint.trim()) return '';
+  if (!resolved.endpoint.trim()) return { text: '', finishReason: '', status: '', incomplete: false, incompleteReason: '', requestId: '' };
   const prioritizedPrompt = prependTabooWorldBookPrompt(prompt);
 
   const content = imageParts.length
@@ -2293,7 +2428,11 @@ async function callTextApi(settings: AppSettings | undefined, prompt: string, mo
   }
 
   const data = await readJsonPayload(response, '文本模型 API 返回异常');
-  return String(data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? data.content ?? '').trim();
+  return extractTextApiResult(data);
+}
+
+async function callTextApi(settings: AppSettings | undefined, prompt: string, modelOverride = '', imageParts: TextApiContentPart[] = [], options: TextGenerationOptions = {}) {
+  return (await callTextApiDetailed(settings, prompt, modelOverride, imageParts, options)).text;
 }
 
 export async function fetchVendorModels(vendor: Pick<ApiVendor, 'apiUrl' | 'apiKey'>): Promise<string[]> {
@@ -2605,10 +2744,54 @@ export async function generateImageByProvider(
   return generatePollinationsImage(settings, overrides);
 }
 
+const roleplayPayloadKeys = ['messages', 'replies', 'reply', 'segments', 'plotChoices', 'messageActions', 'profileUpdate'];
+
+function hasRoleplayPayloadShape(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return roleplayPayloadKeys.some((key) => key in record);
+}
+
+function unwrapRoleplayReplyPayload(value: unknown, depth = 0): unknown {
+  if (depth > 4) return value;
+  if (typeof value === 'string') {
+    try {
+      const nested = parseModelJsonResponse(value);
+      return nested === value ? value : unwrapRoleplayReplyPayload(nested, depth + 1);
+    } catch {
+      return value;
+    }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value) || hasRoleplayPayloadShape(value)) return value;
+
+  const record = value as Record<string, unknown>;
+  for (const candidate of [record.response, record.output, record.result, record.data, record.content, record.message]) {
+    const unwrapped = unwrapRoleplayReplyPayload(candidate, depth + 1);
+    if (hasRoleplayPayloadShape(unwrapped)) return unwrapped;
+  }
+  return value;
+}
+
+function looksLikeStructuredRoleplayReply(content: string) {
+  const trimmed = content.trim();
+  return /^(?:```(?:json)?\s*)?\{/i.test(trimmed)
+    || /["'](?:messages|messageActions|profileUpdate|plotChoices)["']\s*:/.test(trimmed);
+}
+
+class RoleplayReplyFormatError extends Error {
+  constructor() {
+    super('角色回复模型返回的 JSON 格式损坏。');
+    this.name = 'RoleplayReplyFormatError';
+  }
+}
+
+const roleplayFormatRetryInstruction = `重要重试要求：上一次响应的 JSON 格式损坏。请从头重新生成完整响应，只输出一个 JSON 对象，不要 Markdown 代码块或解释。
+所有 content、translation 与 profileThemeContent 都必须是合法 JSON 字符串：换行写成 \\n，原始反斜杠写成 \\\\，双引号写成 \\"。不要省略结尾的引号、数组或花括号。`;
+
 export function normalizeRoleplayReplyPayload(apiReply: string, input: GenerateReplyInput): string {
   if (apiReply) {
     try {
-      const parsed = JSON.parse(extractJsonContent(apiReply)) as unknown;
+      const parsed = unwrapRoleplayReplyPayload(parseModelJsonResponse(apiReply));
       const parsedRecord = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
         ? parsed as Partial<RoleplayReplyResult>
         : {};
@@ -2689,6 +2872,7 @@ export function normalizeRoleplayReplyPayload(apiReply: string, input: GenerateR
           : null
       } satisfies RoleplayReplyResult);
     } catch {
+      if (looksLikeStructuredRoleplayReply(apiReply)) throw new RoleplayReplyFormatError();
       const hiddenPlotChoices: string[] = [];
       const replies = (input.mode === 'online' ? normalizeRawOnlineReply(apiReply) : [apiReply])
         .map((reply) => {
@@ -2705,9 +2889,30 @@ export function normalizeRoleplayReplyPayload(apiReply: string, input: GenerateR
 
 export async function generateRoleplayReply(input: GenerateReplyInput): Promise<string> {
   requireTextGenerationConfig(input.settings, input.modelOverride, '角色回复');
-  const prompt = buildPrompt(input);
-  const apiReply = await callTextApi(input.settings, prompt, input.modelOverride, await getPreparedVisualImageParts(input));
-  return normalizeRoleplayReplyPayload(apiReply, input);
+  const prompt = buildPrompt(input, { includeCurrentTurnStickerImages: true });
+  const imageParts = await getPreparedVisualImageParts(input);
+  const apiReply = await callTextApi(input.settings, prompt, input.modelOverride, imageParts);
+  try {
+    return normalizeRoleplayReplyPayload(apiReply, input);
+  } catch (error) {
+    if (!(error instanceof RoleplayReplyFormatError)) throw error;
+  }
+
+  const retryReply = await callTextApi(
+    input.settings,
+    `${prompt}\n\n${roleplayFormatRetryInstruction}`,
+    input.modelOverride,
+    imageParts,
+    { jsonMode: true, maxTokens: 8192 }
+  );
+  try {
+    return normalizeRoleplayReplyPayload(retryReply, input);
+  } catch (error) {
+    if (error instanceof RoleplayReplyFormatError) {
+      throw new Error('角色回复模型连续两次返回损坏的 JSON，已阻止将原始 JSON 显示为聊天内容。请重试或切换模型。');
+    }
+    throw error;
+  }
 }
 
 export async function generateVoomPost(context: PromptContext, settings?: AppSettings, modelOverride = ''): Promise<Omit<VoomPost, 'id' | 'createdAt'>> {
@@ -2949,12 +3154,13 @@ export async function generateSmallTheater(input: {
   };
 }
 
-function normalizeUserVoomComments(input: unknown, targetCharacters: CharacterProfile[]): UserVoomCommentResult[] {
+function normalizeUserVoomComments(input: unknown, targetCharacters: CharacterProfile[], blockedAuthorNames: string[] = []): UserVoomCommentResult[] {
   const source = Array.isArray(input)
     ? input
     : input && typeof input === 'object' && Array.isArray((input as { comments?: unknown }).comments)
       ? (input as { comments: unknown[] }).comments
       : [];
+  const blockedAuthorKeys = new Set(blockedAuthorNames.map((name) => name.trim().toLocaleLowerCase()).filter(Boolean));
   const characterAliases = new Map<string, CharacterProfile>();
   for (const character of targetCharacters) {
     [character.id, character.name, character.nickname, getCharacterAiName(character)]
@@ -2972,20 +3178,22 @@ function normalizeUserVoomComments(input: unknown, targetCharacters: CharacterPr
 
     const requestedAuthorId = String(record.authorId ?? record.characterId ?? '').trim();
     const requestedAuthorName = String(record.authorName ?? record.name ?? record.nickname ?? '').trim();
-    const character = characterAliases.get(requestedAuthorId.toLocaleLowerCase()) ?? characterAliases.get(requestedAuthorName.toLocaleLowerCase());
-    const fallbackCharacter = !requestedAuthorName ? targetCharacters[candidates.length % targetCharacters.length] : undefined;
-    const authorName = character
-      ? getCharacterAiName(character)
-      : fallbackCharacter
-        ? getCharacterAiName(fallbackCharacter)
-        : requestedAuthorName;
-    if (!authorName) continue;
+    const character = requestedAuthorId
+      ? characterAliases.get(requestedAuthorId.toLocaleLowerCase())
+      : undefined;
+    const fallbackCharacter = !requestedAuthorName && !requestedAuthorId
+      ? targetCharacters[candidates.length % targetCharacters.length]
+      : undefined;
+    const normalizedRequestedAuthorName = requestedAuthorName.toLocaleLowerCase();
+    const isPlaceholderAuthor = /^(npc|路人|朋友|朋友[一二三四五六七八九十a-z0-9]*)$/iu.test(requestedAuthorName);
+    if (!character && !fallbackCharacter && (!requestedAuthorName || blockedAuthorKeys.has(normalizedRequestedAuthorName) || isPlaceholderAuthor)) continue;
+    const resolvedCharacter = character ?? fallbackCharacter;
 
     const contentTranslation = normalizeTranslationText(record.contentTranslation ?? record.translation ?? record.translationZh ?? record.chineseTranslation);
     const draftId = String(record.id ?? record.draftId ?? record.tempId ?? '').trim();
     candidates.push({
-      authorName,
-      authorId: character?.id ?? fallbackCharacter?.id,
+      authorName: resolvedCharacter ? getCharacterAiName(resolvedCharacter) : requestedAuthorName,
+      ...(resolvedCharacter ? { authorId: resolvedCharacter.id } : {}),
       content,
       ...(contentTranslation ? { contentTranslation } : {}),
       ...(draftId ? { draftId } : {}),
@@ -3034,29 +3242,34 @@ export async function generateUserVoomComments(input: {
     ].join('；'))
     .join('\n');
   const prompt = [
-    '你要模拟 LINK VOOM 里，用户可见角色以及这些角色社交圈 NPC 看到用户动态后的自然评论区。只输出 JSON，不要输出 JSON 以外的文字。',
+    '你要模拟 LINK VOOM 里，用户可见角色以及这些可见角色各自社交圈 NPC 看到用户动态后的自然评论区。动态作者是用户本人，不是任何角色。只输出 JSON，不要输出 JSON 以外的文字。',
     timeAwarenessPrompt,
     `用户姓名：${getUserAiName(input.author)}`,
     `用户设定：${input.author.description || '无'}`,
     includeTimeContext && input.createdAt ? `用户动态发布时间：${formatVoomContextTime(input.createdAt)}` : '',
     `用户动态正文：\n${input.content}`,
     input.imageDescription ? `配图描述：${input.imageDescription}` : '',
-    `可见角色与可用 NPC 线索：\n${targetCharacterText}`,
+    `可见角色与其可用 NPC 线索（NPC 只能属于这些可见角色的社交圈）：\n${targetCharacterText}`,
     `输出格式：
 {
   "comments": [
-    { "id": "c1", "authorId": "可见角色 id；NPC 留空", "authorName": "发言者显示名", "content": "评论内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "被回复的本次评论 id；直接评论则留空" },
-    { "id": "c2", "authorName": "真实感 NPC 名", "content": "回复内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "c1" }
+    { "id": "c1", "authorId": "可见角色 id；NPC 留空", "authorName": "可见角色或其 NPC 的真实显示名", "content": "评论用户动态的内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "被回复的本次评论 id；直接评论则留空" },
+    { "id": "c2", "authorName": "同一可见角色社交圈中的真实 NPC 名", "content": "围绕用户动态的回复", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "c1" }
   ]
 }`,
-    '要求：1. 输出 6-15 条；2. 可见角色本人发言时填写对应 authorId；NPC 不填 authorId，但必须填写具体 authorName；3. NPC 可以来自可见角色自己的设定、社交圈、朋友同事家人粉丝或参考上下文内容生成，如果没有提及则可以根据世界线合理拓展相应NPC；4. parentId 留空表示直接评论用户动态，填写本次前面输出的 id 表示回复那条评论；5. 可以让角色回复 NPC，也可以让 NPC 回复角色或其他 NPC，但不要代替用户本人评论；6. 评论要短、自然、有社交软件感，不要解释设定；7. 不要使用“NPC”“朋友A”“路人”这类占位名；8. contentTranslation 规则：外语、粤语都要翻译成自然现代简体普通话；不要加“翻译：”前缀。'
+    `要求：1. 输出 2-15 条；2. 可见角色本人发言时必须填写对应 authorId；没有 authorId 的具体姓名按 NPC 处理，NPC 不填 authorId；3. NPC 只能来自某个可见角色自己的设定、社交圈、朋友同事家人粉丝或已有评论线索，不得引入与可见角色无关的 NPC；4. 每条评论和回复都必须围绕用户这条动态，不要把动态正文说成角色自己发布，也不要模拟角色自己的 VOOM；5. parentId 留空表示直接评论用户动态，填写本次前面输出的 id 表示围绕用户动态回复；6. 不要代替用户本人评论，不要使用“NPC”“路人”“朋友A”这类占位名；7. 评论要短、自然、有社交软件感；8. contentTranslation 规则：外语、粤语都要翻译成自然现代简体普通话；不要加“翻译：”前缀。`
   ].filter(Boolean).join('\n\n');
 
   const apiReply = await callTextApi(input.settings, prompt, input.modelOverride);
   if (!apiReply) return [];
 
   try {
-    return normalizeUserVoomComments(JSON.parse(extractJsonContent(apiReply)), input.targetCharacters);
+    return normalizeUserVoomComments(JSON.parse(extractJsonContent(apiReply)), input.targetCharacters, [
+      input.author.id,
+      getUserAiName(input.author),
+      getUserDisplayName(input.author),
+      getUserVoomAuthorName(input.author)
+    ]);
   } catch {
     const content = apiReply.trim();
     const character = input.targetCharacters[0];
@@ -3075,33 +3288,60 @@ export async function generateVoomCommentReplies(input: {
 }): Promise<VoomCommentReplyResult[]> {
   requireTextGenerationConfig(input.settings, input.modelOverride, 'VOOM 评论回复');
   const fallbackAuthorName = getCharacterAiName(input.context.character);
-  const postAuthorName = input.post.authorName || fallbackAuthorName;
-  const postBelongsToUser = input.post.authorType === 'user';
+  const contextUsers = [input.context.boundUser, input.context.user];
+  const postUser = contextUsers.find((user) => user.id === input.post.userId) ?? input.context.boundUser;
+  const postBelongsToUser = input.post.authorType === 'user'
+    || (input.post.authorType !== 'character' && Boolean(input.post.userId && contextUsers.some((user) => user.id === input.post.userId)));
+  const postAuthorName = postBelongsToUser ? getUserAiName(postUser) : input.post.authorName || fallbackAuthorName;
   const targetComments = input.userComments.length ? input.userComments : input.post.comments.slice(-2);
   const includeTimeContext = shouldIncludeVoomTimeContext(input.context.timeAwareness);
-  const blockedAuthorNames = [getUserAiName(input.context.boundUser), getUserAiName(input.context.user)]
+  const blockedAuthorNames = [
+    getUserAiName(input.context.boundUser),
+    getUserAiName(input.context.user),
+    getUserDisplayName(input.context.boundUser),
+    getUserDisplayName(input.context.user),
+    getUserVoomAuthorName(input.context.boundUser),
+    getUserVoomAuthorName(input.context.user)
+  ]
     .map((name) => name.trim())
     .filter(Boolean);
+  const blockedAuthorKeys = new Set(blockedAuthorNames.map((name) => name.toLocaleLowerCase()));
+  const currentCharacterAuthorKeys = new Set([
+    input.context.character.id,
+    input.context.character.name,
+    input.context.character.nickname,
+    getCharacterAiName(input.context.character)
+  ].map((name) => name.trim().toLocaleLowerCase()).filter(Boolean));
+  const replyFormat = postBelongsToUser
+    ? `{
+  "replies": [
+    { "id": "r1", "authorName": "${fallbackAuthorName}", "content": "围绕用户动态或用户评论的回复", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "已有评论ID，可留空" },
+    { "id": "r2", "authorName": "当前角色社交圈中的真实 NPC 名", "content": "围绕用户动态的自然回复", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "已有评论ID或本次前面输出的 id，可留空" }
+  ]
+}`
+    : `{
+  "replies": [
+    { "id": "r1", "authorName": "${fallbackAuthorName}", "content": "回复内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "被回复评论ID，可留空" },
+    { "id": "r2", "authorName": "真实感 NPC 名", "content": "自然评论或回复", "contentTranslation": "如 content 不是中文，则给普通话译文；否则留空", "parentId": "已有评论ID或本次前面输出的id，可留空" }
+  ]
+}`;
+  const replyRequirements = postBelongsToUser
+    ? '要求：1. 输出 1-6 条；2. authorName 可以是当前执行角色本人或其社交圈中的真实 NPC，不得新增与当前角色无关的 NPC，也不得代替用户发言；3. 内容必须围绕用户动态正文或用户已有评论，不能把这条动态说成角色自己发布；4. parentId 可以填写已有评论 ID 或本次前面输出的 id，也可留空；5. 内容像真实社交软件评论区，短、自然、有上下文；6. 不要使用“NPC”“路人”“朋友A”这类占位名；7. contentTranslation 规则：外语、粤语都要翻译成简体普通话；不要加“翻译：”前缀。'
+    : '要求：1. 输出 6-15 条；2. authorName 可以是当前执行角色，也可以是符合社交圈边界的真实感 NPC 名；3. 角色可以回复用户或其他人的评论，NPC 也可以发新评论、回复角色或互相回复；4. parentId 留空表示新评论，填写已有评论 ID 或本次前面输出的 id 表示回复；5. 不要代替用户发言，不要使用“NPC”“路人”“朋友A”这类占位名；6. 内容像真实社交软件评论区，短、自然、有上下文，不要解释设定；7. contentTranslation 规则：外语、粤语都要翻译成简体普通话；不要加“翻译：”前缀。';
   const prompt = [
     buildPrompt(input.context, { includeAvailableStickers: false }),
     '现在你要模拟这条 VOOM 的真实评论区继续发展。只输出 JSON，不要输出 JSON 以外的任何文字。',
     `当前执行角色：${fallbackAuthorName}（角色ID：${input.context.character.id}）`,
     `VOOM 作者：${postAuthorName}${postBelongsToUser ? '（当前用户）' : ''}`,
     postBelongsToUser
-      ? '社交圈边界：这是用户发布的 VOOM。除当前执行角色本人外，不要新增任何NPC作者；不要替用户发言。'
+      ? '身份硬约束：这是用户本人发布的 VOOM，不是当前角色发布的动态。当前角色及其社交圈 NPC 只能作为评论者回应用户动态或用户评论；禁止新增与当前角色无关的 NPC、模拟角色自己的 VOOM、或把正文改写成角色自己的经历。'
       : '社交圈边界：新增NPC只能来自这条 VOOM 作者所属角色自己的社交圈。',
     `VOOM 正文：\n${formatVoomPostPromptContent(input.post, includeTimeContext)}`,
     `评论区：\n${input.post.comments.map((comment) => formatVoomCommentPromptLine(comment, includeTimeContext)).join('\n') || '暂无评论。'}`,
     `优先关注这些评论：\n${targetComments.map((comment) => formatVoomCommentPromptLine(comment, includeTimeContext)).join('\n') || '没有指定评论，可根据正文补一条自然评论。'}`,
     `不要使用这些作者名发言：${blockedAuthorNames.join('、') || '当前用户'}`,
-    `输出格式：
-{
-  "replies": [
-    { "id": "r1", "authorName": "${fallbackAuthorName}", "content": "回复内容", "contentTranslation": "如 content 不是普通话，则给普通话译文；否则留空", "parentId": "被回复评论ID，可留空" },
-    { "id": "r2", "authorName": "真实感 NPC 名", "content": "自然评论或回复", "contentTranslation": "如 content 不是中文，则给普通话译文；否则留空", "parentId": "已有评论ID或本次前面输出的id，可留空" }
-  ]
-}`,
-    '要求：1. 输出 6-15 条；2. authorName 可以是当前执行角色，也可以是符合社交圈边界的真实感 NPC 名；3. 角色可以回复用户或其他人的评论，NPC 也可以发新评论、回复角色或互相回复；4. parentId 留空表示新评论，填写已有评论 ID 或本次前面输出的 id 表示回复；5. 不要代替用户发言，不要使用“NPC”“路人”“朋友A”这类占位名；6. 内容像真实社交软件评论区，短、自然、有上下文，不要解释设定；7. contentTranslation 规则：外语、粤语都要翻译成简体普通话；不要加“翻译：”前缀。'
+    `输出格式：\n${replyFormat}`,
+    replyRequirements
   ].join('\n\n');
 
   const apiReply = await callTextApi(input.settings, prompt, input.modelOverride);
@@ -3109,7 +3349,18 @@ export async function generateVoomCommentReplies(input: {
     try {
       const parsed = JSON.parse(extractJsonContent(apiReply));
       const replies = normalizeVoomCommentReplies(parsed, fallbackAuthorName, input.post, blockedAuthorNames);
-      if (replies.length) return replies;
+      const scopedReplies = postBelongsToUser
+        ? replies
+          .filter((reply) => {
+            const authorKey = reply.authorName.trim().toLocaleLowerCase();
+            return currentCharacterAuthorKeys.has(authorKey)
+              || (!blockedAuthorKeys.has(authorKey) && !/^(npc|路人|朋友|朋友[一二三四五六七八九十a-z0-9]*)$/iu.test(reply.authorName.trim()));
+          })
+          .map((reply) => currentCharacterAuthorKeys.has(reply.authorName.trim().toLocaleLowerCase())
+            ? { ...reply, authorName: fallbackAuthorName }
+            : reply)
+        : replies;
+      if (scopedReplies.length) return scopedReplies;
     } catch {
       const content = apiReply.trim();
       if (content) {

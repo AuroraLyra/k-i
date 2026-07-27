@@ -218,7 +218,7 @@
               </label>
 
               <footer class="entry-paper-footer">
-                <span>Auto saved locally</span>
+                <span>完成收藏或离开页面时保存</span>
                 <button type="button" :disabled="draft.entries.length <= 1" @click="removeLoreEntry(activeEntryIndex)">
                   <Trash2 :size="13" stroke-width="1.8" /> 删除这一条
                 </button>
@@ -273,7 +273,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import {
   ArrowLeft,
   ArrowRight,
@@ -316,9 +316,9 @@ const draft = reactive(createDraft());
 const isRestoringDraft = ref(false);
 const isLoaded = ref(false);
 const missingBook = ref(false);
-let autoSaveTimer: ReturnType<typeof setTimeout> | undefined;
-let savedStateTimer: ReturnType<typeof setTimeout> | undefined;
-let hasPendingAutoSave = false;
+let hasPendingChanges = false;
+let draftVersion = 0;
+let persistPromise: Promise<boolean> | null = null;
 
 const activationModes: Array<{ id: WorldBookEntryActivation; label: string; description: string }> = [
   { id: 'keyword', label: '关键词', description: '命中时读取' },
@@ -341,8 +341,8 @@ const scopeDisplay = computed(() => isTabooDraft.value ? 'sitewide priority' : (
   local: 'private archive'
 }[draft.scope]));
 const saveStateLabel = computed(() => ({
-  idle: '本地自动保存已开启',
-  pending: '等待保存',
+  idle: '修改将在完成收藏或离开页面时保存',
+  pending: '有未保存修改',
   saving: '正在保存',
   saved: '已保存到本机',
   error: '保存失败，请再试一次'
@@ -350,9 +350,10 @@ const saveStateLabel = computed(() => ({
 
 onMounted(() => void store.hydrate());
 onBeforeUnmount(() => {
-  if (savedStateTimer) clearTimeout(savedStateTimer);
-  void flushAutoSave();
+  void persistDraft();
 });
+onBeforeRouteLeave(() => persistDraft());
+onBeforeRouteUpdate(() => persistDraft());
 
 function normalizeScopeValue(value: unknown): WorldBookEntry['scope'] {
   const scope = Array.isArray(value) ? value[0] : value;
@@ -390,8 +391,8 @@ function cloneWorldBook(entry: WorldBookEntry): WorldBookEntry {
 
 function beginDraftRestore() {
   isRestoringDraft.value = true;
-  clearAutoSaveTimer();
-  hasPendingAutoSave = false;
+  hasPendingChanges = false;
+  draftVersion += 1;
 }
 
 function endDraftRestore() {
@@ -442,52 +443,45 @@ function preparedDraft() {
   });
 }
 
-async function persistDraft() {
-  if (isRestoringDraft.value || !isLoaded.value || missingBook.value) return;
-  saveState.value = 'saving';
-  try {
-    const persisted = preparedDraft();
-    selectedBookId.value = persisted.id;
-    await store.saveWorldBook(persisted);
-    saveState.value = 'saved';
-    if (savedStateTimer) clearTimeout(savedStateTimer);
-    savedStateTimer = setTimeout(() => {
-      if (saveState.value === 'saved') saveState.value = 'idle';
-    }, 1700);
-  } catch {
-    saveState.value = 'error';
+async function persistDraft(force = false): Promise<boolean> {
+  if (isRestoringDraft.value || !isLoaded.value || missingBook.value) return true;
+  if (persistPromise) {
+    const saved = await persistPromise;
+    if (!saved) return false;
+    if (!hasPendingChanges) return true;
   }
-}
+  if (!force && !hasPendingChanges) return true;
 
-function clearAutoSaveTimer() {
-  if (!autoSaveTimer) return;
-  clearTimeout(autoSaveTimer);
-  autoSaveTimer = undefined;
-}
+  const versionAtStart = draftVersion;
+  saveState.value = 'saving';
+  persistPromise = (async () => {
+    try {
+      const persisted = preparedDraft();
+      await store.saveWorldBook(persisted);
+      selectedBookId.value = persisted.id;
+      if (draftVersion === versionAtStart) {
+        hasPendingChanges = false;
+        saveState.value = 'saved';
+      } else {
+        hasPendingChanges = true;
+        saveState.value = 'pending';
+      }
+      return true;
+    } catch {
+      saveState.value = 'error';
+      return false;
+    }
+  })();
 
-function scheduleAutoSave() {
-  if (!isLoaded.value || missingBook.value || isRestoringDraft.value) return;
-  hasPendingAutoSave = true;
-  saveState.value = 'pending';
-  clearAutoSaveTimer();
-  autoSaveTimer = setTimeout(() => {
-    autoSaveTimer = undefined;
-    if (!hasPendingAutoSave) return;
-    hasPendingAutoSave = false;
-    void persistDraft();
-  }, 420);
-}
-
-async function flushAutoSave(force = false) {
-  if (isRestoringDraft.value || !isLoaded.value || missingBook.value) return;
-  clearAutoSaveTimer();
-  if (!force && !hasPendingAutoSave) return;
-  hasPendingAutoSave = false;
-  await persistDraft();
+  const currentPersistPromise = persistPromise;
+  const saved = await currentPersistPromise;
+  if (persistPromise === currentPersistPromise) persistPromise = null;
+  if (!saved || !hasPendingChanges) return saved;
+  return persistDraft();
 }
 
 async function goBack() {
-  await flushAutoSave();
+  if (!await persistDraft()) return;
   goBackToShelf();
 }
 
@@ -500,7 +494,7 @@ function goBackToShelf() {
 }
 
 async function finishEditing() {
-  await flushAutoSave(true);
+  if (!await persistDraft(true)) return;
   goBackToShelf();
 }
 
@@ -571,9 +565,8 @@ function markBrokenCoverImage(imageUrl: string | undefined) {
   }
 }
 
-async function requestDeleteWorldBook() {
+function requestDeleteWorldBook() {
   if (isTabooDraft.value) return;
-  await flushAutoSave(true);
   showDeleteConfirm.value = true;
 }
 
@@ -588,8 +581,8 @@ async function confirmDeleteWorldBook() {
   try {
     await store.deleteWorldBook(targetId);
     showDeleteConfirm.value = false;
-    clearAutoSaveTimer();
-    hasPendingAutoSave = false;
+    hasPendingChanges = false;
+    draftVersion += 1;
     isLoaded.value = false;
     void router.replace({ name: 'world-book' });
   } finally {
@@ -602,7 +595,12 @@ watch(
   loadDraftFromRoute,
   { immediate: true }
 );
-watch(draft, scheduleAutoSave, { deep: true });
+watch(draft, () => {
+  if (!isLoaded.value || missingBook.value || isRestoringDraft.value) return;
+  draftVersion += 1;
+  hasPendingChanges = true;
+  saveState.value = 'pending';
+}, { deep: true, flush: 'sync' });
 </script>
 
 <style scoped>

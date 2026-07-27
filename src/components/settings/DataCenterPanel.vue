@@ -23,7 +23,7 @@
       <p v-if="localFeedback" class="feedback" :class="localFeedbackKind">{{ localFeedback }}</p>
     </section>
 
-    <WebDavBackupPanel v-else-if="activeSection === 'webdav'" :settings="settings" />
+    <CloudBackupPanel v-else-if="activeSection === 'cloud'" :settings="settings" />
 
     <section v-else class="backup-card github-card">
       <header class="card-head">
@@ -149,7 +149,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { CloudUpload, Download, Github, Lock } from 'lucide-vue-next';
-import WebDavBackupPanel from '@/components/settings/WebDavBackupPanel.vue';
+import CloudBackupPanel from '@/components/settings/CloudBackupPanel.vue';
 import { buildGitHubLoginUrl, ensureGitHubBackupRepository, fetchGitHubViewer, findGitHubBackupRepository, formatGitHubBackupError, getGitHubOAuthWorkerOrigin } from '@/services/githubBackup';
 import { useAppStore } from '@/stores/appStore';
 import type { AppSettings, GitHubBackupHistoryRecord, GitHubBackupSettings } from '@/types/domain';
@@ -158,7 +158,7 @@ import { createBackupArchiveFilename, downloadLinkBackupArchive, parseLinkBackup
 const props = defineProps<{
   userId: string;
   settings: AppSettings;
-  activeSection: 'local' | 'webdav' | 'github';
+  activeSection: 'local' | 'cloud' | 'github';
 }>();
 
 const store = useAppStore();

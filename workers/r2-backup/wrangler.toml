@@ -1,0 +1,13 @@
+name = "babylink-r2-backup"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+# The deploy wizard can replace this with the R2 bucket created in the user's account.
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "babylink-backups"
+
+[vars]
+# Leave empty to bind the first paired LINK origin to this Worker.
+ALLOWED_ORIGIN = ""

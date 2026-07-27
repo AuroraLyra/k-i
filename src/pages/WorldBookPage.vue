@@ -9,7 +9,7 @@
         <h1>World Archive</h1>
       </div>
       <div class="header-actions">
-        <button type="button" :disabled="importingWorldBooks" aria-label="导入世界书" @click="openImportPicker">
+        <button type="button" :disabled="importingWorldBooks" aria-label="导入世界书（JSON、TXT、DOC、DOCX）" title="导入 JSON / TXT / DOC / DOCX 世界书" @click="openImportPicker">
           <Upload :size="17" stroke-width="1.9" />
         </button>
         <button class="create-button" type="button" aria-label="新建世界书" @click="openCreateWorldBook">

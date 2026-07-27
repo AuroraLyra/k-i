@@ -1,6 +1,6 @@
 import { computed, ref, toRaw, watch } from 'vue';
 import { defineStore } from 'pinia';
-import { deleteEntity, loadSnapshot, pruneUnusedStoredMediaCache, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
+import { applyMemoryStoreMutation, deleteEntity, loadSnapshot, pruneUnusedStoredMediaCache, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
 import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatGobangAttachment, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import type { CharacterEconomySnapshot, ChatCommerceAttachment, ChatShopShareAttachment } from '@/types/commerce';
@@ -15,13 +15,16 @@ import { createDefaultProfileTheme, extractProfileThemeContent, isDefaultProfile
 import { getSmallTheaterVisibleText } from '@/utils/smallTheaterHtml';
 import { RECENT_STICKER_GROUP_NAME, cacheStickerImageUrl, createStickerFromDraft, createStickerGroup, getStickerDisplayImageUrl, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
 import { getConversationActiveMessages, getConversationFloorCount, getConversationFloors, getMessageFloorMap, normalizeConversationSettings } from '@/utils/memory';
+import { selectMemoryCaptureFloors } from '@/utils/memoryCapture';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { discoverGeneratedGroups, estimateRoleplayReplyInputTokens, fetchVendorModels, generateCoupleSpaceSnapshot, generateGroupChatReply, generateImageByProvider, generateRoleplayReply, generateSmallTheater, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, requestTextEmbedding, requestTextEmbeddings, shouldAutoGenerateMoment, type GroupDiscoveryCharacterContext, type RoleplayCallResponse, type RoleplayGobangResponse, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
 import { fetchMusicCoverUrl, mergeMusicTrack, refreshPlayableMusicTrack, searchMusicTracks } from '@/services/music';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import { useCommerceStore } from '@/stores/commerceStore';
+import { downloadEncryptedCloudBackup, isCloudBackupConnected, uploadEncryptedCloudBackup } from '@/services/cloudBackup';
 import { GitHubBackupError, downloadGitHubBackup, downloadGitHubBackupVersion, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
-import { showLinkNotification } from '@/services/keepAlive';
+import { dismissLinkCallNotification, showLinkNotification } from '@/services/keepAlive';
+import { persistFanficStartupCache } from '@/services/fanficStartupCache';
 import { playRingtone } from '@/services/ringtone';
 import { synthesizeSpeech } from '@/services/tts';
 import { classifyGobangApiError, generateGobangMove, GobangApiError } from '@/services/gobang';
@@ -32,9 +35,11 @@ import { compressInlineImageDataUrl } from '@/utils/imageFile';
 import { hydrateStoredMediaRefs, isLocalMediaCacheUrl, materializeStoredMediaRefs } from '@/utils/mediaStorage';
 import { normalizeCoupleSpaceState } from '@/utils/coupleSpace';
 import { applyGobangMove, createGobangGame, respondGobangInvitation, updateGobangApiState } from '@/utils/gobang';
-import { createMemoryBrainId, createRecallUpserts, estimateMemoryTokens, fadeMemoryAccessibility, hashMemoryText, integrateMemoryExtraction, latestMemoryStates, memoryId, recallCharacterMemory, refreshMemoryThemeReports } from '@/utils/memoryGraph';
-import { consolidateMemoryThemeReport, extractTemporalMemory } from '@/services/memoryExtraction';
+import { createMemoryAssertionDedupeKey, createMemoryBrainId, createMemorySourceHash, createRecallUpserts, estimateMemoryTokens, fadeMemoryAccessibility, hashMemoryText, integrateMemoryExtraction, latestMemoryStates, memoryId, recallCharacterMemory, refreshMemoryThemeReports } from '@/utils/memoryGraph';
+import { consolidateMemoryThemeReport, extractTemporalMemory, generateTemporalMemoryDiary } from '@/services/memoryExtraction';
 import { registerTabooWorldBookProvider } from '@/services/tabooWorldBook';
+import { createUserTimeSnapshot } from '@/utils/timeAwareness';
+import { normalizeNarrativeText } from '@/utils/structuredText';
 
 interface CreateUserVoomPostPayload {
   userId: string;
@@ -61,6 +66,25 @@ interface BuildRoleplayReplyInputOptions {
   replyInstruction?: string;
   excludeSourceMessageIds?: string[];
   timeAwarenessNow?: number;
+}
+
+interface PendingMemoryCaptureRequest {
+  force: boolean;
+  waiters: Array<{
+    resolve: (episode: MemoryEpisode | null) => void;
+    reject: (error: unknown) => void;
+  }>;
+}
+
+interface PersistableMemoryGraph {
+  brainId: string;
+  episodes: MemoryEpisode[];
+  entities: MemoryEntity[];
+  assertions: MemoryAssertion[];
+  edges: MemoryEdge[];
+  themes: MemoryTheme[];
+  stateSnapshots: MemoryStateSnapshot[];
+  embeddings: MemoryEmbeddingCache[];
 }
 
 interface RoleplayCallSessionOptions {
@@ -248,8 +272,12 @@ export const useAppStore = defineStore('app', () => {
   const ready = ref(false);
   let hydratePromise: Promise<void> | null = null;
   let githubBackupRunning = false;
+  let cloudBackupRunning = false;
   let stickerImportCacheQueue = Promise.resolve();
   const capturingMemoryConversationIds = new Set<string>();
+  const capturingMemoryBrainIds = new Set<string>();
+  const rebuildingMemoryBrainIds = new Set<string>();
+  const pendingMemoryCaptureRequests = new Map<string, PendingMemoryCaptureRequest>();
   const generatingMomentConversationIds = new Set<string>();
   const generatingSmallTheaterConversationIds = new Set<string>();
   const regeneratingChatImageMessageIds = new Set<string>();
@@ -465,15 +493,15 @@ export const useAppStore = defineStore('app', () => {
 
   function keepDeviceBackupSettings(snapshot: AppSnapshot): AppSnapshot {
     const currentGitHubBackup = settings.value?.githubBackup;
-    const currentWebDavBackup = settings.value?.webDavBackup;
-    if (!currentGitHubBackup && !currentWebDavBackup) return snapshot;
+    const currentCloudBackup = settings.value?.cloudBackup;
+    if (!currentGitHubBackup && !currentCloudBackup) return snapshot;
 
     return {
       ...snapshot,
       settings: normalizeAppSettings({
         ...snapshot.settings,
         ...(currentGitHubBackup ? { githubBackup: currentGitHubBackup } : {}),
-        ...(currentWebDavBackup ? { webDavBackup: currentWebDavBackup } : {})
+        ...(currentCloudBackup ? { cloudBackup: currentCloudBackup } : {})
       })
     };
   }
@@ -487,8 +515,10 @@ export const useAppStore = defineStore('app', () => {
     users.value = snapshot.users;
     characters.value = snapshot.characters;
     conversations.value = snapshot.conversations;
-    messages.value = snapshot.messages.map((message) => normalizeStoredMessageAuthorReference(message));
     voomPosts.value = snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post));
+    messages.value = snapshot.messages
+      .map((message) => normalizeStoredMessageAuthorReference(message))
+      .map((message) => normalizeStoredVoomEventMessage(message, voomPosts.value));
     profileThemes.value = sharedLibraryData.profileThemes;
     profileHomepages.value = normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []);
     smallTheaterTopics.value = sharedLibraryData.smallTheaterTopics;
@@ -519,12 +549,15 @@ export const useAppStore = defineStore('app', () => {
       smallTheaterTopics: snapshot.smallTheaterTopics ?? [],
       settings: snapshot.settings
     });
+    const normalizedVoomPosts = snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post));
     return {
       ...snapshot,
       profileThemes: sharedLibraryData.profileThemes,
       smallTheaterTopics: sharedLibraryData.smallTheaterTopics,
-      messages: snapshot.messages.map((message) => normalizeStoredMessageAuthorReference(message)),
-      voomPosts: snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post)),
+      messages: snapshot.messages
+        .map((message) => normalizeStoredMessageAuthorReference(message))
+        .map((message) => normalizeStoredVoomEventMessage(message, normalizedVoomPosts)),
+      voomPosts: normalizedVoomPosts,
       profileHomepages: normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []),
       smallTheaters: normalizeStoredSmallTheaters(snapshot.smallTheaters ?? []),
       musicCommentThreads: normalizeStoredMusicCommentThreads(snapshot.musicCommentThreads ?? []),
@@ -581,13 +614,22 @@ export const useAppStore = defineStore('app', () => {
     if (ready.value) return;
     if (hydratePromise) return hydratePromise;
     hydratePromise = (async () => {
-    const snapshot = await hydrateStoredMediaRefs(await loadSnapshot());
+    const storedSnapshot = await loadSnapshot();
+    persistFanficStartupCache({
+      books: storedSnapshot.fanficBooks ?? [],
+      chapters: storedSnapshot.fanficChapters ?? [],
+      topics: storedSnapshot.fanficTopics ?? [],
+      jobs: storedSnapshot.fanficGenerationJobs ?? []
+    });
+    const snapshot = await hydrateStoredMediaRefs(storedSnapshot);
     users.value = snapshot.users.map((entry) => normalizeUserProfile(entry));
     const fallbackUserId = snapshot.settings.activeUserId || snapshot.users[0]?.id || '';
     characters.value = snapshot.characters.map((entry) => normalizeCharacterProfile(entry, fallbackUserId));
     conversations.value = snapshot.conversations;
-    messages.value = snapshot.messages.map((message) => normalizeInterruptedGobangRequest(normalizeStoredMessageAuthorReference(message)));
     voomPosts.value = snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post));
+    messages.value = snapshot.messages
+      .map((message) => normalizeInterruptedGobangRequest(normalizeStoredMessageAuthorReference(message)))
+      .map((message) => normalizeStoredVoomEventMessage(message, voomPosts.value));
     profileThemes.value = normalizeStoredProfileThemes(snapshot.profileThemes ?? []);
     profileHomepages.value = normalizeStoredProfileHomepages(snapshot.profileHomepages ?? []);
     smallTheaterTopics.value = snapshot.smallTheaterTopics ?? [];
@@ -675,6 +717,7 @@ export const useAppStore = defineStore('app', () => {
         putEntity('settings', settings.value, 'main')
       ]);
     }
+    syncPendingIncomingCall();
     ready.value = true;
     const storedTransferMessages = messages.value.filter((message) => message.transfer && !message.transfer.responseToMessageId && message.sender !== 'system');
     for (const transferMessage of storedTransferMessages) {
@@ -829,17 +872,25 @@ export const useAppStore = defineStore('app', () => {
   function promptMessagesForConversation(id: string) {
     const activeMessages = visibleMessagesForConversation(id);
     const memorySettings = settingsForConversation(id).memory;
-    if (!memorySettings.enabled || !memorySettings.compressionEnabled) return activeMessages.slice(-24);
-    const archivedMessageIds = new Set(
-      memoryGraphForConversation(id).episodes
-        .filter((episode) => episode.conversationId === id && episode.status === 'active')
+    const conversationEpisodes = memoryGraphForConversation(id).episodes.filter((episode) => episode.conversationId === id);
+    const forgottenMessageIds = new Set(
+      conversationEpisodes
+        .filter((episode) => episode.status === 'forgotten')
         .flatMap((episode) => episode.sourceMessageIds)
     );
-    if (!archivedMessageIds.size) return activeMessages;
-    const recentMessageIds = new Set(
-      recentCompleteFloors(activeMessages, Math.max(1, memorySettings.recentMessageLimit)).map((message) => message.id)
+    const recallableMessages = activeMessages.filter((message) => !forgottenMessageIds.has(message.id));
+    if (!memorySettings.enabled || !memorySettings.compressionEnabled) return recallableMessages.slice(-24);
+    const archivedMessageIds = new Set(
+      conversationEpisodes
+        .filter((episode) => episode.status === 'active')
+        .flatMap((episode) => episode.sourceMessageIds)
     );
-    return activeMessages.filter((message) => !archivedMessageIds.has(message.id) || recentMessageIds.has(message.id));
+    if (!archivedMessageIds.size && !forgottenMessageIds.size) return recallableMessages;
+    const recentMessageIds = new Set(
+      recentCompleteFloors(recallableMessages, Math.max(1, memorySettings.recentMessageLimit)).map((message) => message.id)
+    );
+    return recallableMessages.filter((message) => !forgottenMessageIds.has(message.id)
+      && (!archivedMessageIds.has(message.id) || recentMessageIds.has(message.id)));
   }
 
   function hiddenMessageIdsForConversation(id: string) {
@@ -917,7 +968,8 @@ export const useAppStore = defineStore('app', () => {
       brainId: graph.brainId,
       query: queryText,
       limit: maxEntries,
-      maxTokens: budgetTokens
+      maxTokens: budgetTokens,
+      timeAwarenessEnabled: settingsForConversation(id).timeAwareness.enabled
     });
   }
 
@@ -940,7 +992,8 @@ export const useAppStore = defineStore('app', () => {
           brainId: graph.brainId,
           query: getLastUserTurnText(activeMessages),
           limit: 14,
-          maxTokens: memorySettings.recallTokenBudget
+          maxTokens: memorySettings.recallTokenBudget,
+          timeAwarenessEnabled: settingsForConversation(id).timeAwareness.enabled
         })
       : null;
     return {
@@ -970,7 +1023,8 @@ export const useAppStore = defineStore('app', () => {
       assertions: graph.assertions.filter((assertion) => !assertion.evidenceMessageIds.some((messageId) => excludedIds.has(messageId))),
       query: queryText,
       limit: options.maxEntries ?? (queryText.trim() ? 14 : 10),
-      maxTokens: options.maxTokens ?? settingsForConversation(id).memory.recallTokenBudget
+      maxTokens: options.maxTokens ?? settingsForConversation(id).memory.recallTokenBudget,
+      timeAwarenessEnabled: settingsForConversation(id).timeAwareness.enabled
     });
     void options.includeResolved;
     void options.storeDebug;
@@ -992,7 +1046,7 @@ export const useAppStore = defineStore('app', () => {
     const memorySettings = settingsForConversation(id).memory;
     if (!queryVector.length && queryText.trim() && memorySettings.embeddingEnabled) {
       try {
-        queryVector = await requestTextEmbedding(settings.value ?? undefined, queryText, options.modelOverride, memorySettings.embeddingModel);
+        queryVector = await requestTextEmbedding(settings.value ?? undefined, queryText, options.modelOverride);
       } catch (error) {
         console.warn('Memory query embedding fell back to lexical recall.', error);
       }
@@ -1004,7 +1058,8 @@ export const useAppStore = defineStore('app', () => {
       query: queryText,
       limit: options.maxEntries ?? (queryText.trim() ? 14 : 10),
       maxTokens: options.maxTokens ?? memorySettings.recallTokenBudget,
-      queryVector
+      queryVector,
+      timeAwarenessEnabled: settingsForConversation(id).timeAwareness.enabled
     });
     const now = Date.now();
     const recalled = createRecallUpserts(recall.items, now);
@@ -1019,8 +1074,12 @@ export const useAppStore = defineStore('app', () => {
       : [];
     const upserts = [...recalled, ...faded];
     if (upserts.length) {
-      memoryAssertions.value = mergeMemoryEntities(memoryAssertions.value, upserts);
-      void Promise.all(upserts.map((assertion) => putEntity('memoryAssertions', assertion))).catch(() => undefined);
+      try {
+        await applyMemoryStoreMutation({ put: { assertions: upserts } });
+        memoryAssertions.value = mergeMemoryEntities(memoryAssertions.value, upserts);
+      } catch (error) {
+        console.warn('Memory recall accessibility persistence failed.', error);
+      }
     }
     if (!recall.contextText) return '';
     return recall.contextText;
@@ -1088,7 +1147,7 @@ export const useAppStore = defineStore('app', () => {
     }
     const memorySummary = await memoryContextForConversationAsync(conversationId, userMessageText, {
       storeDebug: false,
-      modelOverride: getConversationTextModelOverride(chatSettings, 'summary', mode),
+      modelOverride: getMemorySummaryModelOverride(chatSettings),
       excludeSourceMessageIds: options.excludeSourceMessageIds
     });
 
@@ -1248,6 +1307,11 @@ export const useAppStore = defineStore('app', () => {
     return '';
   }
 
+  function getMemorySummaryModelOverride(chatSettings: ConversationSettings) {
+    return modelOverridesForConversation(chatSettings.conversationId).summary?.trim()
+      || getGlobalTextModelOverride('summary');
+  }
+
   async function clearLegacyModelOverridesForCharacter(characterId: string) {
     const emptyOverrides = normalizeChatModelOverrides(null);
     const updates = conversationSettings.value
@@ -1383,33 +1447,32 @@ export const useAppStore = defineStore('app', () => {
     });
   }
 
+  function isUserVoomPost(post: VoomPost) {
+    return post.authorType === 'user'
+      || (post.authorType !== 'character' && Boolean(String(post.userId ?? '').trim()));
+  }
+
   function characterForVoomComment(comment: VoomComment) {
     const authorId = String(comment.authorId ?? '').trim();
-    const authorName = comment.authorName.trim().toLocaleLowerCase();
-    return characters.value.find((character) => {
-      if (authorId && character.id === authorId) return true;
-      return [character.nickname, character.name, getCharacterVoomAuthorName(character)]
-        .map((name) => name.trim().toLocaleLowerCase())
-        .includes(authorName);
-    }) ?? null;
+    return authorId ? characters.value.find((character) => character.id === authorId) ?? null : null;
   }
 
   function userForVoomComment(comment: VoomComment) {
     const authorId = String(comment.authorId ?? '').trim();
-    const authorName = comment.authorName.trim().toLocaleLowerCase();
-    return users.value.find((entry) => {
-      if (authorId && entry.id === authorId) return true;
-      return [getUserVoomAuthorName(entry), getUserAiName(entry)]
-        .map((name) => name.trim().toLocaleLowerCase())
-        .includes(authorName);
-    }) ?? null;
+    return authorId ? users.value.find((entry) => entry.id === authorId) ?? null : null;
   }
 
   function voomAiNameForIdentity(authorName = '', authorId = '') {
     const normalizedAuthorId = authorId.trim();
     const normalizedAuthorName = authorName.trim().toLocaleLowerCase();
+    if (normalizedAuthorId) {
+      const identifiedCharacter = characters.value.find((entry) => entry.id === normalizedAuthorId);
+      if (identifiedCharacter) return getCharacterAiName(identifiedCharacter);
+      const identifiedUser = users.value.find((entry) => entry.id === normalizedAuthorId);
+      if (identifiedUser) return getUserAiName(identifiedUser);
+      return authorName;
+    }
     const character = characters.value.find((entry) => {
-      if (normalizedAuthorId && entry.id === normalizedAuthorId) return true;
       return [entry.id, entry.nickname, entry.name, getCharacterAiName(entry), getCharacterVoomAuthorName(entry)]
         .map((name) => name.trim().toLocaleLowerCase())
         .includes(normalizedAuthorName);
@@ -1440,16 +1503,17 @@ export const useAppStore = defineStore('app', () => {
 
   function normalizeStoredVoomPostIdentityReferences(post: VoomPost) {
     const postConversation = conversationForVoomPost(post);
-    const postCharacter = characterById(post.charId) ?? (postConversation ? characterById(postConversation.charId) : null);
+    const userPost = isUserVoomPost(post);
+    const postCharacter = userPost ? null : characterById(post.charId) ?? (postConversation ? characterById(postConversation.charId) : null);
     const postUser = post.userId ? userById(post.userId) : null;
-    const authorName = postCharacter
-      ? getCharacterAiName(postCharacter)
-      : postUser
-        ? getUserAiName(postUser)
-        : voomAiNameForIdentity(post.authorName, post.userId || post.charId);
+    const authorName = userPost
+      ? postUser ? getUserAiName(postUser) : post.authorName
+      : postCharacter
+        ? getCharacterAiName(postCharacter)
+        : post.authorName;
     const likes = post.likes.map((like) => voomAiNameForIdentity(like)).filter(Boolean);
     const comments = post.comments.map((comment) => {
-      const nextAuthorName = voomAiNameForIdentity(comment.authorName, comment.authorId);
+      const nextAuthorName = comment.authorId ? voomAiNameForIdentity(comment.authorName, comment.authorId) : comment.authorName;
       return nextAuthorName === comment.authorName ? comment : { ...comment, authorName: nextAuthorName };
     });
     return authorName !== post.authorName
@@ -1676,10 +1740,10 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function voomCommentAiAuthorName(comment: VoomComment) {
-    const character = characterForVoomComment(comment);
-    if (character) return getCharacterAiName(character);
     const commentUser = userForVoomComment(comment);
-    return commentUser ? getUserAiName(commentUser) : comment.authorName;
+    if (commentUser) return getUserAiName(commentUser);
+    const character = characterForVoomComment(comment);
+    return character ? getCharacterAiName(character) : comment.authorName;
   }
 
   function formatVoomCommentEvent(comment: VoomComment, comments: VoomComment[]) {
@@ -1693,18 +1757,24 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function voomAuthorNameForPost(post: VoomPost) {
+    if (isUserVoomPost(post)) {
+      const postUser = post.userId ? userById(post.userId) : null;
+      return postUser ? getUserDisplayName(postUser) : post.authorName;
+    }
     const character = characterById(post.charId);
     if (character) return getCharacterVoomDisplayName(character);
-    const postUser = post.userId ? userById(post.userId) : null;
-    return postUser ? getUserDisplayName(postUser) : post.authorName;
+    return post.authorName;
   }
 
   function voomAiAuthorNameForPost(post: VoomPost) {
+    if (isUserVoomPost(post)) {
+      const postUser = post.userId ? userById(post.userId) : null;
+      return postUser ? getUserAiName(postUser) : post.authorName;
+    }
     const postConversation = conversationForVoomPost(post);
     const character = characterById(post.charId) ?? (postConversation ? characterById(postConversation.charId) : null);
     if (character) return getCharacterAiName(character);
-    const postUser = post.userId ? userById(post.userId) : null;
-    return postUser ? getUserAiName(postUser) : post.authorName;
+    return post.authorName;
   }
 
   function notificationPreview(content: string, fallback: string) {
@@ -1715,6 +1785,23 @@ export const useAppStore = defineStore('app', () => {
   function notifyCharacterMessages(conversation: Conversation, charMessages: ChatMessage[]) {
     const character = characterById(conversation.charId);
     const displayName = character ? getCharacterVoomDisplayName(character) : conversation.title || '角色';
+    const incomingCallMessage = charMessages.find((message) => message.call?.direction === 'incoming' && message.call.status === 'ringing');
+    if (incomingCallMessage?.call) {
+      const callModeText = incomingCallMessage.call.mode === 'video' ? '视频通话' : '语音通话';
+      void playRingtone(settings.value, 'call', conversation.charId);
+      void showLinkNotification(settings.value?.keepAlive, {
+        kind: 'call',
+        title: displayName,
+        body: `邀请你${callModeText}`,
+        tag: `link-call-${incomingCallMessage.call.callId}`,
+        icon: character?.avatar,
+        url: `/chats/${conversation.id}`,
+        conversationId: conversation.id,
+        callId: incomingCallMessage.call.callId,
+        callMode: incomingCallMessage.call.mode
+      });
+      return;
+    }
     const messages = charMessages.map((message) => notificationPreview(messageReadableContent(message), '发来了新消息'));
     const body = messages.join('\n') || '发来了新消息';
     void playRingtone(settings.value, 'message', conversation.charId);
@@ -1730,7 +1817,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function notifyVoomPost(post: VoomPost, conversation?: Conversation | null) {
-    if (post.authorType === 'user') return;
+    if (isUserVoomPost(post)) return;
     const characterId = post.charId || conversation?.charId || '';
     const character = characterId ? characterById(characterId) : null;
     const authorName = voomAuthorNameForPost(post);
@@ -1748,7 +1835,35 @@ export const useAppStore = defineStore('app', () => {
 
   function formatVoomLikeEvent(likes: string[], authorName: string) {
     const likeNames = likes.map((like) => voomAiNameForIdentity(like)).filter(Boolean);
-    return `【VOOM】${likeNames.join('、')} 赞了 ${voomAiNameForIdentity(authorName)} 的动态。`;
+    return `【VOOM】${likeNames.join('、')} 赞了 ${authorName.trim() || '用户'} 的动态。`;
+  }
+
+  function formatVoomPostEvent(post: VoomPost, authorName = voomAiAuthorNameForPost(post)) {
+    const imageEventText = post.imageDescription ? `配图：${post.imageDescription}` : post.image ? '配图：本地图片' : '';
+    return [
+      `【VOOM】${authorName} 发布了动态：${formatContentWithChineseTranslation(post.content, post.contentTranslation)}`,
+      imageEventText
+    ].filter(Boolean).join('\n');
+  }
+
+  function normalizeStoredVoomEventMessage(message: ChatMessage, posts: VoomPost[]) {
+    if (message.sender !== 'system' || !message.voomPostId) return message;
+    const post = posts.find((entry) => entry.id === message.voomPostId);
+    if (!post) return message;
+
+    const authorName = voomAiAuthorNameForPost(post);
+    let content = '';
+    if (message.voomEventType === 'post') {
+      content = formatVoomPostEvent(post, authorName);
+    } else if (message.voomEventType === 'like' || message.voomEventType === 'unlike') {
+      const match = message.content.match(/^【VOOM】(.+?) (赞了|取消赞了) .+ 的动态。$/);
+      if (!match) return message;
+      content = `【VOOM】${match[1]} ${match[2]} ${authorName} 的动态。`;
+    } else {
+      return message;
+    }
+
+    return content === message.content ? message : { ...message, content };
   }
 
   async function syncChatTransferLedger(message: ChatMessage) {
@@ -1794,7 +1909,7 @@ export const useAppStore = defineStore('app', () => {
     const changedTheaters: SmallTheater[] = [];
 
     voomPosts.value = voomPosts.value.map((post) => {
-      if (post.authorType === 'user' || post.charId !== characterId || post.authorAvatar === avatar) return post;
+      if (isUserVoomPost(post) || post.charId !== characterId || post.authorAvatar === avatar) return post;
       const nextPost = { ...post, authorAvatar: avatar };
       changedPosts.push(nextPost);
       return nextPost;
@@ -1981,6 +2096,71 @@ export const useAppStore = defineStore('app', () => {
     const normalizedCall = normalizeCallAttachment(call);
     const createdAt = (normalizedCall.endedAt ?? Date.now()) + 1;
     return appendConversationEvent(conversationId, callEndPromptContent(conversationId, normalizedCall, actor), { mode: 'online', createdAt });
+  }
+
+  function syncPendingIncomingCall() {
+    if (activeCall.value) return;
+    const message = [...messages.value].reverse().find((entry) => entry.call?.direction === 'incoming' && entry.call.status === 'ringing');
+    const conversation = message ? conversationById(message.conversationId) : null;
+    const character = conversation ? characterById(conversation.charId) : null;
+    if (!message?.call || !conversation || !character) return;
+    setActiveCall({
+      conversationId: conversation.id,
+      callId: message.call.callId,
+      eventMessageId: message.id,
+      mode: message.call.mode,
+      direction: 'incoming',
+      status: 'incoming-ringing',
+      startedAt: message.call.startedAt,
+      muted: false,
+      cameraEnabled: false,
+      speakerEnabled: true,
+      generatedBackgroundUrl: '',
+      minimized: false,
+      floatPosition: { x: 16, y: 92 },
+      peerName: getCharacterVoomDisplayName(character),
+      avatar: character.avatar,
+      subtitle: message.call.mode === 'video' ? '视频通话来电' : '语音通话来电'
+    });
+  }
+
+  async function respondToIncomingCall(conversationId: string, callId: string, response: 'accepted' | 'rejected') {
+    const active = activeCall.value;
+    if (!active || active.conversationId !== conversationId || active.callId !== callId || active.direction !== 'incoming' || active.status !== 'incoming-ringing') return false;
+    const eventMessage = messages.value.find((message) => message.id === active.eventMessageId && message.call?.callId === callId);
+    if (!eventMessage?.call || eventMessage.call.status !== 'ringing') return false;
+    const respondedAt = Date.now();
+    if (response === 'rejected') {
+      const updatedMessage = await updateCallEventMessage(eventMessage.id, { status: 'rejected', endedAt: respondedAt });
+      if (updatedMessage?.call) await appendCallEndPromptMessage(conversationId, updatedMessage.call, 'user');
+      clearActiveCall(conversationId);
+      return true;
+    }
+
+    const connectedAt = eventMessage.call.connectedAt ?? respondedAt;
+    const updatedMessage = await updateCallEventMessage(eventMessage.id, { status: 'accepted', connectedAt });
+    if (!updatedMessage?.call) return false;
+    patchActiveCall(conversationId, {
+      status: 'active',
+      connectedAt,
+      minimized: false,
+      subtitle: updatedMessage.call.mode === 'video' ? '视频通话中' : '语音通话中'
+    });
+    const conversation = conversationById(conversationId);
+    const character = conversation ? characterById(conversation.charId) : null;
+    if (conversation && character) {
+      const scene = updatedMessage.call.mode === 'video' ? '视频通话' : '语音通话';
+      const names = callParticipantNames(conversationId);
+      void requestRoleplayReply(conversationId, {
+        callSession: {
+          callId,
+          mode: updatedMessage.call.mode,
+          forceVoice: true
+        },
+        replyInstruction: `${names.userName}刚刚接听了${names.characterName}主动拨来的${scene}。当前正在通话中，请让${names.characterName}先用适合朗读的短句自然开口，可以连续发送 1-3 个短句；这些句子会作为通话字幕并播放 TTS。`
+      });
+    }
+    return true;
   }
 
   function callMessageSender(call: ChatCallAttachment): ChatMessage['sender'] {
@@ -2714,6 +2894,7 @@ export const useAppStore = defineStore('app', () => {
     messages.value[messageIndex] = nextMessage;
     await putEntity('messages', nextMessage);
     await touchConversationAfterMessageChange(nextMessage.conversationId, nextMessage.editedAt);
+    if (existingMessage.call.status === 'ringing' && nextCall.status !== 'ringing') void dismissLinkCallNotification(nextCall.callId);
     return nextMessage;
   }
 
@@ -2818,6 +2999,15 @@ export const useAppStore = defineStore('app', () => {
     if (conversation?.kind !== 'group') return undefined;
     return conversation.groupMembers?.find((member) => (message.authorId && (member.id === message.authorId || member.identityId === message.authorId))
       || (message.authorType === member.identityType && Boolean(message.authorName?.trim()) && member.trueName === message.authorName?.trim()));
+  }
+
+  function characterForMessageVoice(message: ChatMessage) {
+    const conversation = conversationById(message.conversationId);
+    if (!conversation) return null;
+    if (conversation.kind !== 'group') return characterById(conversation.charId);
+    const groupMember = groupMemberForMessage(conversation, message);
+    if (groupMember?.identityType === 'character' && groupMember.identityId) return characterById(groupMember.identityId);
+    return characterById(conversation.charId);
   }
 
   function normalizeFavorites(entries: FavoriteMessageRecord[]) {
@@ -2974,6 +3164,16 @@ export const useAppStore = defineStore('app', () => {
     await putEntity('conversations', nextConversation);
   }
 
+  async function invalidateMemoryEpisodesForMessages(messageIds: Iterable<string>, allowRecapture: boolean) {
+    const idSet = new Set(messageIds);
+    const affectedEpisodeIds = memoryEpisodes.value
+      .filter((episode) => episode.status === 'active' && episode.sourceMessageIds.some((id) => idSet.has(id)))
+      .map((episode) => episode.id);
+    for (const episodeId of affectedEpisodeIds) {
+      await deleteMemoryEpisode(episodeId, { allowRecapture });
+    }
+  }
+
   async function deleteMessages(messageIds: string | string[]) {
     const ids = expandMessageIdsForDeletion(messageIds);
     if (!ids.length) return 0;
@@ -2987,6 +3187,7 @@ export const useAppStore = defineStore('app', () => {
       changedGroupSourceIds.set(conversation.id, [...(changedGroupSourceIds.get(conversation.id) ?? []), message.id]);
     }
     const affectedConversationIds = [...new Set(messagesToRemove.map((message) => message.conversationId))];
+    await invalidateMemoryEpisodesForMessages(ids, false);
     messages.value = messages.value.filter((message) => !idSet.has(message.id));
     await Promise.all(messagesToRemove.map((message) => deleteEntity('messages', message.id)));
     await Promise.all([...changedGroupSourceIds].map(([groupId, sourceMessageIds]) => refreshGroupSyncedContexts(groupId, sourceMessageIds)));
@@ -3027,11 +3228,13 @@ export const useAppStore = defineStore('app', () => {
       location: existingMessage.location ? { ...existingMessage.location, name: trimmedContent } : existingMessage.location,
       editedAt: Date.now()
     };
+    await invalidateMemoryEpisodesForMessages([messageId], true);
     messages.value[messageIndex] = nextMessage;
     await putEntity('messages', nextMessage);
     const conversation = conversationById(nextMessage.conversationId);
     if (conversation?.kind === 'group') await refreshGroupSyncedContexts(conversation.id, [nextMessage.id]);
     await touchConversationAfterMessageChange(nextMessage.conversationId, nextMessage.editedAt);
+    void maybeAutoCaptureConversationMemory(nextMessage.conversationId);
     return nextMessage;
   }
 
@@ -3049,9 +3252,11 @@ export const useAppStore = defineStore('app', () => {
       location: normalizedLocation,
       editedAt
     };
+    await invalidateMemoryEpisodesForMessages([messageId], true);
     messages.value[messageIndex] = nextMessage;
     await putEntity('messages', nextMessage);
     await touchConversationAfterMessageChange(nextMessage.conversationId, editedAt);
+    void maybeAutoCaptureConversationMemory(nextMessage.conversationId);
     return nextMessage;
   }
 
@@ -3070,6 +3275,11 @@ export const useAppStore = defineStore('app', () => {
     const relatedReceiptMessages = messages.value.filter((message) => message.transfer?.responseToMessageId === existingMessage.id);
     const editedAt = Date.now();
     const note = transfer.note?.trim() || undefined;
+    await invalidateMemoryEpisodesForMessages([
+      existingMessage.id,
+      ...relatedReceiptMessages.map((message) => message.id),
+      ...(existingMessage.transfer.responseToMessageId ? [existingMessage.transfer.responseToMessageId] : [])
+    ], true);
 
     if (isReceipt) {
       const respondedAt = existingMessage.transfer.respondedAt ?? editedAt;
@@ -3118,6 +3328,7 @@ export const useAppStore = defineStore('app', () => {
       if (originalTransferMessage) await syncChatTransferLedger(originalTransferMessage);
       await Promise.all(nextMessages.map((message) => putEntity('messages', message)));
       await touchConversationAfterMessageChange(nextMessage.conversationId, editedAt);
+      void maybeAutoCaptureConversationMemory(nextMessage.conversationId);
       return nextMessage;
     }
 
@@ -3145,6 +3356,7 @@ export const useAppStore = defineStore('app', () => {
     if (status === 'pending') {
       if (relatedReceiptMessages.length) await deleteMessages(relatedReceiptMessages.map((message) => message.id));
       await touchConversationAfterMessageChange(nextMessage.conversationId, editedAt);
+      void maybeAutoCaptureConversationMemory(nextMessage.conversationId);
       return nextMessage;
     }
 
@@ -3193,6 +3405,7 @@ export const useAppStore = defineStore('app', () => {
     if (!relatedReceiptMessages.length) messages.value.push(...receiptMessages);
     await Promise.all(receiptMessages.map((message) => putEntity('messages', message)));
     await touchConversationAfterMessageChange(nextMessage.conversationId, editedAt);
+    void maybeAutoCaptureConversationMemory(nextMessage.conversationId);
     return nextMessage;
   }
 
@@ -3208,7 +3421,10 @@ export const useAppStore = defineStore('app', () => {
     const currentSettings = settings.value;
     if (!currentSettings) throw new Error('设置尚未载入。');
 
-    const generated = await synthesizeSpeech(existingMessage.voice.transcript, currentSettings);
+    const character = characterForMessageVoice(existingMessage);
+    const generated = await synthesizeSpeech(existingMessage.voice.transcript, currentSettings, {
+      minimaxVoiceId: character?.minimaxVoiceId
+    });
     const nextMessage: ChatMessage = {
       ...existingMessage,
       voice: {
@@ -3249,16 +3465,12 @@ export const useAppStore = defineStore('app', () => {
     const targetConversations = conversationsForVoomPost(post);
     if (!targetConversations.length) return;
     const authorName = voomAiAuthorNameForPost(post);
-    const imageEventText = post.imageDescription ? `配图：${post.imageDescription}` : post.image ? '配图：本地图片' : '';
 
     for (const targetConversation of targetConversations) {
       const eventMode = mode ?? targetConversation.activeMode;
       await appendConversationEvent(
         targetConversation.id,
-        [
-          `【VOOM】${authorName} 发布了动态：${formatContentWithChineseTranslation(post.content, post.contentTranslation)}`,
-          imageEventText
-        ].filter(Boolean).join('\n'),
+        formatVoomPostEvent(post, authorName),
         { mode: eventMode, voomPostId: post.id, voomEventType: 'post', createdAt: post.createdAt }
       );
       if (post.likes.length) {
@@ -4728,7 +4940,7 @@ export const useAppStore = defineStore('app', () => {
         || nextComments.length !== post.comments.length
         || nextLikes.length !== post.likes.length;
       if (!touchedPost) continue;
-      if (post.authorType === 'user' && removedFromPostAudience && !nextConversationIds.length && (!nextVisibleCharacterIds || !nextVisibleCharacterIds.length)) {
+      if (isUserVoomPost(post) && removedFromPostAudience && !nextConversationIds.length && (!nextVisibleCharacterIds || !nextVisibleCharacterIds.length)) {
         postsToDelete.push(post);
         continue;
       }
@@ -4886,7 +5098,7 @@ export const useAppStore = defineStore('app', () => {
 
       if (!touchedPost) continue;
 
-      if (post.authorType === 'user' && removedFromPostAudience && !nextConversationIds.length && (!nextVisibleCharacterIds || !nextVisibleCharacterIds.length)) {
+      if (isUserVoomPost(post) && removedFromPostAudience && !nextConversationIds.length && (!nextVisibleCharacterIds || !nextVisibleCharacterIds.length)) {
         postsToDelete.push(post);
         continue;
       }
@@ -5126,10 +5338,13 @@ export const useAppStore = defineStore('app', () => {
       onMissing: (source) => missingMedia.add(source)
     });
     await onProgress?.('正在整理备份内容', 65);
+    const normalizedVoomPosts = snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post));
     const backupSnapshot = await compactSnapshotMediaForBackup({
       ...snapshot,
-      messages: snapshot.messages.map((message) => normalizeStoredMessageAuthorReference(message)),
-      voomPosts: snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post)),
+      messages: snapshot.messages
+        .map((message) => normalizeStoredMessageAuthorReference(message))
+        .map((message) => normalizeStoredVoomEventMessage(message, normalizedVoomPosts)),
+      voomPosts: normalizedVoomPosts,
       smallTheaters: normalizeStoredSmallTheaters(snapshot.smallTheaters ?? []),
       musicCommentThreads: normalizeStoredMusicCommentThreads(snapshot.musicCommentThreads ?? []),
       favorites: normalizeFavorites(snapshot.favorites ?? [])
@@ -5158,6 +5373,134 @@ export const useAppStore = defineStore('app', () => {
     queueMissingStickerImageCaches(preparedSnapshot.stickers);
     void refreshEnabledVendorModels();
     return { slimmedForMobile, persistentStorageGranted };
+  }
+
+  async function saveCloudBackupState(overrides: Partial<AppSettings['cloudBackup']>) {
+    if (!settings.value) return;
+    const normalizedSettings = normalizeAppSettings({
+      ...settings.value,
+      cloudBackup: {
+        ...settings.value.cloudBackup,
+        ...overrides
+      }
+    });
+    settings.value = normalizedSettings;
+    await putEntity('settings', normalizedSettings, 'main');
+  }
+
+  async function saveCloudBackupProgress(phase: AppSettings['cloudBackup']['progress']['phase'], label: string, percent: number) {
+    await saveCloudBackupState({
+      progress: {
+        phase,
+        label,
+        percent: Math.min(100, Math.max(0, Math.round(percent))),
+        updatedAt: Date.now()
+      }
+    });
+  }
+
+  function formatCloudBackupError(error: unknown) {
+    return error instanceof Error ? error.message : '用户云备份失败。';
+  }
+
+  async function runCloudBackup(reason: 'manual' | 'auto' = 'manual') {
+    if (cloudBackupRunning) return false;
+    if (!settings.value) throw new Error('设置尚未载入。');
+    const config = settings.value.cloudBackup;
+    if (!isCloudBackupConnected(config)) throw new Error('请先连接一个用户自有云盘。');
+
+    cloudBackupRunning = true;
+    await saveCloudBackupState({ lastBackupStatus: 'running', lastBackupError: '' });
+    await saveCloudBackupProgress('uploading', reason === 'auto' ? '正在准备自动加密备份' : '正在准备加密备份', 3);
+
+    try {
+      const backup = await createBackupFile();
+      let lastProgress = -1;
+      const result = await uploadEncryptedCloudBackup(settings.value?.cloudBackup ?? config, backup, async (progress) => {
+        if (progress.percent === lastProgress) return;
+        lastProgress = progress.percent;
+        await saveCloudBackupProgress('uploading', progress.label, progress.percent);
+      });
+      await saveCloudBackupState({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        tokenExpiresAt: result.tokenExpiresAt,
+        remoteFileId: result.remoteFileId,
+        lastBackupAt: Date.now(),
+        latestRemoteBackupAt: result.backup.exportedAt,
+        lastBackupBytes: result.byteLength,
+        lastBackupStatus: 'success',
+        lastBackupError: '',
+        progress: {
+          phase: 'completed',
+          label: reason === 'auto' ? '自动加密备份已完成' : '加密备份已完成',
+          percent: 100,
+          updatedAt: Date.now()
+        }
+      });
+      return true;
+    } catch (error) {
+      const message = formatCloudBackupError(error);
+      await saveCloudBackupState({
+        lastBackupStatus: 'failed',
+        lastBackupError: message,
+        progress: { phase: 'failed', label: message, percent: 100, updatedAt: Date.now() }
+      });
+      throw error;
+    } finally {
+      cloudBackupRunning = false;
+    }
+  }
+
+  async function restoreCloudBackup(options: ImportBackupOptions = {}) {
+    if (cloudBackupRunning) return false;
+    if (!settings.value) throw new Error('设置尚未载入。');
+    const config = settings.value.cloudBackup;
+    if (!isCloudBackupConnected(config)) throw new Error('请先连接一个用户自有云盘。');
+
+    cloudBackupRunning = true;
+    await saveCloudBackupState({ lastBackupStatus: 'running', lastBackupError: '' });
+    await saveCloudBackupProgress('downloading', '正在下载云端密文', 5);
+
+    try {
+      let lastProgress = -1;
+      const result = await downloadEncryptedCloudBackup(config, async (progress) => {
+        if (progress.percent === lastProgress) return;
+        lastProgress = progress.percent;
+        await saveCloudBackupProgress('downloading', progress.label, progress.percent);
+      });
+      await saveCloudBackupState({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        tokenExpiresAt: result.tokenExpiresAt,
+        remoteFileId: result.remoteFileId,
+        latestRemoteBackupAt: result.backup.exportedAt,
+        lastBackupBytes: result.byteLength,
+        progress: { phase: 'restoring', label: '正在写入当前设备', percent: 45, updatedAt: Date.now() }
+      });
+      await importBackupSnapshot(result.backup.snapshot, {
+        onProgress: async (label, percent) => {
+          await saveCloudBackupProgress('restoring', label, 45 + percent * 0.55);
+          await options.onProgress?.(label, percent);
+        }
+      });
+      await saveCloudBackupState({
+        lastBackupStatus: 'success',
+        lastBackupError: '',
+        progress: { phase: 'completed', label: '云端备份已恢复', percent: 100, updatedAt: Date.now() }
+      });
+      return true;
+    } catch (error) {
+      const message = formatCloudBackupError(error);
+      await saveCloudBackupState({
+        lastBackupStatus: 'failed',
+        lastBackupError: message,
+        progress: { phase: 'failed', label: message, percent: 100, updatedAt: Date.now() }
+      });
+      throw error;
+    } finally {
+      cloudBackupRunning = false;
+    }
   }
 
   async function saveGitHubBackupState(overrides: Partial<AppSettings['githubBackup']>) {
@@ -6615,24 +6958,26 @@ export const useAppStore = defineStore('app', () => {
     if (conversation.kind === 'group') return 'group';
     if (sourceMessages.some((message) => message.call || message.callId)) return 'call';
     if (sourceMessages.some((message) => message.voomPostId || message.voomCommentId)) return 'voom';
-    return conversation.activeMode === 'offline' ? 'offline' : 'online';
+    return sourceMessages.at(-1)?.mode === 'offline' ? 'offline' : 'online';
   }
 
   async function persistMemoryGraphUpserts(upserts: ReturnType<typeof integrateMemoryExtraction>) {
+    await applyMemoryStoreMutation({
+      put: {
+        episodes: [upserts.episode],
+        entities: upserts.entities,
+        assertions: upserts.assertions,
+        edges: upserts.edges,
+        themes: upserts.themes,
+        stateSnapshots: upserts.stateSnapshots
+      }
+    });
     memoryEpisodes.value = mergeMemoryEntities(memoryEpisodes.value, [upserts.episode]);
     memoryEntities.value = mergeMemoryEntities(memoryEntities.value, upserts.entities);
     memoryAssertions.value = mergeMemoryEntities(memoryAssertions.value, upserts.assertions);
     memoryEdges.value = mergeMemoryEntities(memoryEdges.value, upserts.edges);
     memoryThemes.value = mergeMemoryEntities(memoryThemes.value, upserts.themes);
     memoryStateSnapshots.value = mergeMemoryEntities(memoryStateSnapshots.value, upserts.stateSnapshots);
-    await Promise.all([
-      putEntity('memoryEpisodes', upserts.episode),
-      ...upserts.entities.map((entity) => putEntity('memoryEntities', entity)),
-      ...upserts.assertions.map((assertion) => putEntity('memoryAssertions', assertion)),
-      ...upserts.edges.map((edge) => putEntity('memoryEdges', edge)),
-      ...upserts.themes.map((theme) => putEntity('memoryThemes', theme)),
-      ...upserts.stateSnapshots.map((snapshot) => putEntity('memoryStateSnapshots', snapshot))
-    ]);
     const character = characterById(upserts.episode.characterId);
     const boundUser = userById(upserts.episode.userId);
     if (!character || !boundUser) return;
@@ -6644,9 +6989,9 @@ export const useAppStore = defineStore('app', () => {
       const reportedCount = Number(theme.reportAssertionCount) || 0;
       return activeCount >= 5 && (reportedCount <= 0 || activeCount - reportedCount >= 3);
     });
-    if (!themeCandidates.length || !hasTextGenerationConfig(settings.value ?? undefined, getConversationTextModelOverride(settingsForConversation(upserts.episode.conversationId), 'summary'))) return;
+    if (!themeCandidates.length || !hasTextGenerationConfig(settings.value ?? undefined, getMemorySummaryModelOverride(settingsForConversation(upserts.episode.conversationId)))) return;
     const modelOverride = upserts.episode.conversationId
-      ? getConversationTextModelOverride(settingsForConversation(upserts.episode.conversationId), 'summary')
+      ? getMemorySummaryModelOverride(settingsForConversation(upserts.episode.conversationId))
       : '';
     const consolidatedThemes = [] as MemoryTheme[];
     for (const theme of themeCandidates) {
@@ -6654,27 +6999,35 @@ export const useAppStore = defineStore('app', () => {
         theme.assertionIds.includes(assertion.id)
         && (assertion.status === 'current' || assertion.status === 'open' || assertion.status === 'disputed')
       );
-      const report = await consolidateMemoryThemeReport({
-        settings: settings.value ?? undefined,
-        modelOverride,
-        characterName: getCharacterAiName(character),
-        userName: getUserAiName(boundUser),
-        theme,
-        assertions: activeAssertions,
-      });
-      const activeCount = activeAssertions.length;
-      consolidatedThemes.push({ ...theme, report, reportAssertionCount: activeCount, reportUpdatedAt: Date.now(), updatedAt: Date.now() });
+      try {
+        const report = await consolidateMemoryThemeReport({
+          settings: settings.value ?? undefined,
+          modelOverride,
+          characterName: getCharacterAiName(character),
+          userName: getUserAiName(boundUser),
+          theme,
+          assertions: activeAssertions,
+        });
+        const activeCount = activeAssertions.length;
+        consolidatedThemes.push({ ...theme, report, reportAssertionCount: activeCount, reportUpdatedAt: Date.now(), updatedAt: Date.now() });
+      } catch (error) {
+        console.warn('Memory theme consolidation failed; core memory remains committed.', error);
+      }
     }
     if (consolidatedThemes.length) {
-      memoryThemes.value = mergeMemoryEntities(memoryThemes.value, consolidatedThemes);
-      await Promise.all(consolidatedThemes.map((theme) => putEntity('memoryThemes', theme)));
+      try {
+        await applyMemoryStoreMutation({ put: { themes: consolidatedThemes } });
+        memoryThemes.value = mergeMemoryEntities(memoryThemes.value, consolidatedThemes);
+      } catch (error) {
+        console.warn('Memory theme report persistence failed; core memory remains committed.', error);
+      }
     }
   }
 
   async function persistMemoryEmbeddingsForAssertions(conversationId: string, assertions: MemoryAssertion[], modelOverride = '') {
     const memorySettings = settingsForConversation(conversationId).memory;
     if (!memorySettings.embeddingEnabled || !assertions.length) return;
-    const embeddingModel = memorySettings.embeddingModel.trim() || modelOverride || settings.value?.model || '';
+    const embeddingModel = modelOverride || settings.value?.model || '';
     const existingByOwnerId = new Map(
       memoryEmbeddings.value
         .filter((embedding) => embedding.ownerType === 'assertion')
@@ -6691,8 +7044,7 @@ export const useAppStore = defineStore('app', () => {
     const vectors = await requestTextEmbeddings(
       settings.value ?? undefined,
       candidates.map((candidate) => candidate.text),
-      modelOverride,
-      memorySettings.embeddingModel
+      modelOverride
     );
     const now = Date.now();
     const embeddings = candidates.flatMap((candidate, index): MemoryEmbeddingCache[] => {
@@ -6712,22 +7064,48 @@ export const useAppStore = defineStore('app', () => {
       }];
     });
     if (!embeddings.length) return;
+    await applyMemoryStoreMutation({ put: { embeddings } });
     memoryEmbeddings.value = mergeMemoryEntities(memoryEmbeddings.value, embeddings);
-    await Promise.all(embeddings.map((embedding) => putEntity('memoryEmbeddings', embedding)));
   }
 
-  async function captureConversationMemory(conversationId: string, options: { force?: boolean } = {}) {
+  function schedulePendingMemoryCaptures(brainId: string) {
+    const pendingEntries = [...pendingMemoryCaptureRequests.entries()]
+      .filter(([conversationId]) => memoryBrainIdForConversation(conversationId) === brainId);
+    for (const [conversationId, request] of pendingEntries) {
+      pendingMemoryCaptureRequests.delete(conversationId);
+      queueMicrotask(() => {
+        void captureConversationMemory(conversationId, { force: request.force })
+          .then((episode) => {
+            request.waiters.forEach((waiter) => waiter.resolve(episode));
+          })
+          .catch((error) => {
+            request.waiters.forEach((waiter) => waiter.reject(error));
+          });
+      });
+    }
+  }
+
+  async function captureConversationMemory(conversationId: string, options: { force?: boolean; bypassBrainLock?: boolean } = {}): Promise<MemoryEpisode | null> {
     const conversation = conversationById(conversationId);
     const character = conversation ? characterById(conversation.charId) : null;
     const boundUser = conversation ? userById(conversation.userId) : null;
-    if (!conversation || !character || !boundUser || capturingMemoryConversationIds.has(conversationId)) return null;
+    if (!conversation || !character || !boundUser) return null;
     if (conversation.kind === 'group') return null;
+    const brainId = createMemoryBrainId(character.id, boundUser.id);
+    if (!options.bypassBrainLock && (capturingMemoryBrainIds.has(brainId) || rebuildingMemoryBrainIds.has(brainId))) {
+      return new Promise<MemoryEpisode | null>((resolve, reject) => {
+        const request = pendingMemoryCaptureRequests.get(conversationId) ?? { force: false, waiters: [] };
+        request.force ||= Boolean(options.force);
+        request.waiters.push({ resolve, reject });
+        pendingMemoryCaptureRequests.set(conversationId, request);
+      });
+    }
     const chatSettings = settingsForConversation(conversationId);
     if (!chatSettings.memory.enabled || (!options.force && !chatSettings.memory.autoCapture)) return null;
     const graph = memoryGraphForConversation(conversationId);
     const capturedMessageIds = new Set(
       graph.episodes
-        .filter((episode) => episode.conversationId === conversationId && episode.status === 'active')
+        .filter((episode) => episode.conversationId === conversationId && (episode.status === 'active' || episode.status === 'forgotten'))
         .flatMap((episode) => episode.sourceMessageIds)
     );
     const activeMessages = getConversationActiveMessages(messagesForConversation(conversationId))
@@ -6739,26 +7117,45 @@ export const useAppStore = defineStore('app', () => {
       }))
       .filter((entry) => entry.messages.length && entry.messages.some((message) => !capturedMessageIds.has(message.id)));
     const threshold = Math.max(2, chatSettings.memory.captureEvery);
-    if (!uncapturedFloors.length || (!options.force && uncapturedFloors.length < threshold)) return null;
-    const selectedFloors = uncapturedFloors.slice(0, options.force ? Math.max(12, threshold) : threshold);
+    if (!uncapturedFloors.length) return null;
+    const firstMode = uncapturedFloors[0].messages[0]?.mode;
+    const modeSegment: typeof uncapturedFloors = [];
+    for (const floor of uncapturedFloors) {
+      if (floor.messages[0]?.mode !== firstMode) break;
+      modeSegment.push(floor);
+    }
+    const selectedFloors = selectMemoryCaptureFloors(modeSegment, threshold, {
+      force: options.force,
+      forceLimit: Math.max(12, threshold),
+      segmentClosed: modeSegment.length < uncapturedFloors.length
+    });
+    if (!selectedFloors.length) return null;
     const sourceMessages = selectedFloors.flatMap((entry) => entry.messages);
+    const sourceHash = createMemorySourceHash(sourceMessages);
+    const existingEpisode = graph.episodes.find((episode) => episode.sourceHash === sourceHash
+      && (episode.status === 'active' || episode.status === 'forgotten'));
+    if (existingEpisode) return existingEpisode;
     const startFloor = selectedFloors[0].floor;
     const endFloor = selectedFloors[selectedFloors.length - 1].floor;
     const characterName = getCharacterAiName(character);
     const userName = getUserAiName(boundUser);
     capturingMemoryConversationIds.add(conversationId);
-    let persistenceStarted = false;
+    capturingMemoryBrainIds.add(brainId);
     try {
-      const modelOverride = getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode);
+      const captureNow = Date.now();
+      const timeSnapshot = createUserTimeSnapshot(new Date(captureNow));
+      const modelOverride = getMemorySummaryModelOverride(chatSettings);
       const extractionQuery = sourceMessages.map((message) => messageReadableContent(message)).join('\n');
       const characterContext = buildMemoryCharacterContext(character, boundUser);
-      const worldBookContext = buildMemoryWorldBookContext(character, boundUser, conversation.activeMode, worldBooks.value, extractionQuery);
+      const sourceMode = sourceMessages.at(-1)?.mode ?? conversation.activeMode;
+      const worldBookContext = buildMemoryWorldBookContext(character, boundUser, sourceMode, worldBooks.value, extractionQuery);
       const relatedAssertions = recallCharacterMemory({
         ...graph,
         brainId: graph.brainId,
         query: extractionQuery,
         limit: 24,
-        maxTokens: Math.min(1_200, chatSettings.memory.recallTokenBudget)
+        maxTokens: Math.min(1_200, chatSettings.memory.recallTokenBudget),
+        timeAwarenessEnabled: chatSettings.timeAwareness.enabled
       }).items.map((item) => item.assertion);
       const extractionAssertionMap = new Map<string, MemoryAssertion>();
       graph.assertions
@@ -6775,7 +7172,9 @@ export const useAppStore = defineStore('app', () => {
         userName,
         worldBookContext,
         messages: sourceMessages,
-        currentAssertions: [...extractionAssertionMap.values()].slice(0, 30)
+        currentAssertions: [...extractionAssertionMap.values()].slice(0, 30),
+        timeAwareness: chatSettings.timeAwareness,
+        captureNow
       });
       const extraction = {
         ...extracted,
@@ -6798,9 +7197,11 @@ export const useAppStore = defineStore('app', () => {
         endFloor,
         channel: memoryChannelForConversation(conversation, sourceMessages),
         sourceMessages,
-        extraction
+        extraction,
+        timeAwarenessEnabled: chatSettings.timeAwareness.enabled,
+        timeZone: timeSnapshot.timeZone,
+        now: captureNow
       });
-      persistenceStarted = true;
       await persistMemoryGraphUpserts(upserts);
       if (chatSettings.memory.embeddingEnabled) {
         try {
@@ -6810,11 +7211,10 @@ export const useAppStore = defineStore('app', () => {
         }
       }
       return upserts.episode;
-    } catch (error) {
-      if (persistenceStarted) await rollbackMemoryBrainData(graph, error, 'Memory capture');
-      throw error;
     } finally {
       capturingMemoryConversationIds.delete(conversationId);
+      capturingMemoryBrainIds.delete(brainId);
+      schedulePendingMemoryCaptures(brainId);
     }
   }
 
@@ -6825,75 +7225,334 @@ export const useAppStore = defineStore('app', () => {
     const episode = memoryEpisodes.value.find((item) => item.id === episodeId);
     if (!episode) throw new Error('没有找到这篇日记。');
     const title = String(patch.title ?? episode.title).replace(/\s+/g, ' ').trim().slice(0, 80);
-    const narrative = String(patch.narrative ?? episode.narrative).trim().slice(0, 1_800);
+    const narrative = normalizeNarrativeText(patch.narrative ?? episode.narrative);
     if (!title || !narrative) throw new Error('日记标题和正文不能为空。');
+    const now = Date.now();
+    const location = String(patch.location ?? episode.location).replace(/\s+/g, ' ').trim().slice(0, 160);
     const updated: MemoryEpisode = {
       ...episode,
       title,
       narrative,
-      location: String(patch.location ?? episode.location).replace(/\s+/g, ' ').trim().slice(0, 80),
-      emotion: String(patch.emotion ?? episode.emotion).replace(/\s+/g, ' ').trim().slice(0, 80),
-      updatedAt: Date.now()
+      location,
+      locations: patch.location === undefined
+        ? episode.locations
+        : location
+          ? [{ actor: 'shared-scene', source: 'manual', label: location, evidenceMessageIds: [], confidence: 1 }]
+          : [],
+      emotion: String(patch.emotion ?? episode.emotion).replace(/\s+/g, ' ').trim().slice(0, 120),
+      manuallyEditedAt: now,
+      updatedAt: now
     };
+    const subject = memoryEntities.value.find((entity) => entity.brainId === episode.brainId && entity.type === 'character');
+    if (!subject) throw new Error('记忆主体已不存在，无法安全保存日记修改。');
+    const existingManual = memoryAssertions.value.find((assertion) => assertion.brainId === episode.brainId
+      && assertion.predicate === '用户修订日记'
+      && assertion.sourceEpisodeIds.includes(episode.id));
+    const manualAssertion: MemoryAssertion = {
+      id: existingManual?.id ?? memoryId('assertion'),
+      brainId: episode.brainId,
+      subjectEntityId: subject.id,
+      predicate: '用户修订日记',
+      objectText: title,
+      kind: 'interpretation',
+      status: 'current',
+      epistemicKind: 'observed',
+      perspectiveText: narrative,
+      confidence: 1,
+      importance: Math.max(0.85, episode.salience),
+      emotionalWeight: Math.max(0.3, Math.abs(episode.valence)),
+      relationshipImpact: 0,
+      evidenceMessageIds: episode.sourceMessageIds,
+      sourceEpisodeIds: [episode.id],
+      themeIds: episode.themeIds,
+      searchText: `${title} ${narrative} ${location} ${updated.emotion}`.trim(),
+      validFrom: episode.occurredAt,
+      learnedAt: existingManual?.learnedAt ?? now,
+      recallCount: existingManual?.recallCount ?? 0,
+      lastRecalledAt: existingManual?.lastRecalledAt,
+      pinned: true,
+      accessibility: 1,
+      createdAt: existingManual?.createdAt ?? now,
+      updatedAt: now
+    };
+    const contentChanged = title !== episode.title || narrative !== episode.narrative;
+    const supersededAssertions = contentChanged
+      ? memoryAssertions.value
+          .filter((assertion) => assertion.brainId === episode.brainId
+            && assertion.id !== manualAssertion.id
+            && assertion.sourceEpisodeIds.length === 1
+            && assertion.sourceEpisodeIds[0] === episode.id
+            && (assertion.status === 'current' || assertion.status === 'open' || assertion.status === 'disputed'))
+          .map((assertion): MemoryAssertion => ({ ...assertion, status: 'superseded', validTo: now, supersededById: manualAssertion.id, updatedAt: now }))
+      : [];
+    const existingEdge = memoryEdges.value.find((edge) => edge.brainId === episode.brainId
+      && edge.fromId === episode.id && edge.toId === manualAssertion.id && edge.type === 'supports');
+    const manualEdge: MemoryEdge = {
+      id: existingEdge?.id ?? memoryId('edge'),
+      brainId: episode.brainId,
+      fromId: episode.id,
+      toId: manualAssertion.id,
+      type: 'supports',
+      weight: 1,
+      createdAt: existingEdge?.createdAt ?? now,
+      updatedAt: now
+    };
+    await applyMemoryStoreMutation({
+      put: { episodes: [updated], assertions: [...supersededAssertions, manualAssertion], edges: [manualEdge] }
+    });
     memoryEpisodes.value = mergeMemoryEntities(memoryEpisodes.value, [updated]);
-    await putEntity('memoryEpisodes', updated);
+    memoryAssertions.value = mergeMemoryEntities(memoryAssertions.value, [...supersededAssertions, manualAssertion]);
+    memoryEdges.value = mergeMemoryEntities(memoryEdges.value, [manualEdge]);
     return updated;
+  }
+
+  async function deleteMemoryEpisode(episodeId: string, options: { allowRecapture?: boolean } = {}) {
+    const episode = memoryEpisodes.value.find((item) => item.id === episodeId);
+    if (!episode || episode.status === 'forgotten') return false;
+    const now = Date.now();
+    const sourceMessageIds = new Set(episode.sourceMessageIds);
+    const relatedAssertions = memoryAssertions.value.filter((assertion) => assertion.brainId === episode.brainId
+      && assertion.sourceEpisodeIds.includes(episode.id));
+    const forgottenAssertionIds = new Set<string>();
+    const assertionUpserts = relatedAssertions.map((assertion): MemoryAssertion => {
+      const remainingEpisodeIds = assertion.sourceEpisodeIds.filter((id) => id !== episode.id);
+      if (remainingEpisodeIds.length) {
+        return {
+          ...assertion,
+          sourceEpisodeIds: remainingEpisodeIds,
+          evidenceMessageIds: assertion.evidenceMessageIds.filter((id) => !sourceMessageIds.has(id)),
+          updatedAt: now
+        };
+      }
+      forgottenAssertionIds.add(assertion.id);
+      return {
+        ...assertion,
+        predicate: '已遗忘',
+        objectEntityId: undefined,
+        objectText: '',
+        status: 'forgotten',
+        perspectiveText: '',
+        confidence: 0,
+        importance: 0,
+        emotionalWeight: 0,
+        relationshipImpact: 0,
+        evidenceMessageIds: [],
+        sourceEpisodeIds: [episode.id],
+        themeIds: [],
+        searchText: '',
+        validFrom: 0,
+        validTo: now,
+        forgottenDedupeKey: assertion.forgottenDedupeKey || createMemoryAssertionDedupeKey(assertion),
+        pinned: false,
+        accessibility: 0,
+        updatedAt: now
+      };
+    });
+    const tombstone: MemoryEpisode = {
+      ...episode,
+      status: 'forgotten',
+      forgottenAt: now,
+      sourceTokenEstimate: 0,
+      title: '已遗忘',
+      narrative: '',
+      location: '',
+      locations: [],
+      emotion: '',
+      valence: 0,
+      arousal: 0,
+      salience: 0,
+      participantEntityIds: [],
+      themeIds: [],
+      occurredAt: 0,
+      occurredEndAt: undefined,
+      temporalBasis: 'sequence-only',
+      timeZone: undefined,
+      generation: undefined,
+      manuallyEditedAt: undefined,
+      updatedAt: now
+    };
+    const affectedThemes = memoryThemes.value.filter((theme) => theme.brainId === episode.brainId
+      && (theme.episodeIds.includes(episode.id) || theme.assertionIds.some((id) => forgottenAssertionIds.has(id))));
+    const themeUpserts = affectedThemes
+      .map((theme): MemoryTheme => ({
+        ...theme,
+        episodeIds: theme.episodeIds.filter((id) => id !== episode.id),
+        assertionIds: theme.assertionIds.filter((id) => !forgottenAssertionIds.has(id)),
+        report: '',
+        reportAssertionCount: 0,
+        reportUpdatedAt: 0,
+        updatedAt: now
+      }))
+      .filter((theme) => theme.episodeIds.length || theme.assertionIds.length);
+    const deletedThemeIds = affectedThemes
+      .filter((theme) => !themeUpserts.some((updated) => updated.id === theme.id))
+      .map((theme) => theme.id);
+    const stateSnapshotIds = memoryStateSnapshots.value.filter((state) => state.brainId === episode.brainId
+      && (state.sourceEpisodeIds.includes(episode.id) || state.sourceAssertionIds.some((id) => forgottenAssertionIds.has(id))))
+      .map((state) => state.id);
+    const retainedAssertions = mergeMemoryEntities(memoryAssertions.value, assertionUpserts)
+      .filter((assertion) => assertion.brainId === episode.brainId && assertion.status !== 'forgotten');
+    const retainedEpisodes = memoryEpisodes.value.filter((item) => item.brainId === episode.brainId
+      && item.id !== episode.id && item.status === 'active');
+    const referencedEntityIds = new Set([
+      ...retainedAssertions.flatMap((assertion) => [assertion.subjectEntityId, assertion.objectEntityId].filter(Boolean) as string[]),
+      ...retainedEpisodes.flatMap((item) => item.participantEntityIds)
+    ]);
+    const entityIds = memoryEntities.value.filter((entity) => entity.brainId === episode.brainId
+      && entity.type !== 'character' && entity.type !== 'user'
+      && !referencedEntityIds.has(entity.id)).map((entity) => entity.id);
+    const cleanedThemeUpserts = themeUpserts.map((theme): MemoryTheme => ({
+      ...theme,
+      entityIds: theme.entityIds.filter((id) => !entityIds.includes(id))
+    }));
+    const edgeIds = memoryEdges.value.filter((edge) => edge.brainId === episode.brainId
+      && (edge.fromId === episode.id || edge.toId === episode.id
+        || forgottenAssertionIds.has(edge.fromId) || forgottenAssertionIds.has(edge.toId)
+        || deletedThemeIds.includes(edge.fromId) || deletedThemeIds.includes(edge.toId)
+        || entityIds.includes(edge.fromId) || entityIds.includes(edge.toId))).map((edge) => edge.id);
+    const embeddingIds = memoryEmbeddings.value.filter((embedding) => embedding.brainId === episode.brainId
+      && ((embedding.ownerType === 'episode' && embedding.ownerId === episode.id)
+        || (embedding.ownerType === 'assertion' && forgottenAssertionIds.has(embedding.ownerId))
+        || (embedding.ownerType === 'theme' && deletedThemeIds.includes(embedding.ownerId))))
+      .map((embedding) => embedding.id);
+    const persistedAssertionUpserts = options.allowRecapture
+      ? assertionUpserts.filter((assertion) => !forgottenAssertionIds.has(assertion.id))
+      : assertionUpserts;
+
+    await applyMemoryStoreMutation({
+      put: { episodes: options.allowRecapture ? [] : [tombstone], assertions: persistedAssertionUpserts, themes: cleanedThemeUpserts },
+      delete: {
+        episodeIds: options.allowRecapture ? [episode.id] : [],
+        entityIds,
+        assertionIds: options.allowRecapture ? [...forgottenAssertionIds] : [],
+        edgeIds,
+        themeIds: deletedThemeIds,
+        stateSnapshotIds,
+        embeddingIds
+      }
+    });
+    memoryEpisodes.value = options.allowRecapture
+      ? memoryEpisodes.value.filter((item) => item.id !== episode.id)
+      : mergeMemoryEntities(memoryEpisodes.value, [tombstone]);
+    memoryAssertions.value = mergeMemoryEntities(
+      options.allowRecapture
+        ? memoryAssertions.value.filter((assertion) => !forgottenAssertionIds.has(assertion.id))
+        : memoryAssertions.value,
+      persistedAssertionUpserts
+    );
+    memoryThemes.value = mergeMemoryEntities(
+      memoryThemes.value.filter((theme) => !deletedThemeIds.includes(theme.id)),
+      cleanedThemeUpserts
+    );
+    memoryEntities.value = memoryEntities.value.filter((entity) => !entityIds.includes(entity.id));
+    memoryEdges.value = memoryEdges.value.filter((edge) => !edgeIds.includes(edge.id));
+    memoryStateSnapshots.value = memoryStateSnapshots.value.filter((state) => !stateSnapshotIds.includes(state.id));
+    memoryEmbeddings.value = memoryEmbeddings.value.filter((embedding) => !embeddingIds.includes(embedding.id));
+    return true;
   }
 
   async function regenerateMemoryEpisode(episodeId: string) {
     const episode = memoryEpisodes.value.find((item) => item.id === episodeId);
     if (!episode) throw new Error('没有找到这篇日记。');
+    if (episode.status === 'forgotten') throw new Error('这篇日记已被遗忘，不能重新激活。');
     if (!episode.sourceMessageIds.length) throw new Error('这篇手动记忆没有可用于重生成的原始楼层。');
     const conversation = conversationById(episode.conversationId);
     const character = conversation ? characterById(conversation.charId) : null;
     const boundUser = conversation ? userById(conversation.userId) : null;
     if (!conversation || !character || !boundUser) throw new Error('这篇日记绑定的角色或账号已不存在。');
-    if (capturingMemoryConversationIds.has(conversation.id)) throw new Error('当前会话正在写日记，请稍后再试。');
     const sourceMessageIds = new Set(episode.sourceMessageIds);
     const sourceMessages = messagesForConversation(conversation.id)
       .filter((message) => sourceMessageIds.has(message.id) && message.status !== 'failed');
     if (!sourceMessages.length) throw new Error('原始楼层已不存在，无法重新生成这篇日记。');
     const chatSettings = settingsForConversation(conversation.id);
     const graph = memoryGraphForConversation(conversation.id);
+    if (capturingMemoryBrainIds.has(graph.brainId) || rebuildingMemoryBrainIds.has(graph.brainId)) throw new Error('当前角色记忆正在写入，请稍后再试。');
     const characterName = getCharacterAiName(character);
     const userName = getUserAiName(boundUser);
     const extractionQuery = sourceMessages.map((message) => messageReadableContent(message)).join('\n');
     const characterContext = buildMemoryCharacterContext(character, boundUser);
-    const worldBookContext = buildMemoryWorldBookContext(character, boundUser, conversation.activeMode, worldBooks.value, extractionQuery);
-    const relatedAssertions = recallCharacterMemory({
-      ...graph,
-      brainId: graph.brainId,
-      query: extractionQuery,
-      limit: 24,
-      maxTokens: Math.min(1_200, chatSettings.memory.recallTokenBudget)
-    }).items.map((item) => item.assertion);
-    const currentAssertionMap = new Map<string, MemoryAssertion>();
-    graph.assertions
-      .filter((assertion) => assertion.pinned || assertion.status === 'open')
-      .sort((left, right) => right.updatedAt - left.updatedAt)
-      .slice(0, 12)
-      .forEach((assertion) => currentAssertionMap.set(assertion.id, assertion));
-    relatedAssertions.forEach((assertion) => currentAssertionMap.set(assertion.id, assertion));
+    const sourceMode = sourceMessages.at(-1)?.mode ?? conversation.activeMode;
+    const worldBookContext = buildMemoryWorldBookContext(character, boundUser, sourceMode, worldBooks.value, extractionQuery);
     capturingMemoryConversationIds.add(conversation.id);
+    capturingMemoryBrainIds.add(graph.brainId);
     try {
-      const extracted = await extractTemporalMemory({
+      const captureNow = Date.now();
+      const timeSnapshot = createUserTimeSnapshot(new Date(captureNow));
+      const diary = await generateTemporalMemoryDiary({
         settings: settings.value ?? undefined,
-        modelOverride: getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode),
+        modelOverride: getMemorySummaryModelOverride(chatSettings),
         characterName,
         characterContext,
         userName,
         worldBookContext,
         messages: sourceMessages,
-        currentAssertions: [...currentAssertionMap.values()].slice(0, 30)
+        timeAwareness: chatSettings.timeAwareness,
+        captureNow
       });
-      return await updateMemoryEpisode(episode.id, {
-        title: extracted.title,
-        narrative: extracted.narrative,
-        location: extracted.location,
-        emotion: extracted.emotion
+      const regenerated = integrateMemoryExtraction({
+        ...graph,
+        brainId: graph.brainId,
+        characterId: character.id,
+        characterName,
+        userId: boundUser.id,
+        userName,
+        conversationId: conversation.id,
+        startFloor: episode.startFloor,
+        endFloor: episode.endFloor,
+        channel: memoryChannelForConversation(conversation, sourceMessages),
+        sourceMessages,
+        existingEpisode: episode,
+        extraction: {
+          ...diary,
+          entities: [],
+          assertions: [],
+          themes: [],
+          stateDeltas: [],
+          generation: {
+            diaryComplete: diary.generation.complete,
+            graphComplete: episode.generation?.graphComplete ?? true,
+            diaryFinishReason: diary.generation.finishReason,
+            graphFinishReason: episode.generation?.graphFinishReason,
+            diaryOutputTokens: diary.generation.outputTokens,
+            graphOutputTokens: episode.generation?.graphOutputTokens,
+            repairedJson: diary.generation.repairedJson
+          }
+        },
+        timeAwarenessEnabled: chatSettings.timeAwareness.enabled,
+        timeZone: timeSnapshot.timeZone,
+        now: captureNow
       });
+      const regeneratedEpisode: MemoryEpisode = {
+        ...regenerated.episode,
+        participantEntityIds: episode.participantEntityIds,
+        themeIds: episode.themeIds,
+        manuallyEditedAt: undefined,
+        generation: regenerated.episode.generation
+          ? { ...regenerated.episode.generation, repairedJson: regenerated.episode.generation.repairedJson || Boolean(episode.generation?.repairedJson) }
+          : episode.generation
+      };
+      const existingManual = memoryAssertions.value.find((assertion) => assertion.brainId === episode.brainId
+        && assertion.predicate === '用户修订日记'
+        && assertion.sourceEpisodeIds.includes(episode.id));
+      const regeneratedManual = existingManual
+        ? {
+            ...existingManual,
+            objectText: regeneratedEpisode.title,
+            perspectiveText: regeneratedEpisode.narrative,
+            searchText: `${regeneratedEpisode.title} ${regeneratedEpisode.narrative} ${regeneratedEpisode.location} ${regeneratedEpisode.emotion}`.trim(),
+            status: 'current' as const,
+            accessibility: 1,
+            updatedAt: captureNow
+          }
+        : undefined;
+      await applyMemoryStoreMutation({ put: { episodes: [regeneratedEpisode], assertions: regeneratedManual ? [regeneratedManual] : [] } });
+      memoryEpisodes.value = mergeMemoryEntities(memoryEpisodes.value, [regeneratedEpisode]);
+      if (regeneratedManual) memoryAssertions.value = mergeMemoryEntities(memoryAssertions.value, [regeneratedManual]);
+      return regeneratedEpisode;
     } finally {
       capturingMemoryConversationIds.delete(conversation.id);
+      capturingMemoryBrainIds.delete(graph.brainId);
+      schedulePendingMemoryCaptures(graph.brainId);
     }
   }
 
@@ -6917,32 +7576,78 @@ export const useAppStore = defineStore('app', () => {
     const assertion = memoryAssertions.value.find((item) => item.id === assertionId);
     if (!assertion) return;
     const updated = { ...assertion, pinned, accessibility: pinned ? 1 : assertion.accessibility, updatedAt: Date.now() };
+    await applyMemoryStoreMutation({ put: { assertions: [updated] } });
     memoryAssertions.value = mergeMemoryEntities(memoryAssertions.value, [updated]);
-    await putEntity('memoryAssertions', updated);
   }
 
   async function refreshThemesForMemoryAssertions(assertions: MemoryAssertion[]) {
     const themeIds = [...new Set(assertions.flatMap((assertion) => assertion.themeIds))];
     if (!themeIds.length) return;
-    const updatedThemes = refreshMemoryThemeReports(memoryThemes.value, memoryAssertions.value, themeIds);
+    const assertionsForReport = mergeMemoryEntities(memoryAssertions.value, assertions);
+    const updatedThemes = refreshMemoryThemeReports(memoryThemes.value, assertionsForReport, themeIds);
     if (!updatedThemes.length) return;
+    await applyMemoryStoreMutation({ put: { themes: updatedThemes } });
     memoryThemes.value = mergeMemoryEntities(memoryThemes.value, updatedThemes);
-    await Promise.all(updatedThemes.map((theme) => putEntity('memoryThemes', theme)));
   }
 
   async function forgetMemoryAssertion(assertionId: string) {
     const assertion = memoryAssertions.value.find((item) => item.id === assertionId);
     if (!assertion) return;
-    const updated: MemoryAssertion = { ...assertion, status: 'forgotten', pinned: false, accessibility: 0, updatedAt: Date.now() };
+    const now = Date.now();
+    const updated: MemoryAssertion = {
+      ...assertion,
+      status: 'forgotten',
+      forgottenDedupeKey: assertion.forgottenDedupeKey || createMemoryAssertionDedupeKey(assertion),
+      objectEntityId: undefined,
+      objectText: '',
+      perspectiveText: '',
+      evidenceMessageIds: [],
+      themeIds: [],
+      searchText: '',
+      pinned: false,
+      accessibility: 0,
+      updatedAt: now
+    };
+    const edgeIds = memoryEdges.value.filter((edge) => edge.brainId === assertion.brainId
+      && (edge.fromId === assertion.id || edge.toId === assertion.id)).map((edge) => edge.id);
+    const embeddingIds = memoryEmbeddings.value.filter((embedding) => embedding.brainId === assertion.brainId
+      && embedding.ownerType === 'assertion' && embedding.ownerId === assertion.id).map((embedding) => embedding.id);
+    const themesAfterAssertionRemoval = memoryThemes.value
+      .filter((theme) => theme.brainId === assertion.brainId && theme.assertionIds.includes(assertion.id))
+      .map((theme): MemoryTheme => ({ ...theme, assertionIds: theme.assertionIds.filter((id) => id !== assertion.id), updatedAt: now }));
+    const assertionsAfterForget = mergeMemoryEntities(memoryAssertions.value, [updated]);
+    const updatedThemes = refreshMemoryThemeReports(themesAfterAssertionRemoval, assertionsAfterForget, themesAfterAssertionRemoval.map((theme) => theme.id), now);
+    const affectedStates = memoryStateSnapshots.value
+      .filter((state) => state.brainId === assertion.brainId && state.sourceAssertionIds.includes(assertion.id));
+    const updatedStates = affectedStates
+      .filter((state) => state.sourceAssertionIds.some((id) => id !== assertion.id))
+      .map((state): MemoryStateSnapshot => ({
+        ...state,
+        sourceAssertionIds: state.sourceAssertionIds.filter((id) => id !== assertion.id),
+        facets: state.facets.map((facet) => ({ ...facet, evidenceAssertionIds: facet.evidenceAssertionIds.filter((id) => id !== assertion.id) }))
+      }));
+    const stateSnapshotIds = affectedStates
+      .filter((state) => !state.sourceAssertionIds.some((id) => id !== assertion.id))
+      .map((state) => state.id);
+    await applyMemoryStoreMutation({
+      put: { assertions: [updated], themes: updatedThemes, stateSnapshots: updatedStates },
+      delete: { edgeIds, stateSnapshotIds, embeddingIds }
+    });
     memoryAssertions.value = mergeMemoryEntities(memoryAssertions.value, [updated]);
-    await putEntity('memoryAssertions', updated);
-    await refreshThemesForMemoryAssertions([updated]);
+    memoryThemes.value = mergeMemoryEntities(memoryThemes.value, updatedThemes);
+    memoryStateSnapshots.value = mergeMemoryEntities(
+      memoryStateSnapshots.value.filter((state) => !stateSnapshotIds.includes(state.id)),
+      updatedStates
+    );
+    memoryEdges.value = memoryEdges.value.filter((edge) => !edgeIds.includes(edge.id));
+    memoryEmbeddings.value = memoryEmbeddings.value.filter((embedding) => !embeddingIds.includes(embedding.id));
   }
 
   async function correctMemoryAssertion(assertionId: string, correctedText: string) {
     const previous = memoryAssertions.value.find((item) => item.id === assertionId);
     const text = correctedText.replace(/\s+/g, ' ').trim();
     if (!previous || !text) return null;
+    if (previous.status === 'forgotten') throw new Error('已遗忘的记忆不能直接纠正，请先创建新的明确记忆。');
     const now = Date.now();
     const perspectiveText = /(^|[，。！？\s])我/.test(text) ? text : `我现在记得：${text}`;
     const episode: MemoryEpisode = {
@@ -7036,17 +7741,13 @@ export const useAppStore = defineStore('app', () => {
         episodeIds: [...new Set([...theme.episodeIds, episode.id])],
         updatedAt: now
       }));
+    await applyMemoryStoreMutation({
+      put: { episodes: [episode], assertions: [superseded, corrected], edges, themes: updatedThemes }
+    });
     memoryEpisodes.value = mergeMemoryEntities(memoryEpisodes.value, [episode]);
     memoryAssertions.value = mergeMemoryEntities(memoryAssertions.value, [superseded, corrected]);
     memoryEdges.value = mergeMemoryEntities(memoryEdges.value, edges);
     memoryThemes.value = mergeMemoryEntities(memoryThemes.value, updatedThemes);
-    await Promise.all([
-      putEntity('memoryEpisodes', episode),
-      putEntity('memoryAssertions', superseded),
-      putEntity('memoryAssertions', corrected),
-      ...edges.map((edge) => putEntity('memoryEdges', edge)),
-      ...updatedThemes.map((theme) => putEntity('memoryThemes', theme))
-    ]);
     await refreshThemesForMemoryAssertions([corrected]);
     if (episode.conversationId) {
       try {
@@ -7054,7 +7755,7 @@ export const useAppStore = defineStore('app', () => {
         await persistMemoryEmbeddingsForAssertions(
           episode.conversationId,
           [corrected],
-          getConversationTextModelOverride(chatSettings, 'summary')
+          getMemorySummaryModelOverride(chatSettings)
         );
       } catch (error) {
         console.warn('Corrected memory embedding fell back to lexical recall.', error);
@@ -7072,15 +7773,17 @@ export const useAppStore = defineStore('app', () => {
     const themes = memoryThemes.value.filter((item) => item.brainId === brainId);
     const stateSnapshots = memoryStateSnapshots.value.filter((item) => item.brainId === brainId);
     const embeddings = memoryEmbeddings.value.filter((item) => item.brainId === brainId);
-    await Promise.all([
-      ...episodes.map((item) => deleteEntity('memoryEpisodes', item.id)),
-      ...entities.map((item) => deleteEntity('memoryEntities', item.id)),
-      ...assertions.map((item) => deleteEntity('memoryAssertions', item.id)),
-      ...edges.map((item) => deleteEntity('memoryEdges', item.id)),
-      ...themes.map((item) => deleteEntity('memoryThemes', item.id)),
-      ...stateSnapshots.map((item) => deleteEntity('memoryStateSnapshots', item.id)),
-      ...embeddings.map((item) => deleteEntity('memoryEmbeddings', item.id))
-    ]);
+    await applyMemoryStoreMutation({
+      delete: {
+        episodeIds: episodes.map((item) => item.id),
+        entityIds: entities.map((item) => item.id),
+        assertionIds: assertions.map((item) => item.id),
+        edgeIds: edges.map((item) => item.id),
+        themeIds: themes.map((item) => item.id),
+        stateSnapshotIds: stateSnapshots.map((item) => item.id),
+        embeddingIds: embeddings.map((item) => item.id)
+      }
+    });
     memoryEpisodes.value = memoryEpisodes.value.filter((item) => item.brainId !== brainId);
     memoryEntities.value = memoryEntities.value.filter((item) => item.brainId !== brainId);
     memoryAssertions.value = memoryAssertions.value.filter((item) => item.brainId !== brainId);
@@ -7091,7 +7794,18 @@ export const useAppStore = defineStore('app', () => {
     return episodes.length + entities.length + assertions.length + edges.length + themes.length + stateSnapshots.length + embeddings.length;
   }
 
-  async function restoreMemoryBrainData(graph: ReturnType<typeof memoryGraphForConversation>) {
+  async function restoreMemoryBrainData(graph: PersistableMemoryGraph) {
+    await applyMemoryStoreMutation({
+      put: {
+        episodes: graph.episodes,
+        entities: graph.entities,
+        assertions: graph.assertions,
+        edges: graph.edges,
+        themes: graph.themes,
+        stateSnapshots: graph.stateSnapshots,
+        embeddings: graph.embeddings
+      }
+    });
     memoryEpisodes.value = mergeMemoryEntities(memoryEpisodes.value, graph.episodes);
     memoryEntities.value = mergeMemoryEntities(memoryEntities.value, graph.entities);
     memoryAssertions.value = mergeMemoryEntities(memoryAssertions.value, graph.assertions);
@@ -7099,18 +7813,9 @@ export const useAppStore = defineStore('app', () => {
     memoryThemes.value = mergeMemoryEntities(memoryThemes.value, graph.themes);
     memoryStateSnapshots.value = mergeMemoryEntities(memoryStateSnapshots.value, graph.stateSnapshots);
     memoryEmbeddings.value = mergeMemoryEntities(memoryEmbeddings.value, graph.embeddings);
-    await Promise.all([
-      ...graph.episodes.map((item) => putEntity('memoryEpisodes', item)),
-      ...graph.entities.map((item) => putEntity('memoryEntities', item)),
-      ...graph.assertions.map((item) => putEntity('memoryAssertions', item)),
-      ...graph.edges.map((item) => putEntity('memoryEdges', item)),
-      ...graph.themes.map((item) => putEntity('memoryThemes', item)),
-      ...graph.stateSnapshots.map((item) => putEntity('memoryStateSnapshots', item)),
-      ...graph.embeddings.map((item) => putEntity('memoryEmbeddings', item))
-    ]);
   }
 
-  async function rollbackMemoryBrainData(graph: ReturnType<typeof memoryGraphForConversation>, error: unknown, operation: string): Promise<never> {
+  async function rollbackMemoryBrainData(graph: PersistableMemoryGraph, error: unknown, operation: string): Promise<never> {
     try {
       await clearMemoryBrainData(graph.brainId);
       await restoreMemoryBrainData(graph);
@@ -7123,18 +7828,111 @@ export const useAppStore = defineStore('app', () => {
     throw error;
   }
 
+  function preservedMemoryGraphForRebuild(graph: ReturnType<typeof memoryGraphForConversation>): PersistableMemoryGraph {
+    const now = Date.now();
+    const episodes = graph.episodes
+      .filter((episode) => episode.status === 'forgotten' || episode.channel === 'system' || Boolean(episode.manuallyEditedAt))
+      .map((episode): MemoryEpisode => episode.status === 'forgotten'
+        ? {
+            ...episode,
+            sourceTokenEstimate: 0,
+            title: '已遗忘',
+            narrative: '',
+            location: '',
+            locations: [],
+            emotion: '',
+            valence: 0,
+            arousal: 0,
+            salience: 0,
+            participantEntityIds: [],
+            themeIds: [],
+            occurredAt: 0,
+            occurredEndAt: 0,
+            temporalBasis: 'sequence-only',
+            timeZone: undefined,
+            generation: undefined,
+            manuallyEditedAt: undefined,
+            forgottenAt: episode.forgottenAt ?? now,
+            updatedAt: now
+          }
+        : { ...episode, occurredEndAt: episode.occurredEndAt ?? 0 });
+    const preservedEpisodeIds = new Set(episodes.map((episode) => episode.id));
+    const assertions = graph.assertions
+      .filter((assertion) => assertion.status === 'forgotten'
+        || assertion.sourceEpisodeIds.some((id) => preservedEpisodeIds.has(id)))
+      .map((assertion): MemoryAssertion => assertion.status === 'forgotten'
+        ? {
+            ...assertion,
+            predicate: '已遗忘',
+            objectEntityId: undefined,
+            objectText: '',
+            perspectiveText: '',
+            confidence: 0,
+            importance: 0,
+            emotionalWeight: 0,
+            relationshipImpact: 0,
+            evidenceMessageIds: [],
+            themeIds: [],
+            searchText: '',
+            validFrom: 0,
+            forgottenDedupeKey: assertion.forgottenDedupeKey || createMemoryAssertionDedupeKey(assertion),
+            pinned: false,
+            accessibility: 0,
+            updatedAt: now
+          }
+        : assertion);
+    const assertionIds = new Set(assertions.map((assertion) => assertion.id));
+    const activeAssertionIds = new Set(assertions.filter((assertion) => assertion.status !== 'forgotten').map((assertion) => assertion.id));
+    const activeEpisodeIds = new Set(episodes.filter((episode) => episode.status === 'active').map((episode) => episode.id));
+    const themes = graph.themes
+      .map((theme): MemoryTheme => ({
+        ...theme,
+        assertionIds: theme.assertionIds.filter((id) => activeAssertionIds.has(id)),
+        episodeIds: theme.episodeIds.filter((id) => activeEpisodeIds.has(id))
+      }))
+      .filter((theme) => theme.assertionIds.length || theme.episodeIds.length);
+    const themeIds = new Set(themes.map((theme) => theme.id));
+    const referencedEntityIds = new Set([
+      ...assertions.flatMap((assertion) => [assertion.subjectEntityId, assertion.objectEntityId].filter(Boolean) as string[]),
+      ...episodes.flatMap((episode) => episode.participantEntityIds),
+      ...themes.flatMap((theme) => theme.entityIds)
+    ]);
+    const entities = graph.entities.filter((entity) => entity.type === 'character' || entity.type === 'user' || referencedEntityIds.has(entity.id));
+    const entityIds = new Set(entities.map((entity) => entity.id));
+    const nodeIds = new Set([...preservedEpisodeIds, ...assertionIds, ...themeIds, ...entityIds]);
+    const edges = graph.edges.filter((edge) => nodeIds.has(edge.fromId) && nodeIds.has(edge.toId));
+    const stateSnapshots = graph.stateSnapshots
+      .map((state) => ({
+        ...state,
+        sourceAssertionIds: state.sourceAssertionIds.filter((id) => activeAssertionIds.has(id)),
+        sourceEpisodeIds: state.sourceEpisodeIds.filter((id) => activeEpisodeIds.has(id))
+      }))
+      .filter((state) => state.sourceAssertionIds.length > 0 || state.sourceEpisodeIds.length > 0);
+    const embeddings = graph.embeddings.filter((embedding) =>
+      (embedding.ownerType === 'assertion' && assertionIds.has(embedding.ownerId))
+      || (embedding.ownerType === 'episode' && preservedEpisodeIds.has(embedding.ownerId))
+      || (embedding.ownerType === 'theme' && themeIds.has(embedding.ownerId)));
+    return { brainId: graph.brainId, episodes, entities, assertions, edges, themes, stateSnapshots, embeddings };
+  }
+
   async function rebuildCharacterMemory(conversationId: string) {
     const graph = memoryGraphForConversation(conversationId);
     if (!graph.brainId) return 0;
-    await clearMemoryBrainData(graph.brainId);
+    if (capturingMemoryBrainIds.has(graph.brainId) || rebuildingMemoryBrainIds.has(graph.brainId)) {
+      throw new Error('当前角色记忆正在写入，请稍后再试。');
+    }
+    const preservedGraph = preservedMemoryGraphForRebuild(graph);
+    rebuildingMemoryBrainIds.add(graph.brainId);
     try {
+      await clearMemoryBrainData(graph.brainId);
+      await restoreMemoryBrainData(preservedGraph);
       const sourceConversations = conversations.value
         .filter((conversation) => memoryBrainIdForConversation(conversation.id) === graph.brainId)
         .sort((left, right) => left.updatedAt - right.updatedAt);
       let captured = 0;
       for (const conversation of sourceConversations) {
         while (true) {
-          const episode = await captureConversationMemory(conversation.id, { force: true });
+          const episode = await captureConversationMemory(conversation.id, { force: true, bypassBrainLock: true });
           if (!episode) break;
           captured += 1;
         }
@@ -7142,6 +7940,9 @@ export const useAppStore = defineStore('app', () => {
       return captured;
     } catch (error) {
       await rollbackMemoryBrainData(graph, error, 'Memory rebuild');
+    } finally {
+      rebuildingMemoryBrainIds.delete(graph.brainId);
+      schedulePendingMemoryCaptures(graph.brainId);
     }
   }
 
@@ -7760,6 +8561,7 @@ export const useAppStore = defineStore('app', () => {
         }
         messages.value.push(...charMessages);
         await Promise.all(charMessages.map((message) => putEntity('messages', message)));
+        syncPendingIncomingCall();
         const commerceMessages = charMessages.filter((message): message is ChatMessage & { commerce: ChatCommerceAttachment } => Boolean(message.commerce));
         if (commerceMessages.length) {
           const commerceStore = useCommerceStore();
@@ -7982,8 +8784,8 @@ export const useAppStore = defineStore('app', () => {
 
   async function maybeRequestProactiveReply(conversationId: string) {
     const conversation = conversationById(conversationId);
-    if (!conversation || isConversationReplying(conversationId)) return false;
-    const character = conversation.kind !== 'group' ? characterById(conversation.charId) : null;
+    if (!conversation || conversation.kind === 'group' || conversation.activeMode !== 'online' || isConversationReplying(conversationId)) return false;
+    const character = characterById(conversation.charId);
     const relationshipStatus = character ? getFriendRelationship(character).status : 'friend';
     const canConsiderReapply = ['blocked-by-user', 'deleted-by-user'].includes(relationshipStatus);
     if (relationshipStatus !== 'friend' && !canConsiderReapply) return false;
@@ -8011,6 +8813,12 @@ export const useAppStore = defineStore('app', () => {
       }
       : { proactive: true });
     return true;
+  }
+
+  async function runProactivePrivateScheduler() {
+    for (const conversation of conversations.value.filter((entry) => entry.kind !== 'group' && entry.activeMode === 'online')) {
+      await maybeRequestProactiveReply(conversation.id);
+    }
   }
 
   function charactersForUserVoom(userId: string, visibility: VoomPostVisibility, characterIds: string[]) {
@@ -8175,7 +8983,7 @@ export const useAppStore = defineStore('app', () => {
           worldBooks: worldBooks.value,
           conversationSummary: conversation.summary,
           memorySummary: await memoryContextForConversationAsync(conversationId, visibleMessagesForConversation(conversationId).slice(-8).map((message) => messageReadableContent(message)).join('\n'), {
-            modelOverride: getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode)
+            modelOverride: getMemorySummaryModelOverride(chatSettings)
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
           timeAwareness: chatSettings.timeAwareness,
@@ -8693,7 +9501,7 @@ export const useAppStore = defineStore('app', () => {
         worldBooks: worldBooks.value,
         conversationSummary: conversation.summary,
         memorySummary: await memoryContextForConversationAsync(conversationId, visibleMessages.slice(-10).map((message) => messageReadableContent(message)).join('\n'), {
-          modelOverride: getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode)
+          modelOverride: getMemorySummaryModelOverride(chatSettings)
         }),
         stickerVisionEnabled: chatSettings.stickerVisionEnabled,
         timeAwareness: chatSettings.timeAwareness,
@@ -8759,7 +9567,7 @@ export const useAppStore = defineStore('app', () => {
           worldBooks: worldBooks.value,
           conversationSummary: conversation.summary,
           memorySummary: await memoryContextForConversationAsync(conversationId, visibleMessages.slice(-8).map((message) => messageReadableContent(message)).join('\n'), {
-            modelOverride: getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode)
+            modelOverride: getMemorySummaryModelOverride(chatSettings)
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
           timeAwareness: chatSettings.timeAwareness,
@@ -8786,6 +9594,15 @@ export const useAppStore = defineStore('app', () => {
       };
       smallTheaters.value.unshift(theater);
       await putEntity('smallTheaters', theater);
+      void playRingtone(settings.value, 'theater', character.id);
+      void showLinkNotification(settings.value?.keepAlive, {
+        kind: 'message',
+        title: `${theater.authorName} 生成了小剧场`,
+        body: notificationPreview(theater.summary, theater.title || '新的小剧场已生成'),
+        tag: `link-theater-${theater.id}`,
+        icon: theater.authorAvatar || character.avatar,
+        url: createSmallTheaterUrl(theater.id)
+      });
       return theater;
     } finally {
       generatingSmallTheaterConversationIds.delete(conversationId);
@@ -8842,7 +9659,7 @@ export const useAppStore = defineStore('app', () => {
           worldBooks: worldBooks.value,
           conversationSummary: conversation.summary,
           memorySummary: await memoryContextForConversationAsync(conversation.id, visibleMessages.slice(-8).map((message) => messageReadableContent(message)).join('\n'), {
-            modelOverride: getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode)
+            modelOverride: getMemorySummaryModelOverride(chatSettings)
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
           timeAwareness: chatSettings.timeAwareness,
@@ -9553,7 +10370,7 @@ export const useAppStore = defineStore('app', () => {
   function voomPostCanBeRepliedByConversation(post: VoomPost, conversation: Conversation, character: CharacterProfile) {
     if (isReplyingVoomComments(post.id)) return false;
     if (post.conversationId === conversation.id || post.conversationIds?.includes(conversation.id)) return true;
-    if (post.authorType === 'user') return post.visibleCharacterIds?.includes(character.id) ?? false;
+    if (isUserVoomPost(post)) return post.visibleCharacterIds?.includes(character.id) ?? false;
     const postAuthor = post.charId ? characterById(post.charId) : null;
     if (postAuthor?.boundUserId === character.boundUserId) return true;
     return post.charId === character.id;
@@ -9608,7 +10425,7 @@ export const useAppStore = defineStore('app', () => {
           worldBooks: worldBooks.value,
           conversationSummary: conversation.summary,
           memorySummary: await memoryContextForConversationAsync(conversation.id, [post.content, post.imageDescription ?? '', ...userComments.map((comment) => comment.content)].join('\n'), {
-            modelOverride: getConversationTextModelOverride(chatSettings, 'summary', conversation.activeMode)
+            modelOverride: getMemorySummaryModelOverride(chatSettings)
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
           timeAwareness: chatSettings.timeAwareness
@@ -9627,7 +10444,7 @@ export const useAppStore = defineStore('app', () => {
       const generatedIdByDraftId = new Map(replies.flatMap((reply, index) => reply.draftId ? [[reply.draftId, generatedIds[index]]] : []));
       const characterAiName = getCharacterAiName(character);
       const characterVoomAuthorName = getCharacterVoomAuthorName(character);
-      const characterAuthorAliases = new Set([character.id, character.nickname, character.name, characterAiName, post.authorName, characterVoomAuthorName]
+      const characterAuthorAliases = new Set([character.id, character.nickname, character.name, characterAiName, characterVoomAuthorName, ...(isUserVoomPost(post) ? [] : [post.authorName])]
         .map((name) => name.trim().toLocaleLowerCase())
         .filter(Boolean));
       const replyAuthorNameForIndex = (index: number) => {
@@ -9762,6 +10579,7 @@ export const useAppStore = defineStore('app', () => {
     memoryCompressionStatsForConversation,
     captureConversationMemory,
     updateMemoryEpisode,
+    deleteMemoryEpisode,
     regenerateMemoryEpisode,
     setMemoryAssertionPinned,
     forgetMemoryAssertion,
@@ -9834,6 +10652,8 @@ export const useAppStore = defineStore('app', () => {
     deleteWorldBook,
     createBackupFile,
     importBackupSnapshot,
+    runCloudBackup,
+    restoreCloudBackup,
     runGitHubBackup,
     importGitHubBackup,
     hasGitHubBackup,
@@ -9854,6 +10674,7 @@ export const useAppStore = defineStore('app', () => {
     appendCallEventMessage,
     updateCallEventMessage,
     appendCallEndPromptMessage,
+    respondToIncomingCall,
     appendUserMessage,
     appendUserCallMessage,
     appendUserCallImageMessage,
@@ -9890,6 +10711,7 @@ export const useAppStore = defineStore('app', () => {
     regenerateLatestReply,
     applyReplyVariant,
     maybeRequestProactiveReply,
+    runProactivePrivateScheduler,
     sendMessage,
     sendStickerMessage,
     acceptOfflineInvitation,

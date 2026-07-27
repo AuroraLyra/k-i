@@ -75,13 +75,15 @@
                 <div class="diary-card-actions">
                   <button type="button" :disabled="busy || !episode.sourceMessageIds.length" :aria-label="`重新生成${memoryText(episode.title)}`" title="重新生成" @click="regenerateEpisode(episode)"><LoaderCircle v-if="regeneratingEpisodeId === episode.id" :size="15" class="spin" /><RefreshCw v-else :size="15" /></button>
                   <button type="button" :disabled="busy" :aria-label="`编辑${memoryText(episode.title)}`" title="编辑" @click="startEpisodeEdit(episode)"><Pencil :size="15" /></button>
+                  <button type="button" :disabled="busy" :aria-label="`删除${memoryText(episode.title)}`" title="删除并遗忘" @click="confirmingDeleteEpisodeId = episode.id"><LoaderCircle v-if="deletingEpisodeId === episode.id" :size="15" class="spin" /><Trash2 v-else :size="15" /></button>
                 </div>
               </header>
+              <div v-if="confirmingDeleteEpisodeId === episode.id" class="confirm-row diary-delete-confirm"><span>永久删除本页角色记忆？聊天消息仍保留，但角色不会自动重新记住本页。</span><button type="button" @click="confirmingDeleteEpisodeId = ''">取消</button><button class="danger-button" type="button" :disabled="busy" @click="deleteEpisode(episode)">确认删除</button></div>
               <template v-if="editingEpisodeId === episode.id">
                 <div class="diary-editor">
                   <label><span>标题</span><input v-model="episodeEditDraft.title" maxlength="80" /></label>
-                  <label><span>正文</span><textarea v-model="episodeEditDraft.narrative" rows="8" maxlength="1800"></textarea></label>
-                  <div class="diary-editor-row"><label><span>地点</span><input v-model="episodeEditDraft.location" maxlength="80" placeholder="可留空" /></label><label><span>情绪</span><input v-model="episodeEditDraft.emotion" maxlength="80" placeholder="可留空" /></label></div>
+                  <label><span>正文</span><textarea v-model="episodeEditDraft.narrative" rows="8"></textarea></label>
+                  <div class="diary-editor-row"><label><span>地点</span><input v-model="episodeEditDraft.location" maxlength="160" placeholder="可留空" /></label><label><span>情绪</span><input v-model="episodeEditDraft.emotion" maxlength="120" placeholder="可留空" /></label></div>
                 </div>
                 <div class="diary-edit-actions"><button type="button" @click="cancelEpisodeEdit">取消</button><button class="save-button" type="button" :disabled="!episodeEditDraft.title.trim() || !episodeEditDraft.narrative.trim()" @click="saveEpisodeEdit(episode)">保存日记</button></div>
               </template>
@@ -129,7 +131,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
-import { Archive, BookOpen, Bookmark, EyeOff, Heart, HeartHandshake, Layers3, LoaderCircle, MapPin, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, X } from 'lucide-vue-next';
+import { Archive, BookOpen, Bookmark, EyeOff, Heart, HeartHandshake, Layers3, LoaderCircle, MapPin, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-vue-next';
 import { useAppStore } from '@/stores/appStore';
 import type { ChatMemorySettings } from '@/types/domain';
 import type { MemoryAssertion, MemoryChannel, MemoryEpisode, MemoryStateKind, MemoryStateSnapshot, MemoryTheme } from '@/types/memory';
@@ -150,6 +152,8 @@ const capturing = ref(false);
 const rebuilding = ref(false);
 const rebuildConfirming = ref(false);
 const regeneratingEpisodeId = ref('');
+const deletingEpisodeId = ref('');
+const confirmingDeleteEpisodeId = ref('');
 const editingEpisodeId = ref('');
 const episodeEditDraft = reactive({ title: '', narrative: '', location: '', emotion: '' });
 const editingAssertionId = ref('');
@@ -167,7 +171,7 @@ const userName = computed(() => boundUser.value ? getUserAiName(boundUser.value)
 const graph = computed(() => store.memoryGraphForConversation(props.conversationId));
 const currentSettings = computed(() => store.settingsForConversation(props.conversationId));
 const stats = computed(() => store.memoryCompressionStatsForConversation(props.conversationId));
-const busy = computed(() => capturing.value || rebuilding.value || Boolean(regeneratingEpisodeId.value));
+const busy = computed(() => capturing.value || rebuilding.value || Boolean(regeneratingEpisodeId.value) || Boolean(deletingEpisodeId.value));
 const timeline = computed(() => [...graph.value.episodes].filter((episode) => episode.status === 'active').sort((left, right) => (right.occurredAt || 0) - (left.occurredAt || 0)));
 const activeAssertions = computed(() => graph.value.assertions.filter((assertion) => ['current', 'open', 'disputed'].includes(assertion.status)).sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.updatedAt - left.updatedAt));
 const userEntityId = computed(() => graph.value.entities.find((entity) => entity.type === 'user')?.id ?? `${graph.value.brainId}:user`);
@@ -204,6 +208,8 @@ watch(() => props.conversationId, () => {
   visibleDiaryCount.value = diaryPageSize;
   editingEpisodeId.value = '';
   regeneratingEpisodeId.value = '';
+  deletingEpisodeId.value = '';
+  confirmingDeleteEpisodeId.value = '';
   editingAssertionId.value = '';
   confirmingForgetId.value = '';
   Object.assign(memoryDraft, store.settingsForConversation(props.conversationId).memory);
@@ -262,6 +268,7 @@ function showMemoryGenerationError(error: unknown, title: string, retry: () => P
 }
 
 function startEpisodeEdit(episode: MemoryEpisode) {
+  confirmingDeleteEpisodeId.value = '';
   editingEpisodeId.value = episode.id;
   episodeEditDraft.title = memoryText(episode.title);
   episodeEditDraft.narrative = memoryText(episode.narrative);
@@ -285,6 +292,7 @@ async function saveEpisodeEdit(episode: MemoryEpisode) {
 }
 
 async function regenerateEpisode(episode: MemoryEpisode) {
+  confirmingDeleteEpisodeId.value = '';
   try {
     await performEpisodeRegeneration(episode);
   } catch (error) {
@@ -300,6 +308,20 @@ async function performEpisodeRegeneration(episode: MemoryEpisode) {
     setMessage(`已重新写好「${memoryText(updated.title)}」。`, 'success');
   } finally {
     regeneratingEpisodeId.value = '';
+  }
+}
+
+async function deleteEpisode(episode: MemoryEpisode) {
+  deletingEpisodeId.value = episode.id;
+  try {
+    const deleted = await store.deleteMemoryEpisode(episode.id);
+    if (editingEpisodeId.value === episode.id) cancelEpisodeEdit();
+    confirmingDeleteEpisodeId.value = '';
+    setMessage(deleted ? '这篇日记及其专属派生记忆已永久遗忘。' : '这篇日记已经不存在。', deleted ? 'success' : 'warning');
+  } catch (error) {
+    setMessage(error instanceof Error ? error.message : '删除日记失败。', 'warning');
+  } finally {
+    deletingEpisodeId.value = '';
   }
 }
 
@@ -335,4 +357,5 @@ function kindLabel(kind: MemoryAssertion['kind']) { return ({ fact: '事实', pr
 }
 .diary-card .diary-card-head{align-items:flex-start}.diary-card-meta{display:flex;min-width:0;align-items:center;gap:7px}.diary-card-meta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.diary-card-actions{display:flex;flex:0 0 auto;gap:4px}.diary-card-actions button{display:grid;width:26px;height:26px;padding:0;place-items:center;border:0;border-radius:50%;background:transparent;color:#9d7883}.diary-card-actions button:disabled{opacity:.45}.diary-editor{display:grid;gap:10px;margin-top:12px}.diary-editor label{display:grid;gap:5px;color:#9b8d92;font-size:9px}.diary-editor input,.diary-editor textarea{width:100%;padding:9px 10px;border:1px solid #eadfe1;border-radius:10px;outline:0;background:#fff;color:var(--ink);font-size:12px;line-height:1.65;resize:vertical}.diary-editor input:focus,.diary-editor textarea:focus{border-color:#d7b8c0;box-shadow:0 0 0 2px rgba(215,184,192,.15)}.diary-editor-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diary-edit-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;margin-top:12px}.diary-edit-actions button{width:100%;padding:9px 10px;border:0;border-radius:10px;background:#f4eff0;color:#8f7e84;font-size:10px}.diary-edit-actions button:disabled{opacity:.45}
 .diary-load-more{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:10px 14px;border:1px solid #eadfe1;border-radius:13px;background:#fffaf9;color:#946f7a;font-size:11px}.diary-load-more span{color:#b4a5aa;font-size:9px}
+.diary-delete-confirm{flex-wrap:wrap;justify-content:flex-start;margin-top:10px;padding:9px 10px;border-radius:11px;background:#fff0ed}.diary-delete-confirm span{min-width:180px;flex:1;color:#9a6d69;line-height:1.5}.diary-delete-confirm button{flex:0 0 auto}
 </style>

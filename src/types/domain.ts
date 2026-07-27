@@ -350,6 +350,7 @@ export interface CharacterProfile {
   profile?: CharacterVisualProfile;
   mindState?: CharacterMindState;
   modelOverrides?: ChatModelOverrides;
+  minimaxVoiceId?: string;
   themeStyleBindings?: CharacterThemeStyleBindings;
   imageProfile?: CharacterImageProfile;
   coupleSpace?: CoupleSpaceState;
@@ -416,6 +417,7 @@ export interface ChatAppearanceSettings {
   showMessageTime: boolean;
   showReadStatus: boolean;
   showUserAvatar: boolean;
+  showCharacterAvatar: boolean;
   showOnlyFirstAvatarInReply: boolean;
   hideVoomNarration: boolean;
 }
@@ -1338,18 +1340,36 @@ export interface GitHubBackupSettings {
   progress: GitHubBackupProgress;
 }
 
-export interface WebDavBackupSettings {
+export type CloudBackupProvider = 'google-drive' | 'onedrive' | 'dropbox' | 'r2-worker';
+
+export type CloudBackupStatus = 'idle' | 'running' | 'success' | 'failed';
+
+export interface CloudBackupProgress {
+  phase: 'idle' | 'connecting' | 'uploading' | 'downloading' | 'restoring' | 'completed' | 'failed';
+  label: string;
+  percent: number;
+  updatedAt: number;
+}
+
+export interface CloudBackupSettings {
   enabled: boolean;
-  url: string;
-  username: string;
-  password: string;
-  path: string;
+  provider: CloudBackupProvider | '';
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: number;
+  accountLabel: string;
+  workerUrl: string;
+  workerToken: string;
   recoveryKey: string;
+  remoteFileId: string;
+  fileName: string;
   intervalMinutes: number;
   lastBackupAt: number;
-  lastBackupStatus: GitHubBackupStatus;
+  lastBackupStatus: CloudBackupStatus;
   lastBackupError: string;
   latestRemoteBackupAt: number;
+  lastBackupBytes: number;
+  progress: CloudBackupProgress;
 }
 
 export type MinimaxTtsAudioFormat = 'mp3' | 'wav' | 'pcm';
@@ -1534,7 +1554,7 @@ export interface AppSettings {
   imagePrivateOnly: boolean;
   imageGenerationEnabled: boolean;
   githubBackup: GitHubBackupSettings;
-  webDavBackup: WebDavBackupSettings;
+  cloudBackup: CloudBackupSettings;
 }
 
 export interface AppSnapshot {

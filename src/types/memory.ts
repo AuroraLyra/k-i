@@ -14,6 +14,34 @@ export type MemoryStateKind = 'relationship' | 'user-impression' | 'adaptive-per
 
 export type MemoryStateTrend = 'up' | 'down' | 'stable';
 
+export type MemoryEpisodeStatus = 'active' | 'forgotten';
+
+export type MemoryTemporalBasis = 'message-time' | 'sequence-only' | 'story-time';
+
+export type MemoryLocationActor = 'character' | 'user' | 'shared-scene' | 'unknown';
+
+export type MemoryLocationSource = 'attachment' | 'explicit-text' | 'offline-scene' | 'inferred' | 'manual';
+
+export interface MemoryEpisodeLocation {
+  actor: MemoryLocationActor;
+  source: MemoryLocationSource;
+  label: string;
+  address?: string;
+  distance?: string;
+  evidenceMessageIds: string[];
+  confidence: number;
+}
+
+export interface MemoryGenerationMetadata {
+  diaryComplete: boolean;
+  graphComplete: boolean;
+  diaryFinishReason?: string;
+  graphFinishReason?: string;
+  diaryOutputTokens?: number;
+  graphOutputTokens?: number;
+  repairedJson: boolean;
+}
+
 export interface MemoryEpisode {
   id: string;
   brainId: string;
@@ -21,7 +49,8 @@ export interface MemoryEpisode {
   userId: string;
   conversationId: string;
   channel: MemoryChannel;
-  status: 'active';
+  status: MemoryEpisodeStatus;
+  forgottenAt?: number;
   sourceMessageIds: string[];
   sourceHash: string;
   startFloor: number;
@@ -30,6 +59,7 @@ export interface MemoryEpisode {
   title: string;
   narrative: string;
   location: string;
+  locations?: MemoryEpisodeLocation[];
   emotion: string;
   valence: number;
   arousal: number;
@@ -38,6 +68,11 @@ export interface MemoryEpisode {
   themeIds: string[];
   occurredAt: number;
   occurredEndAt?: number;
+  temporalBasis?: MemoryTemporalBasis;
+  timeAwarenessEnabled?: boolean;
+  timeZone?: string;
+  generation?: MemoryGenerationMetadata;
+  manuallyEditedAt?: number;
   learnedAt: number;
   createdAt: number;
   updatedAt: number;
@@ -77,6 +112,7 @@ export interface MemoryAssertion {
   validFrom: number;
   validTo?: number;
   learnedAt: number;
+  forgottenDedupeKey?: string;
   supersededById?: string;
   dueAt?: number;
   lastRecalledAt?: number;
@@ -186,10 +222,21 @@ export interface MemoryExtractionStateDelta {
   }>;
 }
 
+export interface MemoryExtractionLocationDraft {
+  actor: MemoryLocationActor;
+  source: MemoryLocationSource;
+  label: string;
+  address?: string;
+  distance?: string;
+  evidenceMessageIds: string[];
+  confidence: number;
+}
+
 export interface MemoryExtractionResult {
   title: string;
   narrative: string;
   location: string;
+  locations: MemoryExtractionLocationDraft[];
   emotion: string;
   valence: number;
   arousal: number;
@@ -198,6 +245,7 @@ export interface MemoryExtractionResult {
   assertions: MemoryExtractionAssertionDraft[];
   themes: string[];
   stateDeltas: MemoryExtractionStateDelta[];
+  generation?: MemoryGenerationMetadata;
 }
 
 export interface MemoryRecallItem {

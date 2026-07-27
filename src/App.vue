@@ -1,7 +1,6 @@
 <template>
   <MobileShell />
-  <GlobalVoomNotice />
-  <GlobalSmallTheaterNotice />
+  <GlobalLinkNotification />
   <FirstRunDisclaimer v-if="showDisclaimer" :model-value="showDisclaimer" @complete="handleDisclaimerComplete" />
   <AppModal :model-value="store.configAlert.open" :title="store.configAlert.title" @update:model-value="setConfigAlertOpen">
     <section class="config-alert">
@@ -39,20 +38,20 @@
 </template>
 
 <script setup lang="ts">
+import { App as CapacitorApp } from '@capacitor/app';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import MobileShell from '@/components/layout/MobileShell.vue';
 import AppModal from '@/components/common/AppModal.vue';
 import FirstRunDisclaimer from '@/components/common/FirstRunDisclaimer.vue';
-import GlobalSmallTheaterNotice from '@/components/common/GlobalSmallTheaterNotice.vue';
-import GlobalVoomNotice from '@/components/common/GlobalVoomNotice.vue';
+import GlobalLinkNotification from '@/components/common/GlobalLinkNotification.vue';
 import { startAccessHeartbeat } from '@/services/access';
-import { uploadEncryptedWebDavBackup } from '@/services/webDavBackup';
 import { syncKeepAlive } from '@/services/keepAlive';
 import { setFullscreenEnabled } from '@/services/systemBars';
 import { useAppStore } from '@/stores/appStore';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import type { ThemeFontEntry, ThemeStylePreset, ThemeStyleScopeSettings } from '@/types/domain';
+import { normalizeGlobalThemeScale } from '@/utils/themeScale';
 import { defaultGlobalThemeCss, defaultGlobalThemePresetId, defaultOfflineThemeCss, defaultOfflineThemePresetId, defaultOnlineThemeCss, defaultOnlineThemePresetId } from '@/utils/themeStyles';
 
 const store = useAppStore();
@@ -62,9 +61,12 @@ const musicPlayer = useMusicPlayerStore();
 const musicAudioRef = ref<HTMLAudioElement | null>(null);
 const configAlertActionRunning = ref(false);
 let githubAutoBackupTimer: number | undefined;
-let webDavAutoBackupTimer: number | undefined;
-let webDavAutoBackupRunning = false;
-let proactiveGroupTimer: number | undefined;
+let cloudAutoBackupTimer: number | undefined;
+let proactiveSchedulerTimer: number | undefined;
+let proactiveSchedulerRunning = false;
+let proactiveSchedulerRerun = false;
+let stopCapacitorResumeListener: (() => void) | undefined;
+let appMounted = false;
 let stopAccessHeartbeat: (() => void) | undefined;
 let globalCallFloatDrag: { pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null = null;
 let suppressGlobalCallFloatClick = false;
@@ -73,6 +75,20 @@ const globalThemeStyleId = 'link-global-theme-styles';
 const onlineThemeStyleId = 'link-online-theme-styles';
 const offlineThemeStyleId = 'link-offline-theme-styles';
 const systemFontStack = '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
+const legacyGlobalScaleVariableNames = [
+  '--compact-page-font-size',
+  '--compact-copy-font-size',
+  '--compact-label-font-size',
+  '--compact-heading-font-size',
+  '--compact-control-font-size',
+  '--ios-control-font-size',
+  '--top-title-size',
+  '--top-icon-size',
+  '--top-icon-button-width',
+  '--top-icon-button-height',
+  '--top-icon-gap',
+  '--tab-height'
+];
 
 const showDisclaimer = computed(() => store.ready && !store.settings?.disclaimerAccepted);
 const githubBackupScheduleKey = computed(() => {
@@ -80,13 +96,17 @@ const githubBackupScheduleKey = computed(() => {
   if (!store.ready || !backup?.enabled || !backup.token || !backup.owner || !backup.repo) return '';
   return [backup.owner, backup.repo, backup.branch, backup.path, backup.intervalMinutes].join('|');
 });
-const webDavBackupScheduleKey = computed(() => {
-  const backup = store.settings?.webDavBackup;
-  if (!store.ready || !backup?.enabled || !backup.url || !backup.username || !backup.password || !backup.recoveryKey) return '';
-  return [backup.url, backup.username, backup.path, backup.intervalMinutes].join('|');
+const cloudBackupScheduleKey = computed(() => {
+  const backup = store.settings?.cloudBackup;
+  if (!store.ready || !backup?.enabled || !backup.provider || !backup.recoveryKey) return '';
+  const connected = backup.provider === 'r2-worker'
+    ? Boolean(backup.workerUrl && backup.workerToken)
+    : Boolean(backup.accessToken || backup.refreshToken);
+  if (!connected) return '';
+  return [backup.provider, backup.workerUrl, backup.fileName, backup.intervalMinutes].join('|');
 });
 const themeFontSettings = computed(() => store.settings?.themeSettings.fonts ?? { activeFontId: '', entries: [] as ThemeFontEntry[] });
-const globalThemeSettings = computed(() => store.settings?.themeSettings.global ?? { scale: 1, fullscreen: false, style: { activePresetId: '', presets: [] } });
+const globalThemeSettings = computed(() => store.settings?.themeSettings.global ?? { scale: 1, fullscreen: true, style: { activePresetId: '', presets: [] } });
 const globalThemeStyleSettings = computed(() => globalThemeSettings.value.style ?? { activePresetId: '', presets: [] });
 const onlineThemeSettings = computed(() => store.settings?.themeSettings.online ?? { activePresetId: '', presets: [] });
 const offlineThemeSettings = computed(() => store.settings?.themeSettings.offline ?? { activePresetId: '', presets: [] });
@@ -261,21 +281,11 @@ function setAppFontFamily(fontFamilyStack: string) {
 
 function applyGlobalThemeScale() {
   if (typeof document === 'undefined') return;
-  const scale = Math.min(1.2, Math.max(0.85, Number(globalThemeSettings.value.scale) || 1));
+  const scale = normalizeGlobalThemeScale(globalThemeSettings.value.scale);
   const root = document.documentElement;
-  root.style.setProperty('--app-display-scale', scale.toFixed(2));
-  root.style.setProperty('--compact-page-font-size', `${13 * scale}px`);
-  root.style.setProperty('--compact-copy-font-size', `${12 * scale}px`);
-  root.style.setProperty('--compact-label-font-size', `${11 * scale}px`);
-  root.style.setProperty('--compact-heading-font-size', `${17 * scale}px`);
-  root.style.setProperty('--compact-control-font-size', `${13 * scale}px`);
-  root.style.setProperty('--ios-control-font-size', `${Math.max(16, 16 * scale)}px`);
-  root.style.setProperty('--top-title-size', `${22 * scale}px`);
-  root.style.setProperty('--top-icon-size', `${22 * scale}px`);
-  root.style.setProperty('--top-icon-button-width', `${28 * scale}px`);
-  root.style.setProperty('--top-icon-button-height', `${32 * scale}px`);
-  root.style.setProperty('--top-icon-gap', `${2 * scale}px`);
-  root.style.setProperty('--tab-height', `${54 * scale}px`);
+  root.style.setProperty('--app-display-scale', scale.toFixed(3));
+  legacyGlobalScaleVariableNames.forEach((name) => root.style.removeProperty(name));
+  document.body.style.setProperty('zoom', scale.toFixed(3));
 }
 
 function applyThemeFonts() {
@@ -354,50 +364,24 @@ function getGitHubBackupIntervalMs() {
   return minutes * 60 * 1000;
 }
 
-function clearWebDavAutoBackupTimer() {
-  if (webDavAutoBackupTimer === undefined) return;
-  window.clearInterval(webDavAutoBackupTimer);
-  webDavAutoBackupTimer = undefined;
+function clearCloudAutoBackupTimer() {
+  if (cloudAutoBackupTimer === undefined) return;
+  window.clearInterval(cloudAutoBackupTimer);
+  cloudAutoBackupTimer = undefined;
 }
 
-function getWebDavBackupIntervalMs() {
-  return Math.max(5, store.settings?.webDavBackup.intervalMinutes ?? 30) * 60 * 1000;
+function getCloudBackupIntervalMs() {
+  return Math.max(5, store.settings?.cloudBackup.intervalMinutes ?? 30) * 60 * 1000;
 }
 
-async function runWebDavAutoBackupIfDue() {
-  const backupSettings = store.settings?.webDavBackup;
-  if (webDavAutoBackupRunning || !store.settings || !backupSettings?.enabled || !backupSettings.url || !backupSettings.username || !backupSettings.password || !backupSettings.recoveryKey) return;
-  if (backupSettings.lastBackupAt && Date.now() - backupSettings.lastBackupAt < getWebDavBackupIntervalMs()) return;
-  webDavAutoBackupRunning = true;
+async function runCloudAutoBackupIfDue() {
+  const backup = store.settings?.cloudBackup;
+  if (!backup?.enabled || !backup.provider || !backup.recoveryKey) return;
+  if (backup.lastBackupAt && Date.now() - backup.lastBackupAt < getCloudBackupIntervalMs()) return;
   try {
-    await store.saveSettings({ ...store.settings, webDavBackup: { ...backupSettings, lastBackupStatus: 'running', lastBackupError: '' } });
-    const backup = await store.createBackupFile();
-    await uploadEncryptedWebDavBackup(backupSettings, backup);
-    if (store.settings) {
-      await store.saveSettings({
-        ...store.settings,
-        webDavBackup: {
-          ...store.settings.webDavBackup,
-          lastBackupAt: Date.now(),
-          latestRemoteBackupAt: backup.exportedAt,
-          lastBackupStatus: 'success',
-          lastBackupError: ''
-        }
-      });
-    }
-  } catch (error) {
-    if (store.settings) {
-      await store.saveSettings({
-        ...store.settings,
-        webDavBackup: {
-          ...store.settings.webDavBackup,
-          lastBackupStatus: 'failed',
-          lastBackupError: error instanceof Error ? error.message : '自动 WebDAV 备份失败。'
-        }
-      }).catch(() => undefined);
-    }
-  } finally {
-    webDavAutoBackupRunning = false;
+    await store.runCloudBackup('auto');
+  } catch {
+    return;
   }
 }
 
@@ -430,19 +414,26 @@ watch(
 );
 
 watch(
-  webDavBackupScheduleKey,
+  cloudBackupScheduleKey,
   (scheduleKey) => {
-    clearWebDavAutoBackupTimer();
+    clearCloudAutoBackupTimer();
     if (!scheduleKey) return;
-    void runWebDavAutoBackupIfDue();
-    webDavAutoBackupTimer = window.setInterval(() => void runWebDavAutoBackupIfDue(), getWebDavBackupIntervalMs());
+    void runCloudAutoBackupIfDue();
+    cloudAutoBackupTimer = window.setInterval(() => void runCloudAutoBackupIfDue(), getCloudBackupIntervalMs());
   },
   { immediate: true }
 );
 
 watch(themeFontSettings, applyThemeFonts, { immediate: true, deep: true });
 watch(globalThemeSettings, applyGlobalThemeScale, { immediate: true, deep: true });
-watch(() => globalThemeSettings.value.fullscreen, (enabled) => void setFullscreenEnabled(Boolean(enabled)), { immediate: true });
+watch(
+  () => store.ready ? globalThemeSettings.value.fullscreen : null,
+  (enabled) => {
+    if (enabled === null) return;
+    void setFullscreenEnabled(Boolean(enabled));
+  },
+  { immediate: true }
+);
 watch(globalThemeStyleSettings, applyGlobalThemeStyles, { immediate: true, deep: true });
 watch(onlineThemeSettings, applyOnlineThemeStyles, { immediate: true, deep: true });
 watch(offlineThemeSettings, applyOfflineThemeStyles, { immediate: true, deep: true });
@@ -452,46 +443,83 @@ watch(routeCharacter, () => {
 }, { immediate: true, deep: true });
 watch(keepAliveSettings, syncKeepAlive, { immediate: true, deep: true });
 
+async function runProactiveSchedulers() {
+  if (!store.ready || !navigator.onLine) return;
+  if (proactiveSchedulerRunning) {
+    proactiveSchedulerRerun = true;
+    return;
+  }
+
+  proactiveSchedulerRunning = true;
+  try {
+    do {
+      proactiveSchedulerRerun = false;
+      await Promise.all([
+        store.runProactivePrivateScheduler(),
+        store.runProactiveGroupScheduler()
+      ]);
+    } while (proactiveSchedulerRerun && store.ready);
+  } catch (error) {
+    console.error('Proactive message scheduler failed.', error);
+  } finally {
+    proactiveSchedulerRunning = false;
+  }
+}
+
+function requestProactiveSchedulerRun() {
+  void runProactiveSchedulers();
+}
+
+function clearProactiveSchedulerTimer() {
+  if (proactiveSchedulerTimer === undefined) return;
+  window.clearInterval(proactiveSchedulerTimer);
+  proactiveSchedulerTimer = undefined;
+}
+
 watch(() => store.ready, (ready) => {
-  if (proactiveGroupTimer !== undefined) window.clearInterval(proactiveGroupTimer);
-  proactiveGroupTimer = undefined;
+  clearProactiveSchedulerTimer();
   if (!ready) return;
-  void store.runProactiveGroupScheduler();
-  proactiveGroupTimer = window.setInterval(() => {
-    void store.runProactiveGroupScheduler();
-  }, 60_000);
+  requestProactiveSchedulerRun();
+  proactiveSchedulerTimer = window.setInterval(requestProactiveSchedulerRun, 60_000);
 }, { immediate: true });
 
 onMounted(() => {
+  appMounted = true;
   stopAccessHeartbeat = startAccessHeartbeat();
-  document.addEventListener('visibilitychange', handleWebDavVisibilityChange);
+  document.addEventListener('visibilitychange', handleCloudVisibilityChange);
+  document.addEventListener('visibilitychange', requestProactiveSchedulerRun);
+  window.addEventListener('pageshow', requestProactiveSchedulerRun, { passive: true });
+  window.addEventListener('online', requestProactiveSchedulerRun, { passive: true });
+  void CapacitorApp.addListener('resume', requestProactiveSchedulerRun).then((listener) => {
+    if (!appMounted) {
+      void listener.remove();
+      return;
+    }
+    stopCapacitorResumeListener = () => void listener.remove();
+  });
   musicPlayer.setAudioElement(musicAudioRef.value);
 });
 
-function handleWebDavVisibilityChange() {
-  if (document.visibilityState === 'visible') void runWebDavAutoBackupIfDue();
+function handleCloudVisibilityChange() {
+  if (document.visibilityState === 'visible') void runCloudAutoBackupIfDue();
 }
 
 onBeforeUnmount(() => {
+  appMounted = false;
   stopAccessHeartbeat?.();
-  document.removeEventListener('visibilitychange', handleWebDavVisibilityChange);
+  stopCapacitorResumeListener?.();
+  stopCapacitorResumeListener = undefined;
+  document.removeEventListener('visibilitychange', handleCloudVisibilityChange);
+  document.removeEventListener('visibilitychange', requestProactiveSchedulerRun);
+  window.removeEventListener('pageshow', requestProactiveSchedulerRun);
+  window.removeEventListener('online', requestProactiveSchedulerRun);
   clearGitHubAutoBackupTimer();
-  clearWebDavAutoBackupTimer();
-  if (proactiveGroupTimer !== undefined) window.clearInterval(proactiveGroupTimer);
+  clearCloudAutoBackupTimer();
+  clearProactiveSchedulerTimer();
   setAppFontFamily('');
   document.documentElement.style.removeProperty('--app-display-scale');
-  document.documentElement.style.removeProperty('--compact-page-font-size');
-  document.documentElement.style.removeProperty('--compact-copy-font-size');
-  document.documentElement.style.removeProperty('--compact-label-font-size');
-  document.documentElement.style.removeProperty('--compact-heading-font-size');
-  document.documentElement.style.removeProperty('--compact-control-font-size');
-  document.documentElement.style.removeProperty('--ios-control-font-size');
-  document.documentElement.style.removeProperty('--top-title-size');
-  document.documentElement.style.removeProperty('--top-icon-size');
-  document.documentElement.style.removeProperty('--top-icon-button-width');
-  document.documentElement.style.removeProperty('--top-icon-button-height');
-  document.documentElement.style.removeProperty('--top-icon-gap');
-  document.documentElement.style.removeProperty('--tab-height');
+  legacyGlobalScaleVariableNames.forEach((name) => document.documentElement.style.removeProperty(name));
+  document.body.style.removeProperty('zoom');
   document.getElementById(themeFontStyleId)?.remove();
   document.getElementById(onlineThemeStyleId)?.remove();
   document.getElementById(offlineThemeStyleId)?.remove();

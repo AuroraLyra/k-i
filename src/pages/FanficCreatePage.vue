@@ -1,5 +1,5 @@
 <template>
-  <section class="screen no-tabs create-page">
+  <section class="screen no-tabs create-page fanfic-font-scope">
     <header class="top-bar create-topbar">
       <button class="back-button" type="button" aria-label="返回书架" :disabled="creating" @click="goBack"><ChevronLeft :size="21" /></button>
       <span class="create-title"><small>NEW FANWORK</small><strong>创建同人文</strong></span>

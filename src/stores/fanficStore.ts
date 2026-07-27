@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, onScopeDispose, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { builtInFanficTopics } from '@/data/fanficTopics';
 import { deleteEntity, loadSnapshot, putEntity, putFanficChapterBundle, putFanficHotspotComments, pruneUnusedStoredMediaCache } from '@/data/db';
@@ -11,6 +11,7 @@ import {
   generateFanficTrendTopics,
   type FanficCreationPreferences
 } from '@/services/fanfic';
+import { persistFanficStartupCache, readFanficStartupCache } from '@/services/fanficStartupCache';
 import type { FanficBook, FanficChapter, FanficComment, FanficGenerationJob, FanficTopic } from '@/types/domain';
 import { createFanficProfileFingerprint, createProceduralFanficCover, getFanficLocalWorldBookSourceText, normalizeFanficBook, requireFanficTrueNames, selectFanficLocalWorldBooks } from '@/utils/fanfic';
 import { createId } from '@/utils/id';
@@ -78,18 +79,21 @@ function normalizeComment(comment: FanficComment): FanficComment {
 
 export const useFanficStore = defineStore('fanfic', () => {
   const appStore = useAppStore();
+  const startupCache = readFanficStartupCache();
   const ready = ref(false);
   const hydratePromise = ref<Promise<void> | null>(null);
-  const books = ref<FanficBook[]>([]);
-  const chapters = ref<FanficChapter[]>([]);
+  const books = ref<FanficBook[]>((startupCache?.books ?? []).map(normalizeFanficBook));
+  const chapters = ref<FanficChapter[]>((startupCache?.chapters ?? []).map(normalizeChapter));
   const comments = ref<FanficComment[]>([]);
-  const topics = ref<FanficTopic[]>([]);
-  const jobs = ref<FanficGenerationJob[]>([]);
+  const startupTopics = (startupCache?.topics ?? []).map(normalizeTopic);
+  const topics = ref<FanficTopic[]>([...builtInFanficTopics, ...startupTopics].filter((topic, index, entries) => entries.findIndex((entry) => entry.id === topic.id) === index));
+  const jobs = ref<FanficGenerationJob[]>((startupCache?.jobs ?? []).map((job) => ({ ...job, progress: Number(job.progress) || (job.stage === 'completed' ? 100 : 0) })));
   const generatingBookIds = ref<string[]>([]);
   const generatingHotspotKeys = ref<string[]>([]);
   const refreshingTrends = ref(false);
   const trendStatus = ref('');
   const hotspotGenerationPromises = new Map<string, Promise<FanficComment[]>>();
+  let startupCacheSaveTimer: number | undefined;
 
   const sortedBooks = computed(() => [...books.value].sort((left, right) => right.updatedAt - left.updatedAt));
   const builtInTopics = computed(() => topics.value.filter((topic) => topic.source === 'built-in'));
@@ -111,11 +115,47 @@ export const useFanficStore = defineStore('fanfic', () => {
       await ensureBuiltInTopics();
       await removeExpiredTrendTopics();
       ready.value = true;
+      persistStartupState();
     })().finally(() => {
       hydratePromise.value = null;
     });
     return hydratePromise.value;
   }
+
+  function persistStartupState() {
+    if (!ready.value) return;
+    if (startupCacheSaveTimer !== undefined) window.clearTimeout(startupCacheSaveTimer);
+    startupCacheSaveTimer = undefined;
+    persistFanficStartupCache({
+      books: books.value,
+      chapters: chapters.value,
+      topics: topics.value,
+      jobs: jobs.value
+    });
+  }
+
+  function scheduleStartupStatePersistence() {
+    if (!ready.value) return;
+    if (startupCacheSaveTimer !== undefined) window.clearTimeout(startupCacheSaveTimer);
+    startupCacheSaveTimer = window.setTimeout(persistStartupState, 800);
+  }
+
+  const stopStartupStateWatch = watch(
+    [ready, books, chapters, topics, jobs],
+    scheduleStartupStatePersistence,
+    { deep: true }
+  );
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') persistStartupState();
+  };
+  window.addEventListener('pagehide', persistStartupState);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  onScopeDispose(() => {
+    stopStartupStateWatch();
+    if (startupCacheSaveTimer !== undefined) window.clearTimeout(startupCacheSaveTimer);
+    window.removeEventListener('pagehide', persistStartupState);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  });
 
   async function ensureBuiltInTopics() {
     const currentBuiltInIds = new Set(builtInFanficTopics.map((topic) => topic.id));

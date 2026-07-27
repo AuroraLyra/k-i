@@ -86,7 +86,7 @@
           </header>
           <section class="bubble-preview" :style="bubblePreviewStyle" aria-label="气泡预览">
             <div class="preview-row character-preview-row">
-              <img class="avatar mini" :src="characterDraft.avatar" :alt="characterDraftNickname" />
+              <img v-if="draft.appearance.showCharacterAvatar" class="avatar mini" :src="characterDraft.avatar" :alt="characterDraftNickname" />
               <div class="preview-bubble" :style="characterBubblePreviewStyle">角色的聊天会像这样显示。</div>
             </div>
             <div class="preview-row user-preview-row">
@@ -174,6 +174,13 @@
             <span class="switch-track"></span>
             <div>
               <strong>显示用户头像</strong>
+            </div>
+          </label>
+          <label class="switch-card wide">
+            <input v-model="draft.appearance.showCharacterAvatar" type="checkbox" @change="saveDraft" />
+            <span class="switch-track"></span>
+            <div>
+              <strong>显示角色头像</strong>
             </div>
           </label>
           <label class="switch-card wide">
@@ -359,6 +366,21 @@
               <span>线上聊天回复会加入角色动描等旁白。</span>
             </div>
           </label>
+        </section>
+        <section class="settings-block">
+          <header class="section-header">
+            <div>
+              <span>MiniMax TTS</span>
+              <strong>角色音色</strong>
+            </div>
+          </header>
+          <label class="field wide-field">
+            <span>{{ characterDraftNickname }} 的 Voice ID</span>
+            <input v-model="characterDraft.minimaxVoiceId" placeholder="留空使用全局音色" @change="saveCharacterDraft" />
+          </label>
+          <p class="time-awareness-note">
+            仅使用 MiniMax TTS 时生效；留空会跟随全局音色{{ globalMinimaxVoiceId ? `（${globalMinimaxVoiceId}）` : '' }}。
+          </p>
         </section>
         <section class="settings-block call-settings-block">
           <header class="section-header">
@@ -582,6 +604,7 @@ const draft = reactive<ConversationSettings>(normalizeConversationSettings(null,
 const characterDraft = reactive<CharacterDraft>(cloneCharacterForDraft(props.character));
 const currentConversationSettings = computed(() => store.settingsForConversation(props.conversationId));
 const characterDraftNickname = computed(() => characterDraft.nickname || 'new.friend');
+const globalMinimaxVoiceId = computed(() => store.settings?.ttsMinimax.voiceId?.trim() || '未设置');
 const boundUser = computed(() => store.userById(props.character.boundUserId) ?? store.user ?? null);
 const boundUserVisualProfile = computed(() => props.character.boundUserProfile);
 const userAvatarPreview = computed(() => boundUserVisualProfile.value?.avatar || boundUser.value?.avatar || defaultProfileAvatar);
@@ -746,6 +769,7 @@ function cloneCharacterForDraft(character: CharacterProfile): CharacterDraft {
   return {
     ...character,
     localWorldBookIds: [...character.localWorldBookIds],
+    minimaxVoiceId: String(character.minimaxVoiceId ?? '').trim(),
     imageProfile: createCharacterImageProfileDraft(character.imageProfile),
     themeStyleBindings: {
       onlinePresetId: String(character.themeStyleBindings?.onlinePresetId ?? '').trim(),

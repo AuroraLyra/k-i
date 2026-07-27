@@ -1,5 +1,6 @@
-import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset, WebDavBackupSettings } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, CloudBackupProvider, CloudBackupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
 import { createId } from './id';
+import { normalizeGlobalThemeScale } from './themeScale';
 
 export const novelAiOfficialApiUrl = 'https://image.novelai.net';
 export const novelAiProxyApiUrl = 'https://nai.lolidoll.cc.cd';
@@ -62,9 +63,6 @@ const defaultPromptPresetName = '默认预设';
 const defaultOpenAiPromptPresetId = 'openai_default';
 const defaultNovelAiPromptPresetId = 'novelai_default';
 const defaultPollinationsPromptPresetId = 'pollinations_default';
-const minGlobalThemeScale = 0.85;
-const maxGlobalThemeScale = 1.2;
-
 export const ringtoneEventTypes: RingtoneEventType[] = ['voom', 'message', 'theater', 'call'];
 export const defaultRingtoneFileName = '吉森信 - 前略 じーちゃん.mp3';
 
@@ -199,7 +197,7 @@ export function createDefaultThemeSettings(): AppThemeSettings {
       activeFontId: '',
       entries: []
     },
-    global: { scale: 1, fullscreen: false, style: { ...emptyStyleScope } },
+    global: { scale: 1, fullscreen: true, style: { ...emptyStyleScope } },
     online: { ...emptyStyleScope },
     offline: { ...emptyStyleScope }
   };
@@ -368,18 +366,30 @@ export const defaultAppSettings: AppSettings = {
       updatedAt: 0
     }
   },
-  webDavBackup: {
+  cloudBackup: {
     enabled: false,
-    url: '',
-    username: '',
-    password: '',
-    path: 'babylink-backup.enc.json',
+    provider: '',
+    accessToken: '',
+    refreshToken: '',
+    tokenExpiresAt: 0,
+    accountLabel: '',
+    workerUrl: '',
+    workerToken: '',
     recoveryKey: '',
+    remoteFileId: '',
+    fileName: 'babylink-backup.link',
     intervalMinutes: 30,
     lastBackupAt: 0,
     lastBackupStatus: 'idle',
     lastBackupError: '',
-    latestRemoteBackupAt: 0
+    latestRemoteBackupAt: 0,
+    lastBackupBytes: 0,
+    progress: {
+      phase: 'idle',
+      label: '',
+      percent: 0,
+      updatedAt: 0
+    }
   }
 };
 
@@ -713,10 +723,9 @@ function normalizeThemeStyleScope(settings: Partial<ThemeStyleScopeSettings> | n
 }
 
 function normalizeThemeGlobalSettings(settings: Partial<ThemeGlobalSettings> | null | undefined): ThemeGlobalSettings {
-  const scale = Number(settings?.scale ?? 1);
   return {
-    scale: Math.min(maxGlobalThemeScale, Math.max(minGlobalThemeScale, Number.isFinite(scale) ? scale : 1)),
-    fullscreen: Boolean(settings?.fullscreen),
+    scale: normalizeGlobalThemeScale(settings?.scale),
+    fullscreen: settings?.fullscreen ?? true,
     style: normalizeThemeStyleScope(settings?.style)
   };
 }
@@ -1095,23 +1104,39 @@ function normalizeGitHubBackupSettings(settings: Partial<GitHubBackupSettings> |
   };
 }
 
-function normalizeWebDavBackupSettings(settings: Partial<WebDavBackupSettings> | null | undefined): WebDavBackupSettings {
-  const intervalMinutes = Math.min(1440, Math.max(5, Math.round(Number(settings?.intervalMinutes ?? defaultAppSettings.webDavBackup.intervalMinutes) || defaultAppSettings.webDavBackup.intervalMinutes)));
+function normalizeCloudBackupSettings(settings: Partial<CloudBackupSettings> | null | undefined): CloudBackupSettings {
+  const providers = new Set<CloudBackupProvider>(['google-drive', 'onedrive', 'dropbox', 'r2-worker']);
+  const provider = providers.has(settings?.provider as CloudBackupProvider) ? settings?.provider as CloudBackupProvider : '';
+  const intervalMinutes = Math.min(1440, Math.max(5, Math.round(Number(settings?.intervalMinutes ?? defaultAppSettings.cloudBackup.intervalMinutes) || defaultAppSettings.cloudBackup.intervalMinutes)));
   const status = ['idle', 'running', 'success', 'failed'].includes(String(settings?.lastBackupStatus))
-    ? settings?.lastBackupStatus as WebDavBackupSettings['lastBackupStatus']
+    ? settings?.lastBackupStatus as CloudBackupSettings['lastBackupStatus']
     : 'idle';
   return {
     enabled: Boolean(settings?.enabled),
-    url: String(settings?.url ?? '').trim(),
-    username: String(settings?.username ?? '').trim(),
-    password: String(settings?.password ?? ''),
-    path: String(settings?.path ?? defaultAppSettings.webDavBackup.path).trim().replace(/^\/+/, '') || defaultAppSettings.webDavBackup.path,
+    provider,
+    accessToken: String(settings?.accessToken ?? '').trim(),
+    refreshToken: String(settings?.refreshToken ?? '').trim(),
+    tokenExpiresAt: Math.max(0, Number(settings?.tokenExpiresAt ?? 0) || 0),
+    accountLabel: String(settings?.accountLabel ?? '').trim(),
+    workerUrl: String(settings?.workerUrl ?? '').trim().replace(/\/+$/, ''),
+    workerToken: String(settings?.workerToken ?? '').trim(),
     recoveryKey: String(settings?.recoveryKey ?? '').trim(),
+    remoteFileId: String(settings?.remoteFileId ?? '').trim(),
+    fileName: String(settings?.fileName ?? defaultAppSettings.cloudBackup.fileName).trim().replace(/^\/+/, '') || defaultAppSettings.cloudBackup.fileName,
     intervalMinutes,
     lastBackupAt: Math.max(0, Number(settings?.lastBackupAt ?? 0) || 0),
     lastBackupStatus: status,
     lastBackupError: String(settings?.lastBackupError ?? '').trim(),
-    latestRemoteBackupAt: Math.max(0, Number(settings?.latestRemoteBackupAt ?? 0) || 0)
+    latestRemoteBackupAt: Math.max(0, Number(settings?.latestRemoteBackupAt ?? 0) || 0),
+    lastBackupBytes: Math.max(0, Number(settings?.lastBackupBytes ?? 0) || 0),
+    progress: {
+      phase: ['idle', 'connecting', 'uploading', 'downloading', 'restoring', 'completed', 'failed'].includes(String(settings?.progress?.phase))
+        ? String(settings?.progress?.phase) as CloudBackupSettings['progress']['phase']
+        : 'idle',
+      label: String(settings?.progress?.label ?? '').trim(),
+      percent: Math.min(100, Math.max(0, Number(settings?.progress?.percent ?? 0) || 0)),
+      updatedAt: Math.max(0, Number(settings?.progress?.updatedAt ?? 0) || 0)
+    }
   };
 }
 
@@ -1560,9 +1585,12 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
   const explicitTtsProvider = normalizeTtsProvider(settings?.ttsProvider);
   const legacyTtsVoice = String(settings?.ttsVoice ?? '').trim();
 
+  const settingsSource = settings ? { ...settings } as Partial<AppSettings> & Record<string, unknown> : {};
+  const legacyCloudProperty = ['web', 'Dav', 'Backup'].join('');
+  delete settingsSource[legacyCloudProperty];
   const merged = {
     ...defaultAppSettings,
-    ...settings
+    ...settingsSource
   };
 
   const legacyMinimaxEnabled = Boolean(settings?.ttsMinimax?.enabled ?? merged.ttsEnabled);
@@ -1620,7 +1648,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     ringtoneSettings: normalizeRingtoneSettings(settings?.ringtoneSettings),
     themeSettings: normalizeThemeSettings(settings?.themeSettings),
     githubBackup: normalizeGitHubBackupSettings(settings?.githubBackup),
-    webDavBackup: normalizeWebDavBackupSettings(settings?.webDavBackup)
+    cloudBackup: normalizeCloudBackupSettings(settings?.cloudBackup)
   };
 
   const resolvedApiConfig = getResolvedApiConfig(normalized);

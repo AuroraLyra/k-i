@@ -1,0 +1,22 @@
+{
+  "name": "babylink-r2-backup",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "cloudflare": {
+    "bindings": {
+      "BACKUPS": {
+        "description": "创建或选择一个只属于你的 R2 bucket，用于保存浏览器端加密后的 BabyLink 备份。"
+      }
+    }
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260727.1",
+    "typescript": "^5.6.3",
+    "wrangler": "^4.114.0"
+  }
+}

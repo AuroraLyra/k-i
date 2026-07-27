@@ -1,5 +1,5 @@
 <template>
-  <section class="screen no-tabs fanfic-page">
+  <section class="screen no-tabs fanfic-page fanfic-font-scope">
     <header class="top-bar fanfic-topbar">
       <button class="fanfic-wordmark" type="button" aria-label="返回主页" @click="goHome">
         <span>Fanfic</span>

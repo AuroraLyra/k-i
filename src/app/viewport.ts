@@ -11,6 +11,11 @@ export function syncAppViewportHeight() {
   const root = document.documentElement;
   let frameId = 0;
 
+  root.style.removeProperty('--app-height');
+  root.style.removeProperty('--visual-viewport-height');
+  root.style.removeProperty('--visual-viewport-offset-top');
+  root.style.removeProperty('--keyboard-inset');
+
   const userAgent = window.navigator.userAgent;
   const isIOS = /iPad|iPhone|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && /Mobile/.test(userAgent) && window.navigator.maxTouchPoints > 1);
   let stableViewportHeight = Math.round(window.visualViewport?.height ?? window.innerHeight);
@@ -41,10 +46,10 @@ export function syncAppViewportHeight() {
     const nextHeight = nextKeyboardInset > 0 ? stableViewportHeight : viewportHeight;
 
     root.classList.toggle('keyboard-open', keyboardOpen);
-    root.style.setProperty('--app-height', `${Math.round(nextHeight)}px`);
-    root.style.setProperty('--visual-viewport-height', `${viewportHeight}px`);
-    root.style.setProperty('--visual-viewport-offset-top', `${viewportOffsetTop}px`);
-    root.style.setProperty('--keyboard-inset', `${nextKeyboardInset}px`);
+    root.style.setProperty('--app-viewport-height', `${Math.round(nextHeight)}px`);
+    root.style.setProperty('--visual-viewport-raw-height', `${viewportHeight}px`);
+    root.style.setProperty('--visual-viewport-raw-offset-top', `${viewportOffsetTop}px`);
+    root.style.setProperty('--keyboard-raw-inset', `${nextKeyboardInset}px`);
     window.dispatchEvent(new CustomEvent<AppViewportChangeDetail>(APP_VIEWPORT_CHANGE_EVENT, {
       detail: {
         appHeight: Math.round(nextHeight),
@@ -65,6 +70,9 @@ export function syncAppViewportHeight() {
   window.addEventListener('resize', scheduleViewportHeightSync, { passive: true });
   window.addEventListener('orientationchange', scheduleViewportHeightSync, { passive: true });
   window.addEventListener('pageshow', scheduleViewportHeightSync, { passive: true });
+  document.addEventListener('fullscreenchange', scheduleViewportHeightSync, { passive: true });
+  document.addEventListener('webkitfullscreenchange', scheduleViewportHeightSync, { passive: true } as AddEventListenerOptions);
+  window.addEventListener('link:fullscreen-change', scheduleViewportHeightSync, { passive: true });
   window.visualViewport?.addEventListener('resize', scheduleViewportHeightSync, { passive: true });
   window.visualViewport?.addEventListener('scroll', scheduleViewportHeightSync, { passive: true });
   document.addEventListener('focusin', scheduleViewportHeightSync, { passive: true });

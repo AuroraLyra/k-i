@@ -10,28 +10,26 @@ import { closeDatabase, migrateDatabase, query } from './db.js';
 import { registerNapCat } from './napcat.js';
 import { registerUpstreamProxy } from './proxy.js';
 import { registerReleaseRoutes } from './releases.js';
-import { registerWebDavRelay } from './webdav.js';
 import { registerFanficTrendRoutes } from './fanfic.js';
 
 const app = Fastify({
   disableRequestLogging: true,
   logger: {
     level: config.production ? 'info' : 'debug',
-    redact: ['req.headers.authorization', 'req.headers.cookie', 'req.headers.x-link-challenge-token', 'req.headers.x-link-webdav-authorization', 'res.headers.set-cookie']
+    redact: ['req.headers.authorization', 'req.headers.cookie', 'req.headers.x-link-challenge-token', 'res.headers.set-cookie']
   },
   trustProxy: config.trustProxy,
-  bodyLimit: Math.max(config.proxyBodyLimitBytes, config.webdavBodyLimitBytes)
+  bodyLimit: Math.max(config.proxyBodyLimitBytes, config.uploadBodyLimitBytes)
 });
 
 await app.register(cookie);
 await app.register(rateLimit, { global: true, max: 240, timeWindow: '1 minute' });
 await app.register(websocket, { options: { maxPayload: 2 * 1024 * 1024 } });
 
-app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: config.webdavBodyLimitBytes }, (_request, body, done) => done(null, body));
-app.addContentTypeParser('application/vnd.android.package-archive', { parseAs: 'buffer', bodyLimit: config.webdavBodyLimitBytes }, (_request, body, done) => done(null, body));
-app.addContentTypeParser('application/vnd.babylink.encrypted-backup+json', { parseAs: 'buffer', bodyLimit: config.webdavBodyLimitBytes }, (_request, body, done) => done(null, body));
+app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: config.uploadBodyLimitBytes }, (_request, body, done) => done(null, body));
+app.addContentTypeParser('application/vnd.android.package-archive', { parseAs: 'buffer', bodyLimit: config.uploadBodyLimitBytes }, (_request, body, done) => done(null, body));
 app.addContentTypeParser('application/xml', { parseAs: 'buffer', bodyLimit: config.proxyBodyLimitBytes }, (_request, body, done) => done(null, body));
-app.addContentTypeParser('*', { parseAs: 'buffer', bodyLimit: config.webdavBodyLimitBytes }, (_request, body, done) => done(null, body));
+app.addContentTypeParser('*', { parseAs: 'buffer', bodyLimit: config.uploadBodyLimitBytes }, (_request, body, done) => done(null, body));
 
 const publicExactPaths = new Set([
   '/access',
@@ -46,6 +44,7 @@ const publicExactPaths = new Set([
   '/api/auth/config',
   '/api/auth/challenges'
 ]);
+const appShellCacheControl = 'private, max-age=300, stale-while-revalidate=86400, stale-if-error=604800';
 
 app.addHook('onRequest', async (request, reply) => {
   const pathname = request.url.split('?')[0] || '/';
@@ -86,7 +85,6 @@ app.get('/access', async (_request, reply) => {
 
 await registerAuthRoutes(app);
 await registerNapCat(app);
-await registerWebDavRelay(app);
 await registerReleaseRoutes(app);
 await registerUpstreamProxy(app);
 await registerFanficTrendRoutes(app);
@@ -99,7 +97,9 @@ await app.register(fastifyStatic, {
   maxAge: '1y',
   immutable: true,
   setHeaders(response, filePath) {
-    if (filePath.endsWith('index.html') || filePath.endsWith('sw.js') || filePath.endsWith('manifest.webmanifest')) {
+    if (filePath.endsWith('index.html')) {
+      response.header('Cache-Control', appShellCacheControl);
+    } else if (filePath.endsWith('sw.js') || filePath.endsWith('manifest.webmanifest')) {
       response.header('Cache-Control', 'no-cache, no-store, must-revalidate');
     }
   }
@@ -107,6 +107,7 @@ await app.register(fastifyStatic, {
 
 app.setNotFoundHandler(async (request, reply) => {
   if (request.url.startsWith('/api/') || request.url.startsWith('/__')) return await reply.code(404).send({ error: 'not_found' });
+  reply.header('Cache-Control', appShellCacheControl);
   return await reply.sendFile('index.html', { maxAge: 0, immutable: false, cacheControl: false });
 });
 

@@ -1101,7 +1101,6 @@ let suppressCallFloatClick = false;
 let callInputBlurTimer: number | undefined;
 let callSpeechFlushTimer: number | undefined;
 const callReplyQueue = ref<QueuedCallReply[]>([]);
-let proactiveReplyTimer: number | undefined;
 let conversationReadTimer: number | undefined;
 let bottomRestoreQueued = false;
 let bottomRestoreTimeouts: number[] = [];
@@ -1850,10 +1849,6 @@ onMounted(async () => {
   } else {
     await scrollMessagesToBottom();
   }
-  void store.maybeRequestProactiveReply(props.id);
-  proactiveReplyTimer = window.setInterval(() => {
-    void store.maybeRequestProactiveReply(props.id);
-  }, 60_000);
 });
 
 watch(() => props.id, (id) => {
@@ -1869,7 +1864,6 @@ watch(() => props.id, (id) => {
     } else {
       await scrollMessagesToBottom();
     }
-    void store.maybeRequestProactiveReply(id);
   })();
 });
 
@@ -2726,7 +2720,9 @@ function splitCallVoiceTranscript(content: string) {
 async function synthesizeCallVoiceChunk(content: string) {
   const currentSettings = store.settings;
   if (!currentSettings) throw new Error('设置尚未载入。');
-  return (await synthesizeSpeech(content, currentSettings)).audioUrl;
+  return (await synthesizeSpeech(content, currentSettings, {
+    minimaxVoiceId: character.value?.minimaxVoiceId
+  })).audioUrl;
 }
 
 function prepareCallVoicePlayback(message: ChatMessage): CallVoicePlayback {
@@ -4054,7 +4050,6 @@ onBeforeUnmount(() => {
   clearCallSpeechFlushTimer();
   clearCallInputBlurTimer();
   clearQueuedBottomRestores();
-  if (proactiveReplyTimer !== undefined) window.clearInterval(proactiveReplyTimer);
 });
 </script>
 
@@ -4078,6 +4073,7 @@ onBeforeUnmount(() => {
 .message-list {
   flex: 1;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 8px 10px calc(8px + var(--keyboard-inset));

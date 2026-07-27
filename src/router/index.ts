@@ -24,6 +24,7 @@ const ProfilePage = () => import('@/pages/ProfilePage.vue');
 const AddFriendPage = () => import('@/pages/AddFriendPage.vue');
 const ServicesPage = () => import('@/pages/ServicesPlaceholderPage.vue');
 const ServicesUtilityPage = () => import('@/pages/ServicesUtilityPage.vue');
+const CloudBackupOAuthCallbackPage = () => import('@/pages/CloudBackupOAuthCallbackPage.vue');
 const ImageModuleSettingsPage = () => import('@/pages/settings/ImageModuleSettingsPage.vue');
 const SettingsPage = () => import('@/pages/settings/SettingsPage.vue');
 const StickersPage = () => import('@/pages/StickersPage.vue');
@@ -33,46 +34,6 @@ const WorldBookEditorPage = () => import('@/pages/WorldBookEditorPage.vue');
 const FavoritesPage = () => import('@/pages/FavoritesPage.vue');
 const RingtoneSettingsPage = () => import('@/pages/RingtoneSettingsPage.vue');
 const ThemesPage = () => import('@/pages/ThemesPage.vue');
-
-const routePageLoaders = [
-  HomePage,
-  ChatSettingsPage,
-  ChatSearchPage,
-  ChatRoomPage,
-  GobangRoomPage,
-  CoupleSpacePage,
-  GroupChatPage,
-  ProfileThemePage,
-  SmallTheaterPage,
-  SmallTheaterDetailPage,
-  OfflineSettingsPage,
-  OfflineRoomPage,
-  VoomPage,
-  MusicPage,
-  FanficPage,
-  FanficCreatePage,
-  FanficBookPage,
-  FanficReaderPage,
-  WalletPage,
-  ShopPage,
-  ProfilePage,
-  AddFriendPage,
-  ServicesPage,
-  ServicesUtilityPage,
-  ImageModuleSettingsPage,
-  SettingsPage,
-  StickersPage,
-  StickerManagePage,
-  WorldBookPage,
-  WorldBookEditorPage,
-  FavoritesPage,
-  RingtoneSettingsPage,
-  ThemesPage
-] as const;
-
-export async function preloadRoutePages() {
-  await Promise.all(routePageLoaders.map((loadPage) => loadPage()));
-}
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -86,6 +47,7 @@ export const router = createRouter({
     { path: '/services/keep-alive', name: 'service-keepalive', component: RingtoneSettingsPage },
     { path: '/services/update', name: 'service-update', component: RingtoneSettingsPage },
     { path: '/services/backup', name: 'service-backup', component: ServicesUtilityPage, props: { mode: 'backup' } },
+    { path: '/services/backup/oauth/callback', name: 'cloud-backup-oauth-callback', component: CloudBackupOAuthCallbackPage },
     { path: '/services/qq-access', name: 'service-access', component: ServicesUtilityPage, props: { mode: 'access' } },
     { path: '/services/data', name: 'service-data', component: ServicesUtilityPage, props: { mode: 'data' } },
     { path: '/stickers', name: 'stickers', component: StickersPage },

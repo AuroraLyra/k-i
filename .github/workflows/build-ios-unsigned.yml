@@ -60,6 +60,13 @@ jobs:
         run: |
           app="$RUNNER_TEMP/BabyLinkDerivedData/Build/Products/Release-iphoneos/App.app"
           test -d "$app"
+          find "$app/Frameworks" -type d -name '*.framework' -maxdepth 1 -print0 | while IFS= read -r -d '' framework; do
+            codesign --force --sign - --timestamp=none "$framework"
+          done
+          codesign --force --sign - --timestamp=none "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
+          lipo "$app/$executable_name" -verify_arch arm64
           mkdir -p build/Payload
           cp -R "$app" build/Payload/BabyLink.app
           output="BabyLink-unsigned-$VERSION_NAME.ipa"

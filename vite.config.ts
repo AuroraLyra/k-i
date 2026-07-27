@@ -400,7 +400,8 @@ export default defineConfig({
         description: 'LINE style roleplay chat PWA',
         theme_color: '#ffffff',
         background_color: '#ffffff',
-        display: 'standalone',
+        display_override: ['fullscreen', 'standalone'],
+        display: 'fullscreen',
         orientation: 'portrait',
         scope: base,
         start_url: base,
@@ -422,10 +423,11 @@ export default defineConfig({
       workbox: {
         skipWaiting: true,
         clientsClaim: true,
+        cleanupOutdatedCaches: true,
         importScripts: ['link-sw-events.js'],
         navigateFallback: `${base}index.html`,
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
-        globPatterns: ['**/*.{js,css,html,svg,png,ico}']
+        globPatterns: ['**/*.{js,css,html,svg,png,jpg,jpeg,webp,avif,gif,ico,woff,woff2,mp3,m4a,ogg,wav}']
       }
     })
   ],

@@ -10,4 +10,6 @@
     <string name="keep_alive_notification_text">保活、角色通知与本地任务已启用</string>
     <string name="message_channel_name">角色通知</string>
     <string name="message_channel_description">角色消息、Voom 与通话提醒</string>
+    <string name="call_channel_name">语音与视频来电</string>
+    <string name="call_channel_description">角色语音通话和视频通话的锁屏来电提醒</string>
 </resources>

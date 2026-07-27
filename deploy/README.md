@@ -124,8 +124,8 @@ curl -X POST https://babylink.top/api/admin/napcat/sync -H "Authorization: Beare
 
 - 聊天、角色、世界书、消息和 API 配置保存在用户设备 IndexedDB。
 - Fastify/PostgreSQL 只保存 QQ、授权群成员状态、设备、会话、发布版本和安全审计。
-- WebDAV 备份在浏览器端通过 PBKDF2-SHA-256 派生密钥并使用 AES-256-GCM 加密；服务器仅转发密文，不落盘。
-- WebDAV 自动备份仅在应用运行或重新回到前台时执行，移动系统不会保证网页真正后台运行。
+- 云备份在浏览器端通过 PBKDF2-SHA-256 派生密钥并使用 AES-256-GCM 加密；Google Drive、OneDrive、Dropbox 由浏览器直传，Cloudflare R2 使用用户自己部署的 Worker，LINK 服务端不接收备份内容。
+- 云端自动备份仅在应用运行或重新回到前台时执行，移动系统不会保证网页真正后台运行。
 - 用户必须离线保存恢复密钥；密钥丢失后管理员也无法恢复备份。
 
 账号数据库仍需每日异地备份：
@@ -202,7 +202,7 @@ npx cap sync ios
 ADMIN_TOKEN='<admin-token>' node scripts/publish-release.mjs ios path/to/BabyLink.ipa 2 1.1.0 1 '更新说明'
 ```
 
-仓库 Actions 中的 `Build unsigned iOS IPA` 可在 macOS runner 生成未签名 IPA 和相对路径 SHA-256 清单，不需要向 GitHub 提交 Apple 证书或描述文件。
+仓库 Actions 中的 `Build unsigned iOS IPA` 可在 macOS runner 生成不含 Apple 证书或描述文件的 IPA 和相对路径 SHA-256 清单。工作流会先对 App 与嵌套框架执行 ad-hoc 完整性签名并验证 arm64 架构，避免部分外部签名工具漏签动态框架后导致启动即退出；安装前仍必须由 AltStore、SideStore、Sideloadly 等工具使用用户自己的 Apple ID 重新签名。
 
 用户可在 BabyLink 的 Update 页面复制受保护的 AltStore/SideStore Source。更新源使用长期随机令牌，不暴露 QQ 或登录 Cookie；每次刷新 Source 和下载 IPA 时，服务器都会重新检查账号状态与授权群成员资格。外部签名工具会展示新版本并执行覆盖安装，用户也可继续手动下载 IPA。
 

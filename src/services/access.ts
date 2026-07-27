@@ -1,3 +1,5 @@
+import { clearStartupCache } from './startupCache';
+
 export interface AccessSession {
   authenticated: true;
   qq: string;
@@ -71,6 +73,7 @@ export async function ensureAccessOnStartup() {
     void fetchAccessSession().catch((error) => {
       if (error instanceof Error && error.name === 'AccessRevokedError') {
         clearAccessLease();
+        clearStartupCache();
         window.location.replace('/access');
       }
     });
@@ -82,6 +85,7 @@ export async function ensureAccessOnStartup() {
   } catch (error) {
     if (error instanceof Error && error.name === 'AccessRevokedError') {
       clearAccessLease();
+      clearStartupCache();
       window.location.replace('/access');
       return false;
     }
@@ -103,6 +107,7 @@ export function startAccessHeartbeat() {
     } catch (error) {
       if (error instanceof Error && error.name === 'AccessRevokedError') {
         clearAccessLease();
+        clearStartupCache();
         window.location.replace('/access');
       }
     } finally {
@@ -134,5 +139,6 @@ export async function revokeAccessDevice(deviceId: string) {
 export async function logoutAccessSession() {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => undefined);
   clearAccessLease();
+  clearStartupCache();
   window.location.replace('/access');
 }

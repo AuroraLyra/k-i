@@ -173,6 +173,7 @@ export function normalizeCharacterProfile(character: CharacterProfile, fallbackU
     localWorldBookIds,
     voomFrequency,
     modelOverrides: normalizeChatModelOverrides(character.modelOverrides),
+    minimaxVoiceId: String(character.minimaxVoiceId ?? '').trim() || undefined,
     themeStyleBindings: normalizeCharacterThemeStyleBindings(character.themeStyleBindings),
     imageProfile: normalizeCharacterImageProfile(character.imageProfile),
     profile,

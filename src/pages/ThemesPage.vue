@@ -82,23 +82,30 @@
                 <strong>{{ globalScalePercent }}%</strong>
               </header>
 
-              <input
-                class="scale-range"
-                type="range"
-                min="85"
-                max="120"
-                step="5"
-                :value="globalScalePercent"
-                aria-label="调整全站显示大小"
-                @input="updateGlobalScaleFromInput"
-              />
+              <div class="scale-range-shell">
+                <input
+                  class="scale-range"
+                  type="range"
+                  :min="minGlobalThemeScalePercent"
+                  :max="maxGlobalThemeScalePercent"
+                  :step="globalThemeScaleStepPercent"
+                  :value="globalScalePercent"
+                  :aria-valuetext="`${globalScaleLabel}%`"
+                  aria-label="调整全站显示大小"
+                  @input="updateGlobalScaleFromInput"
+                />
+                <div class="scale-range-meta" aria-hidden="true">
+                  <span>{{ formatGlobalScalePercent(minGlobalThemeScalePercent) }}%</span>
+                  <span>{{ formatGlobalScalePercent(maxGlobalThemeScalePercent) }}%</span>
+                </div>
+              </div>
 
               <footer class="scale-actions" aria-label="显示大小快捷操作">
-                <button class="scale-action" type="button" :disabled="globalScalePercent <= minGlobalScalePercent" aria-label="缩小显示" @click="nudgeGlobalScale(-5)">
+                <button class="scale-action" type="button" :disabled="globalScalePercent <= minGlobalThemeScalePercent" aria-label="缩小显示" @click="nudgeGlobalScale(-globalThemeScaleStepPercent)">
                   <Minus :size="16" />
                 </button>
                 <button class="scale-reset" type="button" :disabled="globalScalePercent === 100" @click="setGlobalScale(100)">默认</button>
-                <button class="scale-action" type="button" :disabled="globalScalePercent >= maxGlobalScalePercent" aria-label="放大显示" @click="nudgeGlobalScale(5)">
+                <button class="scale-action" type="button" :disabled="globalScalePercent >= maxGlobalThemeScalePercent" aria-label="放大显示" @click="nudgeGlobalScale(globalThemeScaleStepPercent)">
                   <Plus :size="16" />
                 </button>
               </footer>
@@ -109,7 +116,8 @@
               <div class="global-fullscreen-copy">
                 <p class="section-kicker">Immersive View</p>
                 <h2>全屏显示</h2>
-                <small>开启后隐藏手机顶部状态栏与底部导航/手势栏；关闭后自动恢复并保留安全区。</small>
+                <small v-if="fullscreenManagedByPwa">当前 PWA 由安装清单固定为全屏显示；如需恢复系统栏，请卸载后以普通网站模式使用。</small>
+                <small v-else>App 与支持的 PWA 会隐藏系统栏；普通网页需浏览器授权，iOS Safari 网页无法隐藏原生状态栏。</small>
               </div>
               <button
                 class="fullscreen-switch"
@@ -117,8 +125,8 @@
                 type="button"
                 role="switch"
                 :aria-checked="fullscreenEnabled"
-                :aria-label="fullscreenEnabled ? '关闭全屏显示' : '开启全屏显示'"
-                :disabled="fullscreenBusy"
+                :aria-label="fullscreenManagedByPwa ? 'PWA 全屏显示已由安装模式托管' : fullscreenEnabled ? '关闭全屏显示' : '开启全屏显示'"
+                :disabled="fullscreenBusy || fullscreenManagedByPwa"
                 @click="toggleFullscreen"
               >
                 <span></span>
@@ -383,11 +391,12 @@ import AppModal from '@/components/common/AppModal.vue';
 import { useAppStore } from '@/stores/appStore';
 import { pickNativePngFile, shareNativeDataUrl } from '@/services/nativeFile';
 import { getLastNativeDisplayState } from '@/services/nativeDisplay';
-import { setFullscreenEnabled } from '@/services/systemBars';
+import { getFullscreenEnvironment, setFullscreenEnabled } from '@/services/systemBars';
 import type { AppSettings, AppThemeSettings, ThemeFontEntry, ThemeFontSource, ThemeStylePreset, ThemeStyleScopeSettings } from '@/types/domain';
 import { createId } from '@/utils/id';
 import { downloadDataUrl } from '@/utils/download';
 import { normalizeAppSettings } from '@/utils/settings';
+import { globalThemeScaleStepPercent, maxGlobalThemeScalePercent, minGlobalThemeScalePercent, normalizeGlobalThemeScalePercent } from '@/utils/themeScale';
 import {
   decodeThemeStylePresetsFromPng,
   defaultGlobalThemeCss,
@@ -428,8 +437,6 @@ const importTabs = [
 
 const fontFileAccept = '.woff,.woff2,.ttf,.otf,font/woff,font/woff2,font/ttf,font/otf,application/font-woff,application/x-font-ttf,application/x-font-otf';
 const supportedFontExtensions = ['woff', 'woff2', 'ttf', 'otf'];
-const minGlobalScalePercent = 85;
-const maxGlobalScalePercent = 120;
 const fontMimeByExtension: Record<string, string> = {
   woff: 'font/woff',
   woff2: 'font/woff2',
@@ -482,8 +489,11 @@ const currentSettings = computed<AppSettings>(() => normalizeAppSettings(store.s
 const themeSettings = computed(() => currentSettings.value.themeSettings);
 const fontSettings = computed(() => themeSettings.value.fonts);
 const fontEntries = computed(() => fontSettings.value.entries);
-const globalScalePercent = computed(() => Math.round((themeSettings.value.global?.scale ?? 1) * 100));
-const fullscreenEnabled = computed(() => Boolean(themeSettings.value.global?.fullscreen));
+const globalScalePercent = computed(() => normalizeGlobalThemeScalePercent((themeSettings.value.global?.scale ?? 1) * 100));
+const globalScaleLabel = computed(() => formatGlobalScalePercent(globalScalePercent.value));
+const fullscreenEnvironment = computed(() => getFullscreenEnvironment());
+const fullscreenManagedByPwa = computed(() => fullscreenEnvironment.value === 'pwa');
+const fullscreenEnabled = computed(() => fullscreenManagedByPwa.value || Boolean(themeSettings.value.global?.fullscreen));
 const activeTab = computed<ThemeTab>(() => {
   const tab = String(route.query.tab ?? 'font');
   return tabs.some((item) => item.id === tab) ? tab as ThemeTab : 'font';
@@ -583,8 +593,11 @@ function cloneThemeSettings(settings: AppThemeSettings): AppThemeSettings {
 }
 
 function clampGlobalScalePercent(value: number) {
-  const rounded = Math.round(value / 5) * 5;
-  return Math.min(maxGlobalScalePercent, Math.max(minGlobalScalePercent, Number.isFinite(rounded) ? rounded : 100));
+  return normalizeGlobalThemeScalePercent(value);
+}
+
+function formatGlobalScalePercent(value: number) {
+  return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
 }
 
 async function setGlobalScale(percent: number) {
@@ -608,7 +621,9 @@ async function toggleFullscreen() {
       const applied = await setFullscreenEnabled(true, { requestBrowserFullscreen: true });
       if (!applied) {
         await setFullscreenEnabled(false);
-        fullscreenFeedback.value = '当前浏览器不允许网页隐藏系统栏，请使用 BabyLink App 或支持全屏的浏览器。';
+        fullscreenFeedback.value = getFullscreenEnvironment() === 'unsupported'
+          ? '当前浏览器不支持网页全屏；iOS Safari 网页不能隐藏原生状态栏，请使用 BabyLink App 或安装支持全屏显示的 PWA。'
+          : '浏览器拒绝了全屏授权，请从页面按钮重新尝试，或使用 BabyLink App。';
         fullscreenFeedbackError.value = true;
         return;
       }
@@ -618,7 +633,7 @@ async function toggleFullscreen() {
     await saveThemeSettings(nextThemeSettings);
     if (!next) await setFullscreenEnabled(false);
     const nativeState = getLastNativeDisplayState();
-    if (next && nativeState?.applied === false) {
+    if (next && nativeState?.applied === false && (nativeState.statusBarVisible || nativeState.navigationBarVisible)) {
       fullscreenFeedback.value = `已开启持续沉浸模式，系统栏正在重试隐藏（状态栏：${nativeState.statusBarVisible ? '仍显示' : '已隐藏'}；导航栏：${nativeState.navigationBarVisible ? '仍显示' : '已隐藏'}）。`;
       fullscreenFeedbackError.value = true;
     } else {
@@ -1492,6 +1507,21 @@ function formatFontMeta(entry: ThemeFontEntry) {
   width: 100%;
   height: 28px;
   accent-color: var(--link-green);
+}
+
+.scale-range-shell {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.scale-range-meta {
+  display: flex;
+  justify-content: space-between;
+  color: #8a928d;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .scale-actions {

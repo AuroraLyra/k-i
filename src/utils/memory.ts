@@ -1,8 +1,9 @@
-import type { ChatMemorySettings, ChatMessage, ChatMode, ConversationOfflineSettings, ConversationSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineTonePreset, RingtoneAsset, VoomImageMode } from '@/types/domain';
+import type { ChatMemorySettings, ChatMode, ConversationOfflineSettings, ConversationSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineTonePreset, RingtoneAsset, VoomImageMode } from '@/types/domain';
 import { createId } from './id';
 import { normalizeChatModelOverrides } from './settings';
 import { defaultTimeAwarenessSettings, normalizeTimeAwarenessSettings } from './timeAwareness';
 import { normalizeVoomFrequency } from './voom';
+export { getConversationActiveMessages, getConversationFloorCount, getConversationFloors, getMessageFloorMap, getMessagesInFloorRange } from './memoryFloors';
 
 export const defaultChatMemorySettings: ChatMemorySettings = {
   enabled: true,
@@ -214,6 +215,7 @@ export const defaultConversationSettings: Omit<ConversationSettings, 'conversati
     showMessageTime: true,
     showReadStatus: true,
     showUserAvatar: false,
+    showCharacterAvatar: true,
     showOnlyFirstAvatarInReply: true,
     hideVoomNarration: true
   },
@@ -276,7 +278,7 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
       enabled: memory.enabled ?? memoryDefaults.enabled,
       compressionEnabled: memory.compressionEnabled ?? memoryDefaults.compressionEnabled,
       autoCapture: memory.autoCapture ?? memoryDefaults.autoCapture,
-      captureEvery: Math.min(16, Math.max(2, Math.round(Number(memory.captureEvery) || memoryDefaults.captureEvery))),
+      captureEvery: Math.min(40, Math.max(2, Math.round(Number(memory.captureEvery) || memoryDefaults.captureEvery))),
       recentMessageLimit: Math.min(24, Math.max(6, Math.round(Number(memory.recentMessageLimit) || memoryDefaults.recentMessageLimit))),
       recallTokenBudget: Math.min(2400, Math.max(300, Math.round(Number(memory.recallTokenBudget) || memoryDefaults.recallTokenBudget))),
       growthEnabled: memory.growthEnabled ?? memoryDefaults.growthEnabled,
@@ -299,6 +301,7 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
       showMessageTime: appearance.showMessageTime ?? defaultConversationSettings.appearance.showMessageTime,
       showReadStatus: appearance.showReadStatus ?? defaultConversationSettings.appearance.showReadStatus,
       showUserAvatar: appearance.showUserAvatar ?? defaultConversationSettings.appearance.showUserAvatar,
+      showCharacterAvatar: appearance.showCharacterAvatar ?? defaultConversationSettings.appearance.showCharacterAvatar,
       showOnlyFirstAvatarInReply: appearance.showOnlyFirstAvatarInReply ?? defaultConversationSettings.appearance.showOnlyFirstAvatarInReply,
       hideVoomNarration: true
     },
@@ -337,52 +340,4 @@ export function estimateTokenCount(text: string) {
   const cjkCount = (normalized.match(/[\u3400-\u9fff]/g) ?? []).length;
   const latinWords = normalized.replace(/[\u3400-\u9fff]/g, ' ').trim().split(/\s+/).filter(Boolean).length;
   return Math.max(1, Math.ceil(cjkCount * 1.1 + latinWords * 1.35));
-}
-
-export function getMessageFloorMap(messages: ChatMessage[]) {
-  const floorMap = new Map<string, number>();
-  getConversationFloors(messages).forEach((floorMessages, index) => {
-    floorMessages.forEach((message) => floorMap.set(message.id, index + 1));
-  });
-  return floorMap;
-}
-
-export function getConversationActiveMessages(messages: ChatMessage[]) {
-  return messages.filter((message) => message.replyVariantState !== 'inactive');
-}
-
-function getMessageFloorGroupKey(message: ChatMessage) {
-  if (message.sender === 'user') return 'user';
-  if (message.replyBatchId) return `reply:${message.replyBatchId}`;
-  return 'assistant';
-}
-
-export function getConversationFloors(messages: ChatMessage[]) {
-  const floors: ChatMessage[][] = [];
-  let currentKey = '';
-  let currentMessages: ChatMessage[] = [];
-
-  for (const message of messages) {
-    if (message.replyVariantState === 'inactive') continue;
-    const nextKey = getMessageFloorGroupKey(message);
-    if (currentMessages.length && nextKey !== currentKey) {
-      floors.push(currentMessages);
-      currentMessages = [];
-    }
-    currentKey = nextKey;
-    currentMessages.push(message);
-  }
-
-  if (currentMessages.length) floors.push(currentMessages);
-  return floors;
-}
-
-export function getConversationFloorCount(messages: ChatMessage[]) {
-  return getConversationFloors(messages).length;
-}
-
-export function getMessagesInFloorRange(messages: ChatMessage[], startFloor: number, endFloor: number) {
-  return getConversationFloors(messages)
-    .slice(Math.max(0, startFloor - 1), Math.max(0, endFloor))
-    .flat();
 }

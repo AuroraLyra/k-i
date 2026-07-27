@@ -1,5 +1,6 @@
 import { decompressSync } from 'fflate';
 import type { WorldBookEntry } from '@/types/domain';
+import { readTextDocumentFile } from '@/utils/documentText';
 import { createId } from '@/utils/id';
 import { createWorldBookLoreEntry } from '@/utils/worldBook';
 
@@ -11,8 +12,6 @@ export interface ImportedCharacterCard {
   description: string;
   worldBooks: WorldBookEntry[];
 }
-
-const defaultSignature = '该用户很懒，什么也没留下';
 
 interface CharacterBookSource {
   name?: unknown;
@@ -76,6 +75,10 @@ function collectDescriptionSections(source: Record<string, unknown>) {
   return sections.join('\n\n').trim();
 }
 
+function documentFileName(fileName: string) {
+  return fileName.replace(/\.[^.]+$/, '').trim() || 'NewFriend';
+}
+
 function getCharacterBook(source: Record<string, unknown>) {
   const nested = source.data && typeof source.data === 'object' ? source.data as Record<string, unknown> : source;
   const extensions = nested.extensions && typeof nested.extensions === 'object' ? nested.extensions as Record<string, unknown> : {};
@@ -123,17 +126,32 @@ function parseCardPayload(payload: string, avatar: string) {
     ? parsed.data as Record<string, unknown>
     : parsed;
 
-  const nickname = String(source.name ?? parsed.name ?? 'NewFriend').trim() || 'NewFriend';
-  const resolvedAvatar = avatar || toDicebearAvatar(nickname);
+  const name = String(source.name ?? parsed.name ?? 'NewFriend').trim() || 'NewFriend';
+  const nickname = String(source.nickname ?? source.nick_name ?? parsed.nickname ?? '').trim();
+  const resolvedAvatar = avatar || toDicebearAvatar(name);
 
   return {
     avatar: resolvedAvatar,
     nickname,
-    name: nickname,
-    signature: defaultSignature,
+    name,
+    signature: String(source.signature ?? parsed.signature ?? '').trim(),
     description: collectDescriptionSections(source) || '导入角色卡后尚未提供更多资料。',
-    worldBooks: mapWorldBooks(getCharacterBook(parsed), nickname, resolvedAvatar)
+    worldBooks: mapWorldBooks(getCharacterBook(parsed), name, resolvedAvatar)
   } satisfies ImportedCharacterCard;
+}
+
+export function parseCharacterDocumentText(text: string, fileName: string): ImportedCharacterCard {
+  const normalizedText = text.replace(/^\uFEFF/, '').trim();
+  if (!normalizedText) throw new Error('角色文档内容为空。');
+  const name = documentFileName(fileName);
+  return {
+    avatar: toDicebearAvatar(name),
+    nickname: '',
+    name,
+    signature: '',
+    description: normalizedText,
+    worldBooks: []
+  };
 }
 
 function readUint32(bytes: Uint8Array, offset: number) {
@@ -215,5 +233,9 @@ export async function importSillyTavernCharacterCard(file: File): Promise<Import
     }
   }
 
-  throw new Error('请导入 PNG 角色卡图片或 JSON 角色卡文件。');
+  if (/\.(?:txt|docx?)$/i.test(lowerName) || /text\/plain|msword|wordprocessingml/i.test(file.type)) {
+    return parseCharacterDocumentText(await readTextDocumentFile(file), file.name);
+  }
+
+  throw new Error('请导入 PNG、JSON、TXT、DOC 或 DOCX 角色文件。');
 }

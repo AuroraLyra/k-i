@@ -1,5 +1,5 @@
-import { unzipSync } from 'fflate';
 import type { WorldBookEntry, WorldBookEntryActivation, WorldBookInsertionPosition, WorldBookLoreEntry, WorldBookScope } from '@/types/domain';
+import { readTextDocumentFile } from './documentText';
 import { createId } from './id';
 import { createWorldBookLoreEntry, normalizeWorldBookEntry } from './worldBook';
 
@@ -238,41 +238,8 @@ export function parseWorldBookImportText(text: string, options: WorldBookImportO
   return { books: book ? [book] : [], warnings };
 }
 
-function decodeXmlEntities(value: string) {
-  return value
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
-}
-
-async function readZipDocumentText(file: File) {
-  const buffer = await file.arrayBuffer();
-  const files = unzipSync(new Uint8Array(buffer));
-  const decoder = new TextDecoder();
-  const documentEntries = Object.entries(files).filter(([name]) => /word\/document\.xml$|word\/header\d*\.xml$|word\/footer\d*\.xml$/i.test(name));
-  const xml = documentEntries.map(([, bytes]) => decoder.decode(bytes)).join('\n');
-  return decodeXmlEntities(xml.replace(/<w:tab\/>/g, '\t').replace(/<[^>]+>/g, ' '));
-}
-
-function readTextFile(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('文件读取失败。'));
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.readAsText(file);
-  });
-}
-
 export async function readWorldBookImportFile(file: File) {
-  const lowerName = file.name.toLocaleLowerCase();
-  if (/\.docx$/i.test(lowerName)) return readZipDocumentText(file);
-  if (/\.doc$/i.test(lowerName)) {
-    const text = await readTextFile(file);
-    return text.replace(/\u0000/g, ' ');
-  }
-  return readTextFile(file);
+  return readTextDocumentFile(file);
 }
 
 export function worldBookImportSourceTypeForFile(file: File): WorldBookImportSourceType {

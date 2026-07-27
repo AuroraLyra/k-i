@@ -1,5 +1,5 @@
 <template>
-  <section v-if="book && chapter" class="screen no-tabs reader-page" :class="[`theme-${readerTheme}`, { 'controls-hidden': controlsHidden }]">
+  <section v-if="book && chapter" class="screen no-tabs reader-page fanfic-font-scope" :class="[`theme-${readerTheme}`, { 'controls-hidden': controlsHidden }]">
     <header class="reader-header">
       <button type="button" aria-label="返回同人文详情" @click="goBook"><ChevronLeft :size="21" /></button>
       <span><small>{{ book.title }}</small><strong>第 {{ chapter.order }} 章</strong></span>
@@ -83,7 +83,7 @@
     </Transition>
   </section>
 
-  <section v-else class="screen no-tabs missing-reader"><BookX :size="34" /><h1>这一章暂时不存在</h1><button type="button" @click="goBook">返回同人文目录</button></section>
+  <section v-else class="screen no-tabs missing-reader fanfic-font-scope"><BookX :size="34" /><h1>这一章暂时不存在</h1><button type="button" @click="goBook">返回同人文目录</button></section>
 </template>
 
 <script setup lang="ts">

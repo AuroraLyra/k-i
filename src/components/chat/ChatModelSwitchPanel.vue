@@ -44,7 +44,7 @@ const store = useAppStore();
 const modelScopes: Array<{ id: ChatModelScope; label: string }> = [
   { id: 'online', label: '线上聊天模型' },
   { id: 'offline', label: '线下 RP 模型' },
-  { id: 'summary', label: '总结模型' },
+  { id: 'summary', label: '总结、图谱、向量化模型' },
   { id: 'voom', label: 'VOOM 生成模型' },
   { id: 'theater', label: '小剧场、同人文、商场模型' },
   { id: 'groupDiscovery', label: '搜索角色群聊模型' }
@@ -102,15 +102,15 @@ watch(
 
 function modelValueFor(scope: ChatModelScope) {
   if (isGlobal.value) return settingsDraft.modelOverrides[scope];
-  return draft[scope].trim() || currentGlobalSettings.value.modelOverrides[scope];
+  return draft[scope].trim();
 }
 
 function fallbackLabel(scope: ChatModelScope) {
-  if (isGlobal.value) return scope === 'summary' ? '跟随 API 默认总结模型' : '跟随 API 默认模型';
+  if (isGlobal.value) return scope === 'summary' ? '跟随 API 默认总结、图谱、向量化模型' : '跟随 API 默认模型';
   const labels: Record<ChatModelScope, string> = {
     online: '跟随全局线上聊天模型',
     offline: '跟随全局线下 RP 模型',
-    summary: '跟随全局总结模型',
+    summary: '跟随全局总结、图谱、向量化模型',
     voom: '跟随全局 VOOM 生成模型',
     theater: '跟随全局小剧场与同人文模型',
     groupDiscovery: '跟随全局搜索角色群聊模型'

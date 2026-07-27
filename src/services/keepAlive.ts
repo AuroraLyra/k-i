@@ -1,12 +1,17 @@
 import type { AppKeepAliveSettings } from '@/types/domain';
 import { normalizeKeepAliveSettings } from '@/utils/settings';
-import { getNativeKeepAliveStatus, isNativeKeepAliveAvailable, openNativeBatterySettings, requestNativeNotificationPermission, showNativeLinkNotification, startNativeKeepAlive, stopNativeKeepAlive, type NativeKeepAliveStatus } from '@/services/nativeKeepAlive';
+import { dismissNativeCallNotification, getNativeKeepAliveStatus, isNativeKeepAliveAvailable, openNativeBatterySettings, requestNativeNotificationPermission, showNativeLinkNotification, startNativeKeepAlive, stopNativeKeepAlive, type NativeKeepAliveStatus } from '@/services/nativeKeepAlive';
+import { dismissIosNativeCallNotification, getIosNativeNotificationPermission, isIosNativeNotificationAvailable, requestIosNativeNotificationPermission, showIosNativeNotification } from '@/services/nativeNotifications';
 import { compressInlineImageDataUrl } from '@/utils/imageFile';
 
 type NotificationPermissionState = NotificationPermission | 'unsupported';
 export type KeepAlivePlatform = 'ios' | 'android' | 'desktop';
 
-export type LinkNotificationKind = 'message' | 'voom';
+export type LinkNotificationKind = 'message' | 'voom' | 'call';
+export type LinkNotificationAction = 'open' | 'accepted' | 'rejected';
+
+export const LINK_NOTIFICATION_CLICK_EVENT = 'LINK_NOTIFICATION_CLICK';
+export const LINK_NOTIFICATION_SHOW_EVENT = 'LINK_NOTIFICATION_SHOW';
 
 export interface LinkNotificationPayload {
   kind: LinkNotificationKind;
@@ -16,6 +21,82 @@ export interface LinkNotificationPayload {
   tag: string;
   icon?: string;
   url?: string;
+  conversationId?: string;
+  callId?: string;
+  callMode?: 'voice' | 'video';
+  action?: LinkNotificationAction;
+}
+
+export interface LinkNotificationEventPayload extends LinkNotificationPayload {
+  url: string;
+  action: LinkNotificationAction;
+}
+
+function normalizeLinkNotificationEventPayload(value: unknown): LinkNotificationEventPayload | null {
+  if (!value || typeof value !== 'object') return null;
+  const data = value as Partial<LinkNotificationEventPayload>;
+  const url = String(data.url ?? '').trim();
+  if (!url) return null;
+  return {
+    kind: data.kind === 'call' ? 'call' : data.kind === 'voom' ? 'voom' : 'message',
+    title: String(data.title ?? '').trim(),
+    body: String(data.body ?? '').trim(),
+    messages: Array.isArray(data.messages) ? data.messages.map((message) => String(message).trim()).filter(Boolean) : undefined,
+    tag: String(data.tag ?? '').trim(),
+    icon: String(data.icon ?? '').trim() || undefined,
+    url,
+    conversationId: String(data.conversationId ?? '').trim() || undefined,
+    callId: String(data.callId ?? '').trim() || undefined,
+    callMode: data.callMode === 'video' ? 'video' : data.callMode === 'voice' ? 'voice' : undefined,
+    action: data.action === 'accepted' ? 'accepted' : data.action === 'rejected' ? 'rejected' : 'open'
+  };
+}
+
+function dispatchLinkNotificationEvent(type: string, payload: LinkNotificationPayload) {
+  if (typeof window === 'undefined') return;
+  const normalizedPayload = normalizeLinkNotificationEventPayload({ ...payload, url: getNotificationUrl(payload.url || '') });
+  if (!normalizedPayload) return;
+  window.dispatchEvent(new CustomEvent(type, { detail: normalizedPayload }));
+}
+
+export function dispatchLinkNotificationClick(payload: LinkNotificationPayload) {
+  dispatchLinkNotificationEvent(LINK_NOTIFICATION_CLICK_EVENT, payload);
+}
+
+function dispatchLinkNotificationShow(payload: LinkNotificationPayload) {
+  dispatchLinkNotificationEvent(LINK_NOTIFICATION_SHOW_EVENT, payload);
+}
+
+export function subscribeLinkNotificationShows(listener: (payload: LinkNotificationEventPayload) => void) {
+  if (typeof window === 'undefined') return () => undefined;
+  const handleWindowEvent = (event: Event) => {
+    const payload = normalizeLinkNotificationEventPayload((event as CustomEvent).detail);
+    if (payload) listener(payload);
+  };
+  window.addEventListener(LINK_NOTIFICATION_SHOW_EVENT, handleWindowEvent);
+  return () => window.removeEventListener(LINK_NOTIFICATION_SHOW_EVENT, handleWindowEvent);
+}
+
+export function subscribeLinkNotificationClicks(listener: (payload: LinkNotificationEventPayload) => void) {
+  if (typeof window === 'undefined') return () => undefined;
+  const notificationWindow = window as typeof window & { __LINK_NOTIFICATION_BRIDGE_READY__?: boolean };
+  notificationWindow.__LINK_NOTIFICATION_BRIDGE_READY__ = true;
+  const handleWindowEvent = (event: Event) => {
+    const payload = normalizeLinkNotificationEventPayload((event as CustomEvent).detail);
+    if (payload) listener(payload);
+  };
+  const handleServiceWorkerMessage = (event: MessageEvent) => {
+    if (event.data?.type !== LINK_NOTIFICATION_CLICK_EVENT) return;
+    const payload = normalizeLinkNotificationEventPayload(event.data);
+    if (payload) listener(payload);
+  };
+  window.addEventListener(LINK_NOTIFICATION_CLICK_EVENT, handleWindowEvent);
+  navigator.serviceWorker?.addEventListener('message', handleServiceWorkerMessage);
+  return () => {
+    window.removeEventListener(LINK_NOTIFICATION_CLICK_EVENT, handleWindowEvent);
+    navigator.serviceWorker?.removeEventListener('message', handleServiceWorkerMessage);
+    notificationWindow.__LINK_NOTIFICATION_BRIDGE_READY__ = false;
+  };
 }
 
 export interface KeepAliveRuntimeStatus {
@@ -59,7 +140,7 @@ const status: KeepAliveRuntimeStatus = {
   wakeLockActive: false,
   heartbeatActive: false,
   notificationPermission: getNotificationPermission(),
-  notificationSupported: typeof Notification !== 'undefined',
+  notificationSupported: isIosNativeNotificationAvailable() || typeof Notification !== 'undefined',
   wakeLockSupported: hasWakeLockSupport(),
   standalone: isStandaloneDisplayMode(),
   platform: detectPlatform(),
@@ -84,8 +165,8 @@ const statusListeners = new Set<(nextStatus: KeepAliveRuntimeStatus) => void>();
 
 function emitStatus() {
   status.native = isNativeKeepAliveAvailable();
-  if (!status.native) status.notificationPermission = getNotificationPermission();
-  status.notificationSupported = status.native || typeof Notification !== 'undefined';
+  if (!status.native && !isIosNativeNotificationAvailable()) status.notificationPermission = getNotificationPermission();
+  status.notificationSupported = status.native || isIosNativeNotificationAvailable() || typeof Notification !== 'undefined';
   status.wakeLockSupported = status.native || hasWakeLockSupport();
   status.standalone = status.native || isStandaloneDisplayMode();
   status.platform = detectPlatform();
@@ -346,10 +427,11 @@ function stopWebAudio() {
 }
 
 export function getKeepAliveStatus(): KeepAliveRuntimeStatus {
+  const iosNativeNotifications = isIosNativeNotificationAvailable();
   return {
     ...status,
-    notificationPermission: status.native ? status.notificationPermission : getNotificationPermission(),
-    notificationSupported: status.native || typeof Notification !== 'undefined',
+    notificationPermission: status.native || iosNativeNotifications ? status.notificationPermission : getNotificationPermission(),
+    notificationSupported: status.native || iosNativeNotifications || typeof Notification !== 'undefined',
     wakeLockSupported: status.native || hasWakeLockSupport(),
     standalone: status.native || isStandaloneDisplayMode(),
     platform: detectPlatform()
@@ -375,6 +457,12 @@ export async function requestKeepAliveNotificationPermission() {
     } catch (error) {
       setLastError(error, 'Android 通知授权失败，请在系统应用设置中允许通知。');
     }
+    emitStatus();
+    return status.notificationPermission;
+  }
+  if (isIosNativeNotificationAvailable()) {
+    status.notificationPermission = await requestIosNativeNotificationPermission() ?? 'unsupported';
+    status.lastError = status.notificationPermission === 'granted' ? '' : '系统通知权限未允许，请在 iPhone 设置中重新开启。';
     emitStatus();
     return status.notificationPermission;
   }
@@ -505,14 +593,33 @@ async function showWebLinkNotification(payload: LinkNotificationPayload) {
   if (getNotificationPermission() !== 'granted') return false;
   const notificationUrl = getNotificationUrl(payload.url || '');
   const notificationBody = payload.messages?.map((message) => message.trim()).filter(Boolean).join('\n') || payload.body;
-  const options: NotificationOptions & { renotify: boolean } = {
+  const isIncomingCall = payload.kind === 'call';
+  const options: NotificationOptions & { renotify: boolean; actions?: Array<{ action: string; title: string }>; requireInteraction?: boolean; vibrate?: number[] } = {
     body: notificationBody,
     tag: payload.tag,
     icon: payload.icon || getNotificationUrl('link-icon.png'),
     badge: getNotificationUrl('link-icon.png'),
     silent: false,
     renotify: true,
-    data: { url: notificationUrl, kind: payload.kind }
+    requireInteraction: isIncomingCall,
+    vibrate: isIncomingCall ? [0, 360, 180, 360, 180, 620] : [0, 220, 120, 220],
+    actions: isIncomingCall ? [
+      { action: 'rejected', title: '拒绝' },
+      { action: 'accepted', title: '接听' }
+    ] : undefined,
+    data: {
+      type: LINK_NOTIFICATION_CLICK_EVENT,
+      url: notificationUrl,
+      kind: payload.kind,
+      title: payload.title,
+      body: payload.body,
+      messages: payload.messages,
+      tag: payload.tag,
+      icon: payload.icon,
+      conversationId: payload.conversationId,
+      callId: payload.callId,
+      callMode: payload.callMode
+    }
   };
 
   const registration = await getServiceWorkerRegistration();
@@ -530,7 +637,7 @@ async function showWebLinkNotification(payload: LinkNotificationPayload) {
     const notification = new Notification(payload.title, options);
     notification.onclick = () => {
       window.focus();
-      if (notificationUrl) window.location.assign(notificationUrl);
+      dispatchLinkNotificationClick({ ...payload, url: notificationUrl });
       notification.close();
     };
     return true;
@@ -541,19 +648,58 @@ async function showWebLinkNotification(payload: LinkNotificationPayload) {
 }
 
 export async function showLinkNotification(settings: Partial<AppKeepAliveSettings> | null | undefined, payload: LinkNotificationPayload) {
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus()) {
+    dispatchLinkNotificationShow(payload);
+    return true;
+  }
   const keepAliveSettings = normalizeKeepAliveSettings(settings);
   if (!keepAliveSettings.enabled || !keepAliveSettings.notifications) return false;
+  if (isIosNativeNotificationAvailable()) {
+    status.notificationPermission = await getIosNativeNotificationPermission() ?? 'unsupported';
+    if (status.notificationPermission !== 'granted') return false;
+    return await showIosNativeNotification({
+      kind: payload.kind,
+      title: payload.title,
+      body: payload.body,
+      tag: payload.tag,
+      icon: await getNativeNotificationIcon(payload.icon),
+      url: getNotificationUrl(payload.url || ''),
+      conversationId: payload.conversationId,
+      callId: payload.callId,
+      callMode: payload.callMode
+    });
+  }
   if (isNativeKeepAliveAvailable()) {
     if (status.notificationPermission !== 'granted') await refreshNativeStatus().catch(() => undefined);
     if (status.notificationPermission !== 'granted') return false;
     return await showNativeLinkNotification({
+      kind: payload.kind,
       title: payload.title,
       body: payload.body,
       messages: payload.messages,
       tag: payload.tag,
       icon: await getNativeNotificationIcon(payload.icon),
-      url: getNotificationUrl(payload.url || '')
+      url: getNotificationUrl(payload.url || ''),
+      conversationId: payload.conversationId,
+      callId: payload.callId,
+      callMode: payload.callMode
     });
   }
   return await showWebLinkNotification(payload);
+}
+
+export async function dismissLinkCallNotification(callId: string) {
+  const normalizedCallId = callId.trim();
+  if (!normalizedCallId) return;
+  if (isIosNativeNotificationAvailable()) {
+    await dismissIosNativeCallNotification(normalizedCallId);
+    return;
+  }
+  if (isNativeKeepAliveAvailable()) {
+    await dismissNativeCallNotification(normalizedCallId);
+    return;
+  }
+  const registration = await getServiceWorkerRegistration();
+  const notifications = await registration?.getNotifications?.({ tag: `link-call-${normalizedCallId}` }).catch(() => []);
+  notifications?.forEach((notification) => notification.close());
 }

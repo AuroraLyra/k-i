@@ -866,6 +866,8 @@ async function confirmCreateUserVoomPost() {
   --top-icon-button-width: 26px;
   --top-icon-button-height: 30px;
   --top-icon-gap: 1px;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
   padding-bottom: calc(var(--safe-bottom) + 24px);
   scroll-padding-bottom: calc(var(--safe-bottom) + 24px);
 }

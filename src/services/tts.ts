@@ -11,6 +11,10 @@ export interface TtsAudioResult extends TtsAudioPayload {
   voiceId: string;
 }
 
+export interface TtsSynthesisOptions {
+  minimaxVoiceId?: string;
+}
+
 const legacyOpenAiSpeechVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
 const defaultGeminiTtsVoice = 'Kore';
 const geminiTtsVoices = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir', 'Leda', 'Orus', 'Aoede'];
@@ -503,10 +507,13 @@ export async function synthesizeOpenAiSpeech(text: string, settings: AppSettings
   return { ...audio, provider: 'openai', voiceId: voice };
 }
 
-export async function synthesizeSpeech(text: string, settings: AppSettings): Promise<TtsAudioResult> {
+export async function synthesizeSpeech(text: string, settings: AppSettings, options: TtsSynthesisOptions = {}): Promise<TtsAudioResult> {
   const normalized = normalizeAppSettings(settings);
 
   if (normalized.ttsProvider === 'openai') return synthesizeOpenAiSpeech(text, normalized);
   if (normalized.ttsProvider === 'doubao') return synthesizeDoubaoSpeech(text, normalized.ttsDoubao);
-  return synthesizeMinimaxSpeech(text, normalized.ttsMinimax);
+  const minimaxVoiceId = String(options.minimaxVoiceId ?? '').trim();
+  return synthesizeMinimaxSpeech(text, minimaxVoiceId
+    ? { ...normalized.ttsMinimax, voiceId: minimaxVoiceId }
+    : normalized.ttsMinimax);
 }

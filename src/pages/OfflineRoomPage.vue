@@ -26,10 +26,20 @@
       </div>
     </header>
 
-    <main ref="offlineScrollRef" class="offline-scroll">
+    <main ref="offlineScrollRef" class="offline-scroll" @scroll.passive="handleOfflineScroll">
       <section class="chapter-stream" aria-label="线下章节记录">
+        <button
+          v-if="hasEarlierFloors"
+          class="floor-history-loader"
+          type="button"
+          :disabled="loadingEarlierFloors || loadingLaterFloors"
+          @click="loadEarlierFloors"
+        >
+          {{ loadingEarlierFloors ? '正在加载更早楼层' : `上滑加载更早楼层 · 还有 ${earlierFloorCount} 层` }}
+        </button>
+
         <article
-          v-for="floor in chapterFloors"
+          v-for="floor in visibleChapterFloors"
           :key="floor.id"
           :data-floor-id="floor.id"
           :class="['chapter-entry', `chapter-entry--${floor.sender}`, { 'chapter-entry--hidden': floor.hidden, 'chapter-entry--delete-target': truncateDeleteMode, 'chapter-entry--editing': isEditingFloor(floor) }]"
@@ -97,7 +107,17 @@
           <span v-if="truncateDeleteMode" class="delete-floor-hint">点击后确认删除本楼以及以下楼层</span>
         </article>
 
-        <section v-if="currentConversationReplying" class="typing-card" aria-live="polite">
+        <button
+          v-if="hasLaterFloors"
+          class="floor-history-loader"
+          type="button"
+          :disabled="loadingEarlierFloors || loadingLaterFloors"
+          @click="loadLaterFloors"
+        >
+          {{ loadingLaterFloors ? '正在加载后续楼层' : `下滑加载后续楼层 · 还有 ${laterFloorCount} 层` }}
+        </button>
+
+        <section v-if="currentConversationReplying && !hasLaterFloors" class="typing-card" aria-live="polite">
           <span class="typing-dots"><i></i><i></i><i></i></span>
           <strong>{{ characterDisplayName }} 正在回复中</strong>
         </section>
@@ -224,6 +244,9 @@ const props = defineProps<{
   id: string;
 }>();
 
+const floorPageSize = 24;
+const maxRenderedFloorCount = floorPageSize * 3;
+const floorLoadThreshold = 96;
 const store = useAppStore();
 const router = useRouter();
 const route = useRoute();
@@ -241,6 +264,8 @@ const editingFloorId = ref('');
 const floorEditDraft = ref('');
 const offlineScrollRef = ref<HTMLElement | null>(null);
 const composerRef = ref<HTMLTextAreaElement | null>(null);
+const loadingEarlierFloors = ref(false);
+const loadingLaterFloors = ref(false);
 const conversation = computed(() => store.conversationById(props.id));
 const isGroup = computed(() => conversation.value?.kind === 'group');
 const character = computed(() => {
@@ -256,6 +281,13 @@ const currentConversationReplying = computed(() => store.isConversationReplying(
 const offlineAllMessages = computed(() => store.messagesForConversation(props.id).filter((message) => message.mode === 'offline' && !isVoomNarrationMessage(message)));
 const hiddenMessageIds = computed(() => store.hiddenMessageIdsForConversation(props.id));
 const chapterFloors = computed(() => getConversationFloors(offlineAllMessages.value).map((messages, index) => createChapterFloor(messages, index)));
+const visibleFloorStartIndex = ref(Math.max(0, chapterFloors.value.length - floorPageSize));
+const visibleFloorEndIndex = ref(chapterFloors.value.length);
+const visibleChapterFloors = computed(() => chapterFloors.value.slice(visibleFloorStartIndex.value, visibleFloorEndIndex.value));
+const earlierFloorCount = computed(() => visibleFloorStartIndex.value);
+const laterFloorCount = computed(() => Math.max(0, chapterFloors.value.length - visibleFloorEndIndex.value));
+const hasEarlierFloors = computed(() => earlierFloorCount.value > 0);
+const hasLaterFloors = computed(() => laterFloorCount.value > 0);
 const latestOfflineMessage = computed(() => offlineAllMessages.value.filter((message) => message.replyVariantState !== 'inactive').at(-1));
 const canRegenerate = computed(() => latestOfflineMessage.value?.sender === 'char');
 const bottomRestoreDelays = [40, 120, 260, 520];
@@ -297,6 +329,11 @@ interface PendingDelete {
   floorNumber: number;
   title: string;
   message: string;
+}
+
+interface FloorScrollAnchor {
+  floorId: string;
+  viewportTop: number;
 }
 
 const pendingDelete = ref<PendingDelete | null>(null);
@@ -582,6 +619,126 @@ async function syncConversationState(id: string) {
   }
 }
 
+function setFloorWindow(startIndex: number, endIndex: number) {
+  const floorCount = chapterFloors.value.length;
+  if (!floorCount) {
+    visibleFloorStartIndex.value = 0;
+    visibleFloorEndIndex.value = 0;
+    return;
+  }
+  const safeStartIndex = Math.min(Math.max(0, Math.floor(startIndex)), floorCount - 1);
+  const safeEndIndex = Math.min(floorCount, Math.max(safeStartIndex + 1, Math.floor(endIndex)));
+  visibleFloorStartIndex.value = safeStartIndex;
+  visibleFloorEndIndex.value = safeEndIndex;
+}
+
+function resetFloorWindowToLatest() {
+  const floorCount = chapterFloors.value.length;
+  setFloorWindow(Math.max(0, floorCount - floorPageSize), floorCount);
+  loadingEarlierFloors.value = false;
+  loadingLaterFloors.value = false;
+}
+
+function setFloorWindowAround(targetIndex: number) {
+  const floorCount = chapterFloors.value.length;
+  if (!floorCount) return;
+  const safeTargetIndex = Math.min(Math.max(0, targetIndex), floorCount - 1);
+  const leadingFloorCount = Math.floor(floorPageSize / 3);
+  let startIndex = Math.max(0, safeTargetIndex - leadingFloorCount);
+  let endIndex = Math.min(floorCount, startIndex + floorPageSize);
+  startIndex = Math.max(0, endIndex - floorPageSize);
+  setFloorWindow(startIndex, endIndex);
+}
+
+function syncFloorWindowAfterChange(floors: ChapterFloor[], previousFloors: ChapterFloor[]) {
+  if (!floors.length) {
+    setFloorWindow(0, 0);
+    return;
+  }
+  if (!previousFloors.length) {
+    resetFloorWindowToLatest();
+    return;
+  }
+
+  const previousStartIndex = Math.min(visibleFloorStartIndex.value, Math.max(0, previousFloors.length - 1));
+  const previousEndIndex = Math.min(Math.max(previousStartIndex + 1, visibleFloorEndIndex.value), previousFloors.length);
+  if (previousEndIndex >= previousFloors.length) {
+    const addedFloorCount = Math.max(0, floors.length - previousFloors.length);
+    const previousWindowSize = Math.max(floorPageSize, previousEndIndex - previousStartIndex);
+    const nextWindowSize = Math.min(maxRenderedFloorCount, previousWindowSize + addedFloorCount);
+    setFloorWindow(Math.max(0, floors.length - nextWindowSize), floors.length);
+    return;
+  }
+
+  const firstVisibleFloorId = previousFloors[previousStartIndex]?.id;
+  const lastVisibleFloorId = previousFloors[previousEndIndex - 1]?.id;
+  const nextStartIndex = floors.findIndex((floor) => floor.id === firstVisibleFloorId);
+  const nextLastIndex = floors.findIndex((floor) => floor.id === lastVisibleFloorId);
+  if (nextStartIndex >= 0 && nextLastIndex >= nextStartIndex) {
+    setFloorWindow(nextStartIndex, Math.min(nextLastIndex + 1, nextStartIndex + maxRenderedFloorCount));
+    return;
+  }
+  setFloorWindowAround(Math.min(previousStartIndex, floors.length - 1));
+}
+
+function renderedFloorElement(floorId: string) {
+  const scrollElement = offlineScrollRef.value;
+  if (!scrollElement) return null;
+  return [...scrollElement.querySelectorAll<HTMLElement>('[data-floor-id]')]
+    .find((element) => element.dataset.floorId === floorId) ?? null;
+}
+
+function captureFloorScrollAnchor(edge: 'first' | 'last'): FloorScrollAnchor | null {
+  const floor = edge === 'first' ? visibleChapterFloors.value[0] : visibleChapterFloors.value.at(-1);
+  if (!floor) return null;
+  const element = renderedFloorElement(floor.id);
+  if (!element) return null;
+  return { floorId: floor.id, viewportTop: element.getBoundingClientRect().top };
+}
+
+function restoreFloorScrollAnchor(anchor: FloorScrollAnchor | null) {
+  if (!anchor) return;
+  const scrollElement = offlineScrollRef.value;
+  const element = renderedFloorElement(anchor.floorId);
+  if (!scrollElement || !element) return;
+  scrollElement.scrollTop += element.getBoundingClientRect().top - anchor.viewportTop;
+}
+
+async function loadEarlierFloors() {
+  if (!hasEarlierFloors.value || loadingEarlierFloors.value || loadingLaterFloors.value) return;
+  loadingEarlierFloors.value = true;
+  const anchor = captureFloorScrollAnchor('first');
+  const nextStartIndex = Math.max(0, visibleFloorStartIndex.value - floorPageSize);
+  const nextEndIndex = Math.min(visibleFloorEndIndex.value, nextStartIndex + maxRenderedFloorCount);
+  setFloorWindow(nextStartIndex, nextEndIndex);
+  await nextTick();
+  restoreFloorScrollAnchor(anchor);
+  loadingEarlierFloors.value = false;
+}
+
+async function loadLaterFloors() {
+  if (!hasLaterFloors.value || loadingLaterFloors.value || loadingEarlierFloors.value) return;
+  loadingLaterFloors.value = true;
+  const anchor = captureFloorScrollAnchor('last');
+  const nextEndIndex = Math.min(chapterFloors.value.length, visibleFloorEndIndex.value + floorPageSize);
+  const nextStartIndex = Math.max(visibleFloorStartIndex.value, nextEndIndex - maxRenderedFloorCount);
+  setFloorWindow(nextStartIndex, nextEndIndex);
+  await nextTick();
+  restoreFloorScrollAnchor(anchor);
+  loadingLaterFloors.value = false;
+}
+
+function handleOfflineScroll() {
+  const scrollElement = offlineScrollRef.value;
+  if (!scrollElement || loadingEarlierFloors.value || loadingLaterFloors.value) return;
+  if (hasEarlierFloors.value && scrollElement.scrollTop <= floorLoadThreshold) {
+    void loadEarlierFloors();
+    return;
+  }
+  const bottomOffset = scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop;
+  if (hasLaterFloors.value && bottomOffset <= floorLoadThreshold) void loadLaterFloors();
+}
+
 function scrollOfflineToBottomNow() {
   const scrollElement = offlineScrollRef.value;
   if (!scrollElement) return;
@@ -673,47 +830,58 @@ function toggleTruncateDeleteMode() {
 
 function floorScrollTop(floor: ChapterFloor) {
   const scrollElement = offlineScrollRef.value;
-  const target = scrollElement?.querySelector<HTMLElement>(`[data-floor-id="${floor.id}"]`);
+  const target = renderedFloorElement(floor.id);
   if (!scrollElement || !target) return null;
   const scrollRect = scrollElement.getBoundingClientRect();
   const targetRect = target.getBoundingClientRect();
   return scrollElement.scrollTop + targetRect.top - scrollRect.top;
 }
 
-function jumpToFloorStart(floor: ChapterFloor | undefined, behavior: ScrollBehavior = 'auto') {
-  if (!floor) return;
+async function ensureFloorRendered(floor: ChapterFloor) {
+  const floorIndex = chapterFloors.value.findIndex((entry) => entry.id === floor.id);
+  if (floorIndex < 0) return false;
+  if (floorIndex < visibleFloorStartIndex.value || floorIndex >= visibleFloorEndIndex.value) {
+    setFloorWindowAround(floorIndex);
+    await nextTick();
+  }
+  return Boolean(renderedFloorElement(floor.id));
+}
+
+async function jumpToFloorStart(floor: ChapterFloor | undefined, behavior: ScrollBehavior = 'auto') {
+  if (!floor || !await ensureFloorRendered(floor)) return false;
   const scrollElement = offlineScrollRef.value;
   const top = floorScrollTop(floor);
-  if (!scrollElement || top === null) return;
+  if (!scrollElement || top === null) return false;
   scrollElement.scrollTo({ top, behavior });
+  return true;
 }
 
 function currentFloorIndex() {
   const scrollElement = offlineScrollRef.value;
   if (!scrollElement || !chapterFloors.value.length) return 0;
   const currentTop = scrollElement.scrollTop + 2;
-  let activeIndex = 0;
-  chapterFloors.value.forEach((floor, index) => {
+  let activeIndex = visibleFloorStartIndex.value;
+  visibleChapterFloors.value.forEach((floor, index) => {
     const top = floorScrollTop(floor);
-    if (top !== null && top <= currentTop) activeIndex = index;
+    if (top !== null && top <= currentTop) activeIndex = visibleFloorStartIndex.value + index;
   });
   return activeIndex;
 }
 
 function jumpToFirstFloor() {
-  jumpToFloorStart(chapterFloors.value[0]);
+  void jumpToFloorStart(chapterFloors.value[0]);
 }
 
 function jumpToPreviousFloor() {
-  jumpToFloorStart(chapterFloors.value[Math.max(0, currentFloorIndex() - 1)]);
+  void jumpToFloorStart(chapterFloors.value[Math.max(0, currentFloorIndex() - 1)]);
 }
 
 function jumpToNextFloor() {
-  jumpToFloorStart(chapterFloors.value[Math.min(chapterFloors.value.length - 1, currentFloorIndex() + 1)]);
+  void jumpToFloorStart(chapterFloors.value[Math.min(chapterFloors.value.length - 1, currentFloorIndex() + 1)]);
 }
 
 function jumpToLastFloor() {
-  jumpToFloorStart(chapterFloors.value.at(-1));
+  void jumpToFloorStart(chapterFloors.value.at(-1));
 }
 
 function openJumpDialog() {
@@ -748,10 +916,10 @@ function regeneratePromptInstruction() {
   return `本次是用户点击“重回”要求重新生成上一段线下章节。请优先遵守以下额外引导，同时继续遵守角色设定、线下规则和禁止替用户做关键决定的边界：${instruction}`;
 }
 
-function confirmFloorJump() {
+async function confirmFloorJump() {
   const floorNumber = Math.min(Math.max(1, Math.floor(Number(jumpFloorDraft.value) || 1)), chapterFloors.value.length);
-  jumpToFloorStart(chapterFloors.value[floorNumber - 1]);
   closeJumpDialog();
+  await jumpToFloorStart(chapterFloors.value[floorNumber - 1]);
 }
 
 function focusedMessageId() {
@@ -761,12 +929,11 @@ function focusedMessageId() {
 }
 
 async function scrollToFocusedFloor(messageId: string) {
-  await nextTick();
   const floor = chapterFloors.value.find((entry) => entry.id === messageId || entry.messages.some((message) => message.id === messageId));
   if (!floor) return false;
-  const target = offlineScrollRef.value?.querySelector<HTMLElement>(`[data-floor-id="${floor.id}"]`);
+  if (!await jumpToFloorStart(floor)) return false;
+  const target = renderedFloorElement(floor.id);
   if (!target) return false;
-  jumpToFloorStart(floor);
   target.classList.add('chapter-entry--focus');
   window.setTimeout(() => target.classList.remove('chapter-entry--focus'), 1400);
   return true;
@@ -788,6 +955,7 @@ async function applySelectedReplyOption(floor: ChapterFloor) {
 onMounted(async () => {
   await store.hydrate();
   await syncConversationState(props.id);
+  resetFloorWindowToLatest();
   const focusId = focusedMessageId();
   if (focusId) {
     await scrollToFocusedFloor(focusId);
@@ -810,6 +978,7 @@ watch(() => props.id, (id) => {
   pendingDelete.value = null;
   void (async () => {
     await syncConversationState(id);
+    resetFloorWindowToLatest();
     const focusId = focusedMessageId();
     if (focusId) {
       await scrollToFocusedFloor(focusId);
@@ -828,10 +997,9 @@ watch(() => route.query.panel, () => {
   showMemoryPanel.value = isMemoryPanelRoute();
 }, { immediate: true });
 
-watch(chapterFloors, () => {
-  void nextTick(() => {
-    if (currentConversationReplying.value) jumpToLastFloor();
-  });
+watch(chapterFloors, (floors, previousFloors) => {
+  syncFloorWindowAfterChange(floors, previousFloors);
+  if (currentConversationReplying.value) jumpToLastFloor();
 });
 
 function latestCharacterFloor() {
@@ -842,7 +1010,7 @@ async function jumpToLatestCharacterFloor(previousFloorId = '') {
   await nextTick();
   const latestFloor = latestCharacterFloor();
   if (!latestFloor || latestFloor.id === previousFloorId) return;
-  jumpToFloorStart(latestFloor);
+  await jumpToFloorStart(latestFloor);
 }
 
 async function send() {
@@ -1006,6 +1174,24 @@ async function exitOffline() {
   gap: 12px;
   max-width: 720px;
   margin: 0 auto;
+}
+
+.floor-history-loader {
+  justify-self: center;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid rgba(182, 154, 166, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.66);
+  color: #8f7883;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.2;
+  box-shadow: 0 8px 20px rgba(96, 74, 88, 0.06);
+}
+
+.floor-history-loader:disabled {
+  opacity: 0.55;
 }
 
 .chapter-entry {

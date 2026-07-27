@@ -7,11 +7,15 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --app-height: 100vh;
-  --app-height: 100svh;
-  --app-height: 100dvh;
-  --visual-viewport-height: var(--app-height);
-  --visual-viewport-offset-top: 0px;
+  --app-display-scale: 1;
+  --app-viewport-height: 100vh;
+  --app-viewport-height: 100svh;
+  --app-viewport-height: 100dvh;
+  --app-height: calc(var(--app-viewport-height) / var(--app-display-scale));
+  --visual-viewport-raw-height: var(--app-viewport-height);
+  --visual-viewport-height: calc(var(--visual-viewport-raw-height) / var(--app-display-scale));
+  --visual-viewport-raw-offset-top: 0px;
+  --visual-viewport-offset-top: calc(var(--visual-viewport-raw-offset-top) / var(--app-display-scale));
   --sticker-panel-height: min(clamp(286px, 42vh, 388px), calc(var(--visual-viewport-height) - var(--safe-top) - 76px));
   --link-green: #06c755;
   --ink: #111111;
@@ -31,11 +35,16 @@
   --top-icon-button-width: 28px;
   --top-icon-button-height: 32px;
   --top-icon-gap: 2px;
-  --safe-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
-  --safe-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
-  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
-  --keyboard-inset: 0px;
-  --safe-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+  --safe-top: calc(max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px)) / var(--app-display-scale));
+  --safe-right: calc(max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px)) / var(--app-display-scale));
+  --safe-bottom: calc(max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px)) / var(--app-display-scale));
+  --keyboard-raw-inset: 0px;
+  --keyboard-inset: calc(var(--keyboard-raw-inset) / var(--app-display-scale));
+  --safe-left: calc(max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px)) / var(--app-display-scale));
+  --link-cutout-top: 0px;
+  --link-cutout-right: 0px;
+  --link-cutout-bottom: 0px;
+  --link-cutout-left: 0px;
   --tab-height: 54px;
 }
 
@@ -47,12 +56,12 @@ html,
 body,
 #app {
   width: 100%;
-  min-height: var(--app-height);
-  height: var(--app-height);
   margin: 0;
 }
 
 html {
+  min-height: var(--app-viewport-height);
+  height: var(--app-viewport-height);
   overflow: hidden;
   background: var(--surface);
   -webkit-text-size-adjust: 100%;
@@ -60,17 +69,29 @@ html {
   overscroll-behavior: none;
 }
 
+html.is-link-fullscreen {
+  --safe-top: calc(max(env(safe-area-inset-top, 0px), var(--link-cutout-top)) / var(--app-display-scale));
+  --safe-right: calc(max(env(safe-area-inset-right, 0px), var(--link-cutout-right)) / var(--app-display-scale));
+  --safe-bottom: calc(max(env(safe-area-inset-bottom, 0px), var(--link-cutout-bottom)) / var(--app-display-scale));
+  --safe-left: calc(max(env(safe-area-inset-left, 0px), var(--link-cutout-left)) / var(--app-display-scale));
+}
+
 body {
-  min-width: 320px;
+  min-width: calc(320px / var(--app-display-scale));
+  min-height: var(--app-height);
+  height: var(--app-height);
   overflow: hidden;
   font-family: var(--app-current-font-family);
   font-size: var(--compact-page-font-size);
+  zoom: var(--app-display-scale);
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
 }
 
 #app {
   position: relative;
+  min-height: var(--app-height);
+  height: var(--app-height);
   isolation: isolate;
 }
 
@@ -79,6 +100,11 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+.fanfic-font-scope,
+.fanfic-font-scope * {
+  font-family: var(--app-current-font-family) !important;
 }
 
 button {

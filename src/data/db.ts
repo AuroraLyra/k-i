@@ -63,6 +63,8 @@ const legacyDefaultCharacterIds = new Set(['2000100001', '2000100002', '20001000
 const legacyDefaultConversationIds = new Set(['conv_2000100001', 'conv_2000100002', 'conv_2000100003']);
 const legacyDefaultWorldBookIds = new Set(['wb_global_online', 'wb_global_offline', 'wb_local_campus', 'wb_local_art', 'wb_local_tokyo']);
 const legacyDefaultVoomPostIds = new Set(['voom_seed_1']);
+const legacyDefaultPruneStorageKey = 'link:legacy-defaults-pruned:2026-07-v1';
+const legacyPruneStoreNames = ['user', 'characters', 'conversations', 'messages', 'voomPosts', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'settings'] as const;
 const inlineImageCompressionOptions = { maxDimension: 800, quality: 0.62, minBytes: 160 * 1024 };
 const inlineAvatarCompressionOptions = { maxDimension: 320, quality: 0.76, minBytes: 56 * 1024 };
 const inlineProfileImageCompressionOptions = { maxDimension: 960, quality: 0.72, minBytes: 160 * 1024 };
@@ -70,6 +72,27 @@ const generatedImageFullQualityMs = 7 * 24 * 60 * 60 * 1000;
 const startupMaintenanceIntervalMs = 24 * 60 * 60 * 1000;
 const startupMaintenanceStorageKey = 'link:storage-maintenance:2026-07-generated-media-v2';
 let startupMaintenancePromise: Promise<void> | null = null;
+
+export interface MemoryStoreMutation {
+  put?: {
+    episodes?: MemoryEpisode[];
+    entities?: MemoryEntity[];
+    assertions?: MemoryAssertion[];
+    edges?: MemoryEdge[];
+    themes?: MemoryTheme[];
+    stateSnapshots?: MemoryStateSnapshot[];
+    embeddings?: MemoryEmbeddingCache[];
+  };
+  delete?: {
+    episodeIds?: string[];
+    entityIds?: string[];
+    assertionIds?: string[];
+    edgeIds?: string[];
+    themeIds?: string[];
+    stateSnapshotIds?: string[];
+    embeddingIds?: string[];
+  };
+}
 
 async function waitForBackupReadLock() {
   while (backupReadLockDepth > 0 && backupReadLockReleased) await backupReadLockReleased;
@@ -872,8 +895,11 @@ export async function seedDatabase() {
 }
 
 async function pruneLegacyDefaultData() {
+  try {
+    if (globalThis.localStorage?.getItem(legacyDefaultPruneStorageKey) === 'true') return;
+  } catch {}
   const db = await getDb();
-  const tx = db.transaction(storeNames, 'readwrite');
+  const tx = db.transaction(legacyPruneStoreNames, 'readwrite');
   const userStore = tx.objectStore('user');
   const messageStore = tx.objectStore('messages');
   const voomStore = tx.objectStore('voomPosts');
@@ -937,6 +963,11 @@ async function pruneLegacyDefaultData() {
   }
 
   await tx.done;
+  try {
+    globalThis.localStorage?.setItem(legacyDefaultPruneStorageKey, 'true');
+  } catch {
+    return;
+  }
 }
 
 export async function loadSnapshot() {
@@ -984,6 +1015,11 @@ export async function loadSnapshot() {
     db.get('settings', 'main')
   ]);
 
+  const normalizedSettings = normalizeAppSettings(settings ?? defaultSettings);
+  if (settings && JSON.stringify(settings) !== JSON.stringify(normalizedSettings)) {
+    await db.put('settings', normalizedSettings, 'main');
+  }
+
   return {
     users: users.map((user) => normalizeUserProfile(user)),
     characters,
@@ -1022,7 +1058,7 @@ export async function loadSnapshot() {
     shopWishlistItems,
     shopOrders,
     shopMoments,
-    settings: normalizeAppSettings(settings ?? defaultSettings)
+    settings: normalizedSettings
   };
 }
 
@@ -1298,4 +1334,35 @@ export async function deleteEntity<TStore extends StoreName>(storeName: TStore, 
   await waitForBackupReadLock();
   const db = await getDb();
   await db.delete(storeName, key as never);
+}
+
+export async function applyMemoryStoreMutation(mutation: MemoryStoreMutation) {
+  await waitForBackupReadLock();
+  const db = await getDb();
+  const tx = db.transaction([
+    'memoryEpisodes',
+    'memoryEntities',
+    'memoryAssertions',
+    'memoryEdges',
+    'memoryThemes',
+    'memoryStateSnapshots',
+    'memoryEmbeddings'
+  ], 'readwrite');
+
+  for (const value of mutation.put?.episodes ?? []) await tx.objectStore('memoryEpisodes').put(toPersistableValue(value));
+  for (const value of mutation.put?.entities ?? []) await tx.objectStore('memoryEntities').put(toPersistableValue(value));
+  for (const value of mutation.put?.assertions ?? []) await tx.objectStore('memoryAssertions').put(toPersistableValue(value));
+  for (const value of mutation.put?.edges ?? []) await tx.objectStore('memoryEdges').put(toPersistableValue(value));
+  for (const value of mutation.put?.themes ?? []) await tx.objectStore('memoryThemes').put(toPersistableValue(value));
+  for (const value of mutation.put?.stateSnapshots ?? []) await tx.objectStore('memoryStateSnapshots').put(toPersistableValue(value));
+  for (const value of mutation.put?.embeddings ?? []) await tx.objectStore('memoryEmbeddings').put(toPersistableValue(value));
+
+  for (const id of mutation.delete?.episodeIds ?? []) await tx.objectStore('memoryEpisodes').delete(id);
+  for (const id of mutation.delete?.entityIds ?? []) await tx.objectStore('memoryEntities').delete(id);
+  for (const id of mutation.delete?.assertionIds ?? []) await tx.objectStore('memoryAssertions').delete(id);
+  for (const id of mutation.delete?.edgeIds ?? []) await tx.objectStore('memoryEdges').delete(id);
+  for (const id of mutation.delete?.themeIds ?? []) await tx.objectStore('memoryThemes').delete(id);
+  for (const id of mutation.delete?.stateSnapshotIds ?? []) await tx.objectStore('memoryStateSnapshots').delete(id);
+  for (const id of mutation.delete?.embeddingIds ?? []) await tx.objectStore('memoryEmbeddings').delete(id);
+  await tx.done;
 }

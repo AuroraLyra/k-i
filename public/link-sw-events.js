@@ -7,15 +7,41 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil((async () => {
     const target = new URL(targetUrl, self.location.origin);
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const notificationAction = event.action === 'accepted' ? 'accepted' : event.action === 'rejected' ? 'rejected' : 'open';
+    const eventData = {
+      type: 'LINK_NOTIFICATION_CLICK',
+      url: target.href,
+      kind: event.notification.data?.kind === 'call' ? 'call' : event.notification.data?.kind === 'voom' ? 'voom' : 'message',
+      action: notificationAction,
+      title: String(event.notification.data?.title || '').trim(),
+      body: String(event.notification.data?.body || '').trim(),
+      messages: Array.isArray(event.notification.data?.messages) ? event.notification.data.messages : undefined,
+      tag: String(event.notification.data?.tag || '').trim(),
+      icon: String(event.notification.data?.icon || '').trim(),
+      conversationId: String(event.notification.data?.conversationId || '').trim(),
+      callId: String(event.notification.data?.callId || '').trim(),
+      callMode: event.notification.data?.callMode === 'video' ? 'video' : event.notification.data?.callMode === 'voice' ? 'voice' : undefined
+    };
 
     for (const client of windows) {
       const clientUrl = new URL(client.url);
       if (clientUrl.origin !== target.origin) continue;
       await client.focus();
-      if ('navigate' in client && client.url !== target.href) await client.navigate(target.href);
+      client.postMessage(eventData);
       return;
     }
 
+    if (eventData.kind === 'call' && notificationAction !== 'open') {
+      if (notificationAction === 'rejected') {
+        target.pathname = '/home';
+        target.search = '';
+        target.hash = '';
+      }
+      target.searchParams.set('linkCallAction', notificationAction);
+      if (eventData.conversationId) target.searchParams.set('linkConversationId', eventData.conversationId);
+      if (eventData.callId) target.searchParams.set('linkCallId', eventData.callId);
+      if (eventData.callMode) target.searchParams.set('linkCallMode', eventData.callMode);
+    }
     await self.clients.openWindow(target.href);
   })());
 });

@@ -240,7 +240,7 @@ export async function registerReleaseRoutes(app: FastifyInstance) {
     return await sendReleaseFile(reply, release);
   });
 
-  app.put('/api/admin/releases/upload', { bodyLimit: config.webdavBodyLimitBytes }, async (request, reply) => {
+  app.put('/api/admin/releases/upload', { bodyLimit: config.uploadBodyLimitBytes }, async (request, reply) => {
     if (!isAdmin(request)) return await reply.code(401).send({ error: 'admin_auth_required' });
     const platform = String(request.headers['x-link-platform'] ?? '');
     const versionCode = Number(request.headers['x-link-version-code'] ?? 0);

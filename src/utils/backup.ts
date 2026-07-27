@@ -211,14 +211,22 @@ function sanitizeSettingsForBackup(settings: AppSettings): AppSettings {
         updatedAt: 0
       }
     },
-    webDavBackup: {
-      ...settings.webDavBackup,
+    cloudBackup: {
+      ...settings.cloudBackup,
       enabled: false,
-      username: '',
-      password: '',
+      accessToken: '',
+      refreshToken: '',
+      tokenExpiresAt: 0,
+      workerToken: '',
       recoveryKey: '',
       lastBackupStatus: 'idle',
-      lastBackupError: ''
+      lastBackupError: '',
+      progress: {
+        phase: 'idle',
+        label: '',
+        percent: 0,
+        updatedAt: 0
+      }
     },
     imageOpenAi: {
       ...settings.imageOpenAi,

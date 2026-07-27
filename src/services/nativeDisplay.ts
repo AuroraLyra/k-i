@@ -15,14 +15,18 @@ const LinkDisplay = registerPlugin<NativeDisplayPlugin>('LinkDisplay');
 let lastNativeDisplayState: NativeDisplayState | null = null;
 
 export function isNativeDisplayAvailable() {
-  return Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('LinkDisplay');
+  return Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('LinkDisplay');
 }
 
-export async function setNativeDisplayFullscreen(enabled: boolean) {
-  if (!isNativeDisplayAvailable()) return false;
-  const result = await LinkDisplay.setFullscreen({ enabled });
-  lastNativeDisplayState = result;
-  return result.enabled === enabled;
+export async function setNativeDisplayFullscreen(enabled: boolean): Promise<NativeDisplayState | null> {
+  if (!isNativeDisplayAvailable()) return null;
+  try {
+    const result = await LinkDisplay.setFullscreen({ enabled });
+    lastNativeDisplayState = result;
+    return result;
+  } catch {
+    return null;
+  }
 }
 
 export function getLastNativeDisplayState() {

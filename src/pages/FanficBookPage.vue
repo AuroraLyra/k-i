@@ -1,5 +1,5 @@
 <template>
-  <section v-if="book" class="screen no-tabs book-page">
+  <section v-if="book" class="screen no-tabs book-page fanfic-font-scope">
     <header class="top-bar book-topbar">
       <button class="header-button" type="button" aria-label="返回书架" @click="goBack"><ChevronLeft :size="21" /></button>
       <span><small>USER × CHARACTER FANWORK</small><strong>同人文详情</strong></span>
@@ -75,7 +75,7 @@
     </main>
   </section>
 
-  <section v-else class="screen no-tabs missing-page"><BookX :size="34" /><h1>没有找到这篇同人文</h1><button type="button" @click="goBack">返回书架</button></section>
+  <section v-else class="screen no-tabs missing-page fanfic-font-scope"><BookX :size="34" /><h1>没有找到这篇同人文</h1><button type="button" @click="goBack">返回书架</button></section>
 </template>
 
 <script setup lang="ts">

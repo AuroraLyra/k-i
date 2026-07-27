@@ -64,13 +64,19 @@
     </form>
 
     <section v-else-if="activeTab === 'scan'" class="scan-panel">
-      <p class="panel-copy">导入 PNG 角色卡图片或 JSON 文件，会自动创建角色并把绑定世界书一起导入成局部世界书。</p>
-      <label class="upload-card">
-        <input type="file" accept=".json,image/png" @change="importCard($event)" />
+      <p class="panel-copy">导入 PNG / JSON 角色卡，或 TXT / DOC / DOCX 人设文档。文档全文会写入角色资料，并以文件名作为默认角色名。</p>
+      <label class="upload-card" :class="{ disabled: importingCharacter }" :aria-busy="importingCharacter">
+        <input
+          type="file"
+          accept=".json,.png,.txt,.doc,.docx,image/png,application/json,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          :disabled="importingCharacter"
+          @change="importCard($event)"
+        />
         <ImagePlus class="upload-icon" :size="22" stroke-width="2.2" aria-hidden="true" />
-        <strong>导入角色卡</strong>
-        <span>支持 PNG / JSON</span>
+        <strong>{{ importingCharacter ? '正在读取…' : '导入角色' }}</strong>
+        <span>支持 PNG / JSON / TXT / DOC / DOCX</span>
       </label>
+      <p v-if="importError" class="import-error" role="alert">{{ importError }}</p>
 
       <form v-if="importPreview" id="import-character-form" class="form-grid import-edit-form" @submit.prevent="submitImportedCharacter">
         <section class="profile-section wide-field" aria-label="导入角色基础资料">
@@ -272,6 +278,8 @@ const activeTab = computed({
   set: (value: TabId) => emit('update:activeTab', value)
 });
 const importPreview = ref<ImportedCharacterCard | null>(null);
+const importingCharacter = ref(false);
+const importError = ref('');
 const showAvatarEditor = ref(false);
 const avatarEditorSource = ref('');
 const avatarEditTarget = ref<'add' | 'scan'>('add');
@@ -382,22 +390,34 @@ function toggleLocalWorldBookFromSelect(event: Event) {
 }
 
 async function importCard(event: Event) {
-  const input = event.target as HTMLInputElement;
+  const input = event.target instanceof HTMLInputElement ? event.target : null;
+  if (!input) return;
   const file = input.files?.[0];
   if (!file) return;
-  const imported = await importSillyTavernCharacterCard(file);
-  importPreview.value = imported;
-  scanDraft.nickname = '';
-  scanDraft.name = imported.name;
-  scanDraft.userNote = '';
-  scanDraft.avatar = imported.avatar;
-  scanDraft.signature = '';
-  scanDraft.description = imported.description;
-  scanDraft.boundUserId = props.activeUserId || props.accounts[0]?.id || '';
-  scanDraft.localWorldBookIds = [];
-  scanDraft.importedWorldBooks = imported.worldBooks;
-  emit('scan-import-ready', true);
-  input.value = '';
+  importError.value = '';
+  importingCharacter.value = true;
+  importPreview.value = null;
+  resetScanDraft();
+  emit('scan-import-ready', false);
+  try {
+    const imported = await importSillyTavernCharacterCard(file);
+    importPreview.value = imported;
+    scanDraft.nickname = imported.nickname;
+    scanDraft.name = imported.name;
+    scanDraft.userNote = '';
+    scanDraft.avatar = imported.avatar;
+    scanDraft.signature = imported.signature;
+    scanDraft.description = imported.description;
+    scanDraft.boundUserId = props.activeUserId || props.accounts[0]?.id || '';
+    scanDraft.localWorldBookIds = [];
+    scanDraft.importedWorldBooks = imported.worldBooks;
+    emit('scan-import-ready', true);
+  } catch (error) {
+    importError.value = error instanceof Error ? error.message : '角色文件读取失败，请检查文件后重试。';
+  } finally {
+    importingCharacter.value = false;
+    input.value = '';
+  }
 }
 
 function submitImportedCharacter() {
@@ -415,6 +435,7 @@ function submitImportedCharacter() {
   });
   importPreview.value = null;
   resetScanDraft();
+  importError.value = '';
   emit('scan-import-ready', false);
 }
 
@@ -478,7 +499,8 @@ function submitCreateGroup() {
 .npc-builder>header,.npc-card-head { display:flex;align-items:center;justify-content:space-between;gap:10px }
 .npc-builder>header div { display:grid;gap:2px }.npc-builder>header span,.npc-builder>p { color:#858c88;font-size:10px }.npc-builder>header button { padding:7px 11px;border-radius:999px;background:#eaf8ef;color:#07853c;font-weight:850 }
 .npc-builder>p { margin:0;padding:8px;text-align:center }.npc-card { display:grid;gap:10px;padding:12px;border-radius:16px;background:#f6f8f7 }.npc-card-head button { color:#cf3850;font-size:11px;font-weight:800 }.npc-name-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px }
-.group-error { margin: 0; padding: 10px 12px; border-radius: 12px; background: #fff0f2; color: #bf2940; }
+.group-error,
+.import-error { margin: 0; padding: 10px 12px; border-radius: 12px; background: #fff0f2; color: #bf2940; }
 .candidate-list { display: grid; gap: 12px; }
 .candidate-card { display: grid; gap: 10px; padding: 14px; border-radius: 22px; background: rgba(255,255,255,.94); box-shadow: 0 12px 28px rgba(21,30,26,.07); }
 .candidate-card header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -716,6 +738,11 @@ function submitCreateGroup() {
   background: rgba(248, 251, 249, 0.94);
   color: #202426;
   text-align: center;
+}
+
+.upload-card.disabled {
+  pointer-events: none;
+  opacity: 0.62;
 }
 
 .upload-icon {

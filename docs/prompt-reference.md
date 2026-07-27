@@ -146,13 +146,13 @@ VOOM 发帖提示的重点约束：
 
 ## 用户 VOOM 初始评论区
 
-用户发布 VOOM 后，`generateUserVoomComments(input)` 会模拟可见角色和角色社交圈 NPC 的初始评论。这个功能不调用 `buildPrompt`，而是单独拼接提示词。
+用户发布 VOOM 后，`generateUserVoomComments(input)` 会模拟可见角色及其各自社交圈 NPC 看到用户动态后的初始评论。这个功能不调用 `buildPrompt`，而是单独拼接提示词。
 
 实际会读取：
 
 | 提示词 / 上下文 | 来源 | 作用 |
 | --- | --- | --- |
-| 固定任务提示 | `generateUserVoomComments` 内联字符串 | “模拟 LINK VOOM 里，用户可见角色以及这些角色社交圈 NPC 看到用户动态后的自然评论区”。 |
+| 固定任务提示 | `generateUserVoomComments` 内联字符串 | “模拟 LINK VOOM 里，可见角色及其社交圈 NPC 看到用户动态后的自然评论区”。 |
 | 时间感知 | `renderTimeAwarenessPrompt(input.timeAwareness)` | 可选注入当前时间和动态发布时间。 |
 | 用户资料 | `input.author` | 用户真名、主页网名、用户设定。 |
 | 用户动态 | `input.content` / `input.imageDescription` | 用户 VOOM 正文和配图描述。 |
@@ -161,16 +161,17 @@ VOOM 发帖提示的重点约束：
 
 重点约束：
 
-- 输出 0-10 条。
-- `authorId` 只能来自可见角色；NPC 不填 `authorId`，但必须有具体 `authorName`。
-- NPC 只能来自可见角色自己的设定、社交圈、朋友同事家人粉丝或评论区常客线索。
+- 提示词要求 2-15 条；归一化最多保留 15 条，模型无有效输出或调用失败时可为 0 条。
+- 角色必须填写对应 `authorId`；没有 `authorId` 的具体姓名按 NPC 保留，NPC 不填 `authorId`。
+- NPC 只能来自可见角色自己的设定、社交圈、朋友同事家人粉丝或已有评论线索，不得跨到无关角色。
+- 每条评论都围绕用户动态；可以让角色和 NPC 围绕用户动态互相回复，但不模拟角色自己的 VOOM。
 - 不代替用户本人评论。
 - 评论要短、自然、有社交软件感。
 - 外语、粤语都要翻译成自然现代简体普通话。
 
 修订建议：
 
-- 用户动态下面“别人怎么评论”的规则都在 `generateUserVoomComments` 内联 prompt 中。
+- 用户动态下面“可见角色及其 NPC 怎么评论”的规则都在 `generateUserVoomComments` 内联 prompt 中。
 - 这个入口没有读取角色聊天的 `baseRoleplayPrompt`，如果想加强边界，需要在这里单独补规则。
 
 ## VOOM 评论区回复

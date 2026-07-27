@@ -19,8 +19,9 @@ Link 是一个移动端优先的 Vue 3 + Vite + PWA 角色扮演聊天应用原�
 - 群聊角色会读取其私聊/线下 RP 的共同楼层、摘要、记忆和局部世界书；群聊事件会以隐藏上下文同步回角色私聊，保持跨会话连续性。
 - 进入线下模式会切换会话模式与提示词，退出后切回线上模式。
 - 用户人设、角色名称、头像、角色资料、朋友圈频率可编辑。
+- Add 页支持从 PNG、JSON 角色卡或 TXT、DOC、DOCX 人设文档导入角色；文档全文进入角色资料并以文件名作为默认角色名。World Archive 支持从 JSON、TXT、DOC、DOCX 文件批量导入世界书。
 - IndexedDB 本地存储用户、角色、会话、消息、VOOM、Fanfic 书籍/章节/评论/题材/生成任务、世界书和 API 设置。
-- Services 的 Backup 子页面支持本地导入导出、端到端加密 WebDAV 自动备份，以及 GitHub 私有仓库备份；完整备份会压缩并保留全部生图及候选图、本地 Stickers 和自定义铃声。Android App 会把本地 ZIP 备份写入系统 `Downloads/BabyLink`，iOS App 通过系统分享面板存储文件。
+- Services 的 Backup 子页面支持本地导入导出、用户自有云盘/R2 端到端加密自动备份，以及 GitHub 私有仓库备份；完整备份会压缩并保留全部生图及候选图、本地 Stickers 和自定义铃声。Android App 会把本地 ZIP 备份写入系统 `Downloads/BabyLink`，iOS App 通过系统分享面板存储文件。
 - 生产服务支持 QQ 群一次性口令注册、NapCat 多群成员校验、设备管理、退群撤权和受保护安装包发布；Android App 可校验 SHA-256、包名、版本号和签名证书后调用系统覆盖安装，iOS App 可生成持续复核群资格的 AltStore/SideStore 更新源。
 - 世界书分为线上全局、线下全局、局部世界书；每本世界书支持多个可单独开关的条目、绿灯关键词触发、蓝灯常驻注入和黄灯优先注入，局部世界书可绑定到角色。系统固定保留不可删除、不可停用的“禁忌之书”：非空启用条目会作为最高优先级上下文置于全站文本生成请求最前方；“生图 API 读取”开关默认开启，关闭后 OpenAI、NovelAI 与 Pollinations 图片生成不会注入本书内容；内容全空时始终不注入，备份恢复或清空世界书数据后仍会保留空书。
 - VOOM 可手动生成，也可在 AI 回复后按角色频率低频自动生成。
@@ -28,8 +29,9 @@ Link 是一个移动端优先的 Vue 3 + Vite + PWA 角色扮演聊天应用原�
 - Themes 的“全局”分栏支持整体缩放、持久化全屏开关和全站 CSS 主题预设；全站样式覆盖所有子页面、表单、卡片、导航、弹窗与浮层，且与线上/线下样式一致支持代码编辑、PNG 导入导出和分享。Android/iOS App 使用系统文件选择器导入主题 PNG，并通过系统分享面板导出。
 - Services 以韩系 ins 风入口集中管理 Keep Alive、Update、Backup、QQ Access 和 Data，并通过独立子页面承载各自功能。
 - 聊天 Stickers 面板作为输入区下方的真实页面布局打开，消息列表会像软键盘出现时一样自动缩小；点击输入框会关闭面板并直接进入输入状态。
-- Ringtones 通过底栏分开管理全局与角色铃声，Backup 通过底栏分开管理本地、WebDAV 与 GitHub 备份；Data 仅在手动刷新后统计占用。
-- 网站与 App 在授权缓存有效时立即挂载页面壳，本地数据恢复和其余路由预加载会在后台继续，不再等待全屏启动进度页完成。
+- Ringtones 通过底栏分开管理全局与角色铃声，Backup 通过底栏分开管理本地、用户自有云盘/R2 与 GitHub 备份；Data 仅在手动刷新后统计占用。
+- 网站与 App 在授权缓存有效时立即挂载页面壳，并保存轻量启动快照；首次打开完成后，后续冷启动会先显示缓存的账号与会话，再在后台恢复完整 IndexedDB 数据。PWA 会预缓存全部构建资源，Android/iOS App 直接从主页启动，不再在每次打开时执行全部页面预载。
+- 已开启的线上私聊主动消息由全站根调度器统一检查，不再要求停留在对应聊天页；页面可见性变化、BFCache 恢复、网络恢复和 Capacitor App Resume 时会立即补检，60 秒定时器仅作辅助。Android 开启 Keep Alive 后使用原生前台服务与可选 CPU Wake Lock，并建议允许忽略电池优化；浏览器、PWA 与 iOS 后台均为尽力运行，不保证锁屏期间准时，页面或 App 被强制关闭后不会继续生成消息。
 - 角色消息通知完整展示本轮全部消息；Android App 使用单侧角色头像显示社交通知。聊天与 VOOM 图片可保存到系统相册；全站/线上/线下样式和主页主题 PNG 在 Android/iOS App 中通过系统分享面板导出。
 
 ## API
@@ -73,11 +75,12 @@ Link 是一个移动端优先的 Vue 3 + Vite + PWA 角色扮演聊天应用原�
 
 ## 数据备份
 
-设置页底部的“备份”分栏提供三种数据保护方式：
+设置页底部的“备份”分栏提供本地、用户自有云盘和 GitHub 三种数据保护方式：
 
 - `导出备份`：下载当前 IndexedDB 快照，包含用户、角色、会话、消息、VOOM、世界书、Stickers 与设置。
 - `导入备份`：选择此前导出的 JSON 文件并替换当前本地数据。
-- `加密 WebDAV`：用户填写自己的 WebDAV 账号，备份在当前设备使用 AES-256-GCM 加密后再上传，服务器不保存云盘凭据和备份文件。
+- `用户自有云盘`：Google Drive、OneDrive 和 Dropbox 使用 OAuth 登录，浏览器端 AES-256-GCM 加密后通过官方可恢复上传接口直传，LINK 不接收备份内容或云盘 Token。
+- `Cloudflare R2`：在用户自己的 Cloudflare 账号一键部署 `workers/r2-backup`，浏览器将加密分片直传用户自己的 R2，适合大数据传输和失败重试。
 - `恢复密钥`：密钥仅保存在当前设备并从所有导出快照中清除，跨设备恢复前必须由用户自行保存和填写。
 - `GitHub 登录`：配置 Cloudflare Worker 后会打开 GitHub OAuth 授权页，授权完成后自动回到 LINK。
 - `GitHub 自动备份`：OAuth 登录成功后会自动创建私有仓库、开启自动备份并完成首次备份；也可以手动填写 token 后连接账号。
@@ -86,7 +89,15 @@ Link 是一个移动端优先的 Vue 3 + Vite + PWA 角色扮演聊天应用原�
 - `历史备份列表`：设置页会显示最近三次 GitHub 备份记录，可按某一个历史版本恢复。
 - `备份可视化`：设置页会显示最近同步状态、手动/自动备份进度条，以及导入恢复阶段进度。
 
-GitHub token 需要具备创建私有仓库和写入仓库内容的权限。所有导出快照会清空 GitHub token、WebDAV 密码和 WebDAV 恢复密钥。隐私要求较高时优先使用端到端加密 WebDAV。
+GitHub token 需要具备创建私有仓库和写入仓库内容的权限。所有导出快照会清空 GitHub token、云盘 OAuth Token、R2 Worker 连接密钥和恢复密钥。云备份始终只写入用户自己的存储，LINK 服务端不提供托管备份。
+
+### 云盘 OAuth 配置
+
+生产构建需要在前端环境变量中填写 `VITE_GOOGLE_DRIVE_CLIENT_ID`、`VITE_ONEDRIVE_CLIENT_ID` 或 `VITE_DROPBOX_APP_KEY`。三个 OAuth 应用都只需要配置当前 PWA 的回调地址：
+
+`https://<你的域名>/services/backup/oauth/callback`
+
+OAuth 令牌只保存在当前设备的 IndexedDB；应用关闭后，浏览器不会保证定时任务继续运行，重新打开或回到前台时会补做备份。
 
 ## QQ 群访问控制
 
@@ -140,11 +151,15 @@ npm run build:all
 npm run preview
 ```
 
+### 全屏显示
+
+Themes 的“全屏显示”首次默认开启，用户明确关闭后会保留关闭偏好。应用会按运行环境选择实现：Android APK 使用原生 immersive/WindowInsets，iOS IPA 使用原生状态栏控制，支持的 Android PWA 使用 `display: fullscreen`，普通网站使用浏览器 Fullscreen API。普通网页无法绕过浏览器或手机系统权限；iOS Safari 以及 iOS 主屏 PWA 不允许网页隐藏电池/网络状态栏，只能使用半透明安全区显示。修改原生全屏代码后需要重新执行 `npx cap copy` 并重新构建 APK/IPA，已经安装的 PWA 需要更新或重新安装 manifest 才会采用新的显示模式。
+
 ## 生产部署
 
 域名、Caddy HTTPS、Docker Compose、NapCat、数据库备份、Android 固定签名、iOS 自签和安装包发布的完整步骤见 `deploy/README.md`。
 
-生产环境不使用 GitHub Pages：纯静态托管无法执行 QQ 群鉴权、退群撤权、WebDAV 安全中转和受保护安装包下载。
+生产环境不使用 GitHub Pages：纯静态托管无法执行 QQ 群鉴权、退群撤权、受保护安装包下载和服务端会话管理。
 
 ## 目录
 
@@ -154,6 +169,6 @@ npm run preview
 - `src/data`：IndexedDB、初始种子数据。
 - `src/services`：提示词构建与 AI/VOOM 生成服务。
 - `src/types`：领域类型定义。
-- `server`：Fastify 鉴权、NapCat、WebDAV 中转与发布服务。
+- `server`：Fastify 鉴权、NapCat、发布服务与受保护 API。
 - `deploy`：生产容器、Caddy 和运维说明。
 - `android` / `ios`：Capacitor 原生工程与发布配置。

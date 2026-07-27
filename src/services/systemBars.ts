@@ -1,24 +1,29 @@
+import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core';
 import { setNativeDisplayFullscreen } from './nativeDisplay';
 
 const fullscreenStorageKey = 'link:fullscreen-enabled';
 let listenersInstalled = false;
 let fullscreenEnabled = readFullscreenPreference();
+let nativeSyncQueue: Promise<boolean> = Promise.resolve(true);
 
 type WebkitFullscreenDocument = Document & {
   webkitExitFullscreen?: () => Promise<void> | void;
   webkitFullscreenElement?: Element | null;
+  webkitFullscreenEnabled?: boolean;
 };
 
-type WebkitFullscreenElement = HTMLElement & {
+type WebkitFullscreenElement = Omit<HTMLElement, 'requestFullscreen'> & {
+  requestFullscreen?: (options?: FullscreenOptions) => Promise<void> | void;
   webkitRequestFullscreen?: () => Promise<void> | void;
 };
 
 function readFullscreenPreference() {
   try {
-    return localStorage.getItem(fullscreenStorageKey) === 'true';
+    const stored = localStorage.getItem(fullscreenStorageKey);
+    return stored === null ? true : stored === 'true';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -30,6 +35,13 @@ function saveFullscreenPreference(enabled: boolean) {
   }
 }
 
+function setFullscreenClass(enabled: boolean) {
+  const root = document.documentElement;
+  const changed = root.classList.contains('is-link-fullscreen') !== enabled;
+  root.classList.toggle('is-link-fullscreen', enabled);
+  if (changed) window.dispatchEvent(new Event('link:fullscreen-change'));
+}
+
 async function waitForFullscreenOperation(operation: Promise<void> | void) {
   await Promise.race([
     Promise.resolve(operation),
@@ -37,27 +49,71 @@ async function waitForFullscreenOperation(operation: Promise<void> | void) {
   ]);
 }
 
-async function syncNativeStatusBar() {
+function isPwaFullscreenDisplay() {
   try {
-    if (await setNativeDisplayFullscreen(fullscreenEnabled)) return true;
+    return window.matchMedia('(display-mode: fullscreen)').matches;
+  } catch {
+    return false;
+  }
+}
+
+function hasBrowserFullscreenApi() {
+  const root = document.documentElement as WebkitFullscreenElement;
+  const fullscreenDocument = document as WebkitFullscreenDocument;
+  return Boolean(
+    (root.requestFullscreen && fullscreenDocument.fullscreenEnabled !== false)
+      || root.webkitRequestFullscreen && fullscreenDocument.webkitFullscreenEnabled !== false
+  );
+}
+
+export function isBrowserFullscreenActive() {
+  const fullscreenDocument = document as WebkitFullscreenDocument;
+  return Boolean(
+    document.fullscreenElement
+      || fullscreenDocument.webkitFullscreenElement
+      || isPwaFullscreenDisplay()
+  );
+}
+
+export type FullscreenEnvironment = 'native' | 'pwa' | 'browser' | 'unsupported';
+
+export function getFullscreenEnvironment(): FullscreenEnvironment {
+  if (Capacitor.isNativePlatform()) return 'native';
+  if (isPwaFullscreenDisplay()) return 'pwa';
+  if (hasBrowserFullscreenApi()) return 'browser';
+  return 'unsupported';
+}
+
+async function performNativeStatusBarSync(enabled: boolean) {
+  try {
+    await SystemBars.setAnimation({ animation: 'NONE' });
     await SystemBars.setStyle({ style: SystemBarsStyle.Light });
-    if (fullscreenEnabled) await SystemBars.hide();
-    else await SystemBars.show();
+    if (enabled) await SystemBars.hide({ animation: 'NONE' });
+    else await SystemBars.show({ animation: 'NONE' });
+    await setNativeDisplayFullscreen(enabled);
     return true;
   } catch {
     return false;
   }
 }
 
+function syncNativeStatusBar() {
+  nativeSyncQueue = nativeSyncQueue
+    .catch(() => false)
+    .then(() => performNativeStatusBarSync(fullscreenEnabled));
+  return nativeSyncQueue;
+}
+
 async function enterBrowserFullscreen() {
   const fullscreenDocument = document as WebkitFullscreenDocument;
-  if (document.fullscreenElement || fullscreenDocument.webkitFullscreenElement) return true;
+  if (isBrowserFullscreenActive()) return true;
   const root = document.documentElement as WebkitFullscreenElement;
   try {
-    if (root.requestFullscreen) await waitForFullscreenOperation(root.requestFullscreen());
-    else if (root.webkitRequestFullscreen) await waitForFullscreenOperation(root.webkitRequestFullscreen());
+    if (root.requestFullscreen && fullscreenDocument.fullscreenEnabled !== false) await waitForFullscreenOperation(root.requestFullscreen({ navigationUI: 'hide' }));
+    else if (root.webkitRequestFullscreen && fullscreenDocument.webkitFullscreenEnabled !== false) await waitForFullscreenOperation(root.webkitRequestFullscreen());
     else return false;
-    return Boolean(document.fullscreenElement || fullscreenDocument.webkitFullscreenElement);
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    return isBrowserFullscreenActive();
   } catch {
     return false;
   }
@@ -75,23 +131,65 @@ async function exitBrowserFullscreen() {
 }
 
 export async function setFullscreenEnabled(enabled: boolean, options: { requestBrowserFullscreen?: boolean } = {}) {
-  fullscreenEnabled = enabled;
-  saveFullscreenPreference(enabled);
-  document.documentElement.classList.toggle('is-link-fullscreen', enabled);
-  if (Capacitor.isNativePlatform()) return await syncNativeStatusBar();
-  if (!enabled) return await exitBrowserFullscreen();
-  if (options.requestBrowserFullscreen) return await enterBrowserFullscreen();
-  return Boolean(document.fullscreenElement || (document as WebkitFullscreenDocument).webkitFullscreenElement);
+  if (Capacitor.isNativePlatform()) {
+    fullscreenEnabled = enabled;
+    saveFullscreenPreference(enabled);
+    setFullscreenClass(enabled);
+    return await syncNativeStatusBar();
+  }
+
+  if (!enabled) {
+    fullscreenEnabled = false;
+    saveFullscreenPreference(false);
+    setFullscreenClass(isPwaFullscreenDisplay());
+    return await exitBrowserFullscreen();
+  }
+
+  if (options.requestBrowserFullscreen) {
+    const entered = await enterBrowserFullscreen();
+    if (!entered && !isPwaFullscreenDisplay()) return false;
+  }
+
+  fullscreenEnabled = true;
+  saveFullscreenPreference(true);
+  setFullscreenClass(isBrowserFullscreenActive());
+  return isBrowserFullscreenActive();
 }
 
 export function installNativeSystemBars() {
-  if (!Capacitor.isNativePlatform()) return;
-  document.documentElement.classList.add('is-native-app');
-  document.documentElement.classList.toggle('is-link-fullscreen', fullscreenEnabled);
-  void syncNativeStatusBar();
   if (listenersInstalled) return;
   listenersInstalled = true;
-  const restore = () => void syncNativeStatusBar();
+  const isNative = Capacitor.isNativePlatform();
+  document.documentElement.classList.toggle('is-native-app', isNative);
+  if (isNative) setFullscreenClass(fullscreenEnabled);
+  else setFullscreenClass(isBrowserFullscreenActive() && fullscreenEnabled);
+
+  const restore = () => {
+    if (Capacitor.isNativePlatform()) {
+      void syncNativeStatusBar();
+      return;
+    }
+    setFullscreenClass(isBrowserFullscreenActive() && fullscreenEnabled);
+  };
+
+  const retryBrowserFullscreen = () => {
+    if (Capacitor.isNativePlatform() || !fullscreenEnabled || isBrowserFullscreenActive() || !hasBrowserFullscreenApi()) return;
+    void enterBrowserFullscreen().then((active) => {
+      if (active) restore();
+    });
+  };
+
+  if (isNative) {
+    void syncNativeStatusBar();
+    void CapacitorApp.addListener('resume', restore)
+      .then(() => undefined)
+      .catch(() => undefined);
+  } else {
+    document.addEventListener('fullscreenchange', restore, { passive: true });
+    document.addEventListener('webkitfullscreenchange', restore, { passive: true } as AddEventListenerOptions);
+    document.addEventListener('pointerdown', retryBrowserFullscreen, { capture: true, passive: true });
+  }
+
   window.addEventListener('pageshow', restore, { passive: true });
   window.addEventListener('focus', restore, { passive: true });
   document.addEventListener('visibilitychange', () => {

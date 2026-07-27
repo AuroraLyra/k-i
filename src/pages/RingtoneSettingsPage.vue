@@ -131,6 +131,7 @@
           </div>
 
           <p v-if="keepAliveAlert" class="keepalive-note">{{ keepAliveAlert }}</p>
+          <p class="keepalive-note">{{ backgroundReliabilityNote }}</p>
         </section>
 
         <section v-else-if="activeTab === 'updates'" class="app-update-section" aria-label="网站更新">
@@ -432,8 +433,8 @@ const keepAliveModeLabel = computed(() => {
 });
 const keepAliveSummary = computed(() => {
   if (!keepAliveStatus.value.enabled) return keepAliveStatus.value.native ? '原生前台服务、通知与后台唤醒' : '静音音频、系统通知与心跳恢复';
-  if (keepAliveStatus.value.nativeServiceActive) return 'Android 前台服务正在守护后台任务';
-  if (keepAliveStatus.value.silentAudioActive || keepAliveStatus.value.webAudioActive) return '音频通道已保持，通知会自动合并';
+  if (keepAliveStatus.value.nativeServiceActive) return 'Android 前台服务正在提高后台存活率';
+  if (keepAliveStatus.value.silentAudioActive || keepAliveStatus.value.webAudioActive) return '音频通道已保持，后台运行仍取决于系统';
   return '等待一次触摸恢复音频通道';
 });
 const keepAliveSignal = computed(() => {
@@ -472,6 +473,16 @@ const keepAliveAlert = computed(() => {
   if (keepAliveStatus.value.platform === 'android' && !keepAliveStatus.value.wakeLockSupported) return '当前 Android WebView 未开放亮屏守护，保活会使用音频与通知。';
   if (keepAliveStatus.value.notificationPermission === 'denied') return '系统通知权限已拒绝，角色事件仍会播放铃声。';
   return '';
+});
+const backgroundReliabilityNote = computed(() => {
+  if (keepAliveStatus.value.native) {
+    if (!keepAliveStatus.value.enabled) return 'Android 开启保活后会使用原生前台服务与 CPU 唤醒；建议同时允许忽略电池优化。主动消息仍不保证精确时间，强制停止后不会运行。';
+    return keepAliveStatus.value.batteryOptimizationsIgnored
+      ? 'Android 已使用原生前台服务与 CPU 唤醒，并已忽略电池优化。主动消息仍按尽力模式运行，不保证精确时间，强制停止后不会运行。'
+      : 'Android 已使用原生前台服务与 CPU 唤醒；请允许忽略电池优化以提高锁屏存活率。主动消息仍不保证精确时间，强制停止后不会运行。';
+  }
+  if (keepAliveStatus.value.platform === 'ios') return 'iOS 可能暂停后台网页或 WebView；恢复 App 或页面时会立即补检，但锁屏和后台不保证，强制关闭后不会运行。';
+  return '浏览器或 PWA 可能冻结后台定时器；恢复页面或重新联网时会立即补检，但后台不保证，关闭页面后不会运行。';
 });
 const appUpdatePhaseLabel = computed(() => {
   const phaseLabels: Record<AppUpdateStatus['phase'], string> = {

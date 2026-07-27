@@ -267,8 +267,12 @@
             <span class="translation-copy">{{ displayTranslation }}</span>
           </template>
         </p>
-        <div v-if="message.quote" class="quote-card">
-          <p>
+        <div
+          v-if="message.quote"
+          class="quote-card"
+          :class="{ 'quote-card--online': message.mode === 'online', 'quote-card--overflowing': quoteOverflowing }"
+        >
+          <p ref="quoteContentRef">
             <strong>{{ quoteAuthorLabel }}</strong>
             <span>{{ quoteText }}</span>
           </p>
@@ -335,12 +339,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ChevronRight, DoorOpen, Globe2, Heart, LoaderCircle, Music2, Pause, Play, Quote, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import type { CharacterProfile, ChatAppearanceSettings, ChatImageCandidate, ChatMessage, UserProfile } from '@/types/domain';
 import { useAppStore } from '@/stores/appStore';
-import { extractJsonContent, normalizeLooseModelReply } from '@/utils/aiResponse';
+import { normalizeLooseModelReply, parseModelJsonResponse } from '@/utils/aiResponse';
 import { getCharacterDisplayName } from '@/utils/character';
 import { formatChatTime } from '@/utils/time';
 import { defaultConversationSettings } from '@/utils/memory';
@@ -426,7 +430,10 @@ const playingVoice = ref(false);
 const showVoiceTranscript = ref(true);
 const voiceLoading = ref(false);
 const swipeOffset = ref(0);
+const quoteContentRef = ref<HTMLParagraphElement | null>(null);
+const quoteOverflowing = ref(false);
 let activeVoiceAudio: HTMLAudioElement | null = null;
+let quoteResizeObserver: ResizeObserver | null = null;
 
 const swipeTriggerDistance = 54;
 const swipeMaxDistance = 74;
@@ -451,7 +458,7 @@ function normalizeTextFragments(value: unknown): string[] {
 const displayContent = computed(() => {
   if (props.message.sender !== 'char') return props.message.content;
   try {
-    const parsed = JSON.parse(extractJsonContent(props.message.content)) as Record<string, unknown>;
+    const parsed = parseModelJsonResponse(props.message.content) as Record<string, unknown>;
     const fragments = normalizeTextFragments(parsed.replies ?? parsed.reply ?? parsed.messages ?? parsed.content ?? parsed.message ?? parsed.text);
     return fragments.length ? fragments.join('\n') : normalizeLooseModelReply(props.message.content);
   } catch {
@@ -479,7 +486,7 @@ function normalizeTranslationFragments(value: unknown): string[] {
 const parsedTranslation = computed(() => {
   if (props.message.sender !== 'char') return '';
   try {
-    const parsed = JSON.parse(extractJsonContent(props.message.content)) as Record<string, unknown>;
+    const parsed = parseModelJsonResponse(props.message.content) as Record<string, unknown>;
     const topLevelTranslations = normalizeTranslationFragments(
       parsed.replyTranslations
       ?? parsed.translations
@@ -526,7 +533,8 @@ const messageVisualSender = computed<ChatMessage['sender']>(() => {
   if (!props.message.call) return props.message.sender;
   return props.message.call.direction === 'incoming' ? 'char' : 'user';
 });
-const showAvatarButton = computed(() => messageVisualSender.value === 'char' || (messageVisualSender.value === 'user' && props.appearance.showUserAvatar));
+const showAvatarButton = computed(() => (messageVisualSender.value === 'char' && props.appearance.showCharacterAvatar)
+  || (messageVisualSender.value === 'user' && props.appearance.showUserAvatar));
 const avatarSource = computed(() => props.authorAvatar || (messageVisualSender.value === 'user' ? userAvatar.value : props.character.avatar));
 const avatarAlt = computed(() => props.authorName || (messageVisualSender.value === 'user' ? userDisplayName.value : characterDisplayName.value));
 const authorLabel = computed(() => props.showAuthorName && messageVisualSender.value === 'char' ? avatarAlt.value : '');
@@ -554,6 +562,21 @@ const quoteText = computed(() => props.message.quote?.sticker
   : props.message.quote?.content ?? '');
 const quoteThumbnail = computed(() => props.message.quote?.sticker?.imageUrl ?? props.message.quote?.image?.url ?? props.message.quote?.shopShare?.imageUrl ?? '');
 const quoteAuthorLabel = computed(() => (props.message.quote?.authorName ? `${props.message.quote.authorName}：` : ''));
+
+function measureQuoteOverflow() {
+  const quoteContent = quoteContentRef.value;
+  quoteOverflowing.value = props.message.mode === 'online'
+    && Boolean(quoteContent && quoteContent.scrollHeight > quoteContent.clientHeight + 1);
+}
+
+function observeQuoteOverflow() {
+  quoteResizeObserver?.disconnect();
+  quoteResizeObserver = null;
+  measureQuoteOverflow();
+  if (!quoteContentRef.value || typeof ResizeObserver === 'undefined') return;
+  quoteResizeObserver = new ResizeObserver(measureQuoteOverflow);
+  quoteResizeObserver.observe(quoteContentRef.value);
+}
 
 const bubbleStyle = computed(() => {
   if (props.message.sticker || props.message.image || props.message.location || props.message.transfer || props.message.commerce || props.message.shopShare || props.message.musicListenInvite || props.message.theaterLink || props.message.offlineInvitation || props.message.call || props.message.gobang) return {};
@@ -1175,9 +1198,16 @@ watch(() => props.message.id, () => {
   voiceLoading.value = false;
   stopVoicePlayback();
 });
+watch([() => props.message.mode, () => props.message.quote, quoteText], async () => {
+  await nextTick();
+  observeQuoteOverflow();
+}, { flush: 'post' });
+
+onMounted(observeQuoteOverflow);
 
 onBeforeUnmount(() => {
   cancelAvatarLongPress();
+  quoteResizeObserver?.disconnect();
   stopVoicePlayback();
   stopSuppressingNativeSelection();
 });
@@ -2931,6 +2961,17 @@ onBeforeUnmount(() => {
   line-height: 1.3;
   text-overflow: clip;
   white-space: pre-wrap;
+}
+
+.quote-card--online p {
+  max-height: 2.6em;
+  max-height: 2lh;
+  overflow: hidden;
+}
+
+.quote-card--online.quote-card--overflowing p {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 52%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 52%, transparent 100%);
 }
 
 .quote-card strong {

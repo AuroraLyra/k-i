@@ -1,3 +1,5 @@
+import { jsonrepair } from 'jsonrepair';
+
 function isValidJson(value: string) {
   try {
     JSON.parse(value);
@@ -7,10 +9,10 @@ function isValidJson(value: string) {
   }
 }
 
-function findJsonObjectCandidates(value: string) {
+function findJsonRootCandidates(value: string) {
   const candidates: string[] = [];
   let startIndex = -1;
-  let depth = 0;
+  const delimiters: string[] = [];
   let inString = false;
   let escaped = false;
 
@@ -24,22 +26,27 @@ function findJsonObjectCandidates(value: string) {
       continue;
     }
 
-    if (character === '"' && depth > 0) {
+    if (character === '"' && startIndex >= 0) {
       inString = true;
       continue;
     }
 
-    if (character === '{') {
-      if (depth === 0) startIndex = index;
-      depth += 1;
+    if (character === '{' || character === '[') {
+      if (startIndex < 0) startIndex = index;
+      delimiters.push(character);
       continue;
     }
 
-    if (character !== '}' || depth === 0) continue;
-    depth -= 1;
-    if (depth === 0 && startIndex >= 0) {
-      const candidate = value.slice(startIndex, index + 1).trim();
-      if (isValidJson(candidate)) candidates.push(candidate);
+    if ((character !== '}' && character !== ']') || startIndex < 0) continue;
+    const expectedOpening = character === '}' ? '{' : '[';
+    if (delimiters[delimiters.length - 1] !== expectedOpening) {
+      startIndex = -1;
+      delimiters.length = 0;
+      continue;
+    }
+    delimiters.pop();
+    if (!delimiters.length) {
+      candidates.push(value.slice(startIndex, index + 1).trim());
       startIndex = -1;
     }
   }
@@ -47,19 +54,78 @@ function findJsonObjectCandidates(value: string) {
   return candidates;
 }
 
-export function extractJsonContent(content: string) {
+function collectJsonCandidates(content: string) {
   const trimmed = content.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  const source = fenced?.[1].trim() ?? trimmed;
+  const fencedSources = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi)]
+    .map((match) => match[1].trim())
+    .filter(Boolean);
+  const sources = [...fencedSources, trimmed].filter((source, index, items) => source && items.indexOf(source) === index);
+  const candidates: string[] = [];
 
-  if (isValidJson(source)) return source;
+  const addCandidate = (candidate: string) => {
+    const normalized = candidate.trim();
+    if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
+  };
 
-  const candidates = findJsonObjectCandidates(source);
-  if (candidates.length) {
-    return candidates.reduce((longest, candidate) => candidate.length > longest.length ? candidate : longest);
+  for (const source of sources) {
+    findJsonRootCandidates(source)
+      .sort((left, right) => right.length - left.length)
+      .forEach(addCandidate);
+
+    const rootIndexes = [source.indexOf('{'), source.indexOf('[')]
+      .filter((index) => index >= 0)
+      .sort((left, right) => left - right);
+    for (const rootIndex of rootIndexes) addCandidate(source.slice(rootIndex));
+    addCandidate(source);
   }
 
-  return source;
+  return candidates;
+}
+
+export function extractJsonContent(content: string) {
+  const candidates = collectJsonCandidates(content);
+  return candidates.find(isValidJson) ?? candidates[0] ?? content.trim();
+}
+
+function parseJsonCandidate(content: string) {
+  const candidates = collectJsonCandidates(content);
+  let lastError: unknown;
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as unknown;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(jsonrepair(candidate)) as unknown;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new SyntaxError('模型没有返回可解析的 JSON。');
+}
+
+export function parseModelJsonResponse(content: string) {
+  let parsed = parseJsonCandidate(content);
+
+  for (let depth = 0; depth < 3 && typeof parsed === 'string'; depth += 1) {
+    const nestedContent = parsed.trim();
+    if (!nestedContent || nestedContent === content.trim()) break;
+    try {
+      const nested = parseJsonCandidate(nestedContent);
+      if (nested === parsed) break;
+      parsed = nested;
+    } catch {
+      break;
+    }
+  }
+
+  return parsed;
 }
 
 export function normalizeLooseModelReply(content: string) {

@@ -49,7 +49,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { Archive, Cloud, CloudUpload, Database, Github, KeyRound } from 'lucide-vue-next';
 import AccessAccountPanel from '@/components/settings/AccessAccountPanel.vue';
 import DataCenterPanel from '@/components/settings/DataCenterPanel.vue';
@@ -59,16 +59,17 @@ import type { AppSettings } from '@/types/domain';
 import { normalizeAppSettings } from '@/utils/settings';
 
 type UtilityMode = 'backup' | 'data' | 'access';
-type BackupTab = 'local' | 'webdav' | 'github';
+type BackupTab = 'local' | 'cloud' | 'github';
 
 const props = defineProps<{ mode: UtilityMode }>();
+const route = useRoute();
 const router = useRouter();
 const store = useAppStore();
 const activeBackupTab = ref<BackupTab>('local');
 
 const backupTabs = [
   { id: 'local' as BackupTab, label: 'Local', icon: Archive },
-  { id: 'webdav' as BackupTab, label: 'WebDAV', icon: Cloud },
+  { id: 'cloud' as BackupTab, label: 'Cloud', icon: Cloud },
   { id: 'github' as BackupTab, label: 'GitHub', icon: Github }
 ];
 
@@ -77,7 +78,7 @@ const pageMeta = {
     title: 'Backup',
     kicker: 'Private archive',
     heading: '把重要剧情留在自己手里',
-    description: '本地压缩包、加密 WebDAV 与 GitHub 私有仓库集中管理。',
+    description: '本地压缩包、用户自有云盘与 GitHub 私有仓库集中管理。',
     icon: CloudUpload
   },
   data: {
@@ -100,7 +101,11 @@ const mode = computed(() => props.mode);
 const meta = computed(() => pageMeta[mode.value]);
 const currentSettings = computed<AppSettings>(() => normalizeAppSettings(store.settings));
 
-onMounted(() => void store.hydrate());
+onMounted(() => {
+  const requestedTab = String(route.query.tab ?? '');
+  if (backupTabs.some((tab) => tab.id === requestedTab)) activeBackupTab.value = requestedTab as BackupTab;
+  void store.hydrate();
+});
 
 function goBack() {
   void router.push({ name: 'services' });
