@@ -376,7 +376,7 @@
             <dd>{{ fontLoadError.detail }}</dd>
           </div>
         </dl>
-        <p class="font-error-tip">请确认链接能直接访问、服务器允许跨域读取字体文件，或改用本地字体文件导入。</p>
+        <p class="font-error-tip">请确认链接未过期并且返回 WOFF、WOFF2、TTF、OTF 或字体 CSS，也可以改用本地字体文件导入。</p>
         <button class="footer-button footer-save" type="button" @click="fontLoadError.open = false">知道了</button>
       </section>
     </AppModal>
@@ -392,6 +392,7 @@ import { useAppStore } from '@/stores/appStore';
 import { pickNativePngFile, shareNativeDataUrl } from '@/services/nativeFile';
 import { getLastNativeDisplayState } from '@/services/nativeDisplay';
 import { getFullscreenEnvironment, setFullscreenEnabled } from '@/services/systemBars';
+import { cacheThemeFontEntry, cacheThemeFontFile, getThemeFontCss, getThemeFontFileUrl, hasPersistedThemeFontCache, isThemeFontStylesheetEntry } from '@/services/themeFontCache';
 import type { AppSettings, AppThemeSettings, ThemeFontEntry, ThemeFontSource, ThemeStylePreset, ThemeStyleScopeSettings } from '@/types/domain';
 import { createId } from '@/utils/id';
 import { downloadDataUrl } from '@/utils/download';
@@ -1017,11 +1018,12 @@ function getFontLoadTimeout(entry: ThemeFontEntry) {
 }
 
 async function validateFontFileEntry(entry: ThemeFontEntry) {
-  const fontFace = new FontFace(entry.family, `url("${escapeCssString(entry.url)}")`, { display: 'swap' });
+  const fontUrl = getThemeFontFileUrl(entry);
+  const fontFace = new FontFace(entry.family, `url("${escapeCssString(fontUrl)}")`, { display: 'swap' });
   document.fonts.add(fontFace);
   try {
     const timeout = getFontLoadTimeout(entry);
-    await withFontLoadTimeout(fontFace.load(), timeout.ms, `字体文件加载超时，浏览器在 ${timeout.label} 内没有完成下载：${entry.url}`);
+    await withFontLoadTimeout(fontFace.load(), timeout.ms, `字体文件加载超时，浏览器在 ${timeout.label} 内没有完成读取：${fontUrl}`);
     if (fontFace.status !== 'loaded') throw new Error(`字体状态为 ${fontFace.status}，没有完成加载。`);
   } finally {
     document.fonts.delete(fontFace);
@@ -1041,12 +1043,21 @@ function loadTemporaryStylesheet(url: string) {
 
 async function validateStylesheetFontEntry(entry: ThemeFontEntry) {
   let link: HTMLLinkElement | null = null;
+  let style: HTMLStyleElement | null = null;
   try {
-    link = await withFontLoadTimeout(loadTemporaryStylesheet(entry.url), remoteFontLoadTimeoutMs, `CSS 字体链接加载超时，浏览器在 5 分钟内没有完成下载：${entry.url}`);
+    const cachedCss = getThemeFontCss(entry);
+    if (cachedCss) {
+      style = document.createElement('style');
+      style.textContent = cachedCss;
+      document.head.appendChild(style);
+    } else {
+      link = await withFontLoadTimeout(loadTemporaryStylesheet(entry.url), remoteFontLoadTimeoutMs, `CSS 字体链接加载超时，浏览器在 5 分钟内没有完成下载：${entry.url}`);
+    }
     const loadedFaces = await withFontLoadTimeout(document.fonts.load(`16px ${getQuotedFontFamily(entry.family)}`, 'LINK 字体检测'), remoteFontLoadTimeoutMs, `CSS 已下载，但字体名称「${entry.name}」没有在 5 分钟内完成加载。`);
     if (!loadedFaces.length) throw new Error(`CSS 已下载，但没有找到字体名称「${entry.name}」对应的字体。`);
   } finally {
     link?.remove();
+    style?.remove();
   }
 }
 
@@ -1063,7 +1074,7 @@ async function validateFontEntryCanLoad(entry: ThemeFontEntry, context: string) 
   if (typeof document === 'undefined' || typeof FontFace === 'undefined' || !document.fonts) return true;
 
   try {
-    if (entry.source === 'url' && isStylesheetFontUrl(entry.url)) await validateStylesheetFontEntry(entry);
+    if (entry.source === 'url' && isThemeFontStylesheetEntry(entry)) await validateStylesheetFontEntry(entry);
     else await validateFontFileEntry(entry);
     return true;
   } catch (error) {
@@ -1077,6 +1088,15 @@ async function validateFontEntriesCanLoad(entries: ThemeFontEntry[], context: st
     if (!await validateFontEntryCanLoad(entry, context)) return false;
   }
   return true;
+}
+
+async function cacheFontEntryForUse(entry: ThemeFontEntry, context: string) {
+  try {
+    return await cacheThemeFontEntry(entry);
+  } catch (error) {
+    openFontLoadError(entry, `${context}失败：字体没有缓存到本机。`, error);
+    return null;
+  }
 }
 
 async function importFontLinks() {
@@ -1097,13 +1117,19 @@ async function importFontLinks() {
     });
   });
 
-  if (!await validateFontEntriesCanLoad(newEntries, '导入')) return;
+  const cachedEntries: ThemeFontEntry[] = [];
+  for (const entry of newEntries) {
+    const cachedEntry = await cacheFontEntryForUse(entry, '导入');
+    if (!cachedEntry) return;
+    cachedEntries.push(cachedEntry);
+  }
+  if (!await validateFontEntriesCanLoad(cachedEntries, '导入')) return;
 
-  nextThemeSettings.fonts.entries = [...newEntries, ...nextThemeSettings.fonts.entries];
-  nextThemeSettings.fonts.activeFontId = newEntries[0]?.id ?? nextThemeSettings.fonts.activeFontId;
+  nextThemeSettings.fonts.entries = [...cachedEntries, ...nextThemeSettings.fonts.entries];
+  nextThemeSettings.fonts.activeFontId = cachedEntries[0]?.id ?? nextThemeSettings.fonts.activeFontId;
   if (!await trySaveThemeSettings(nextThemeSettings)) return;
   resetImporterDraft();
-  feedbackMessage.value = `已导入并应用 ${newEntries[0]?.name ?? '字体'}。`;
+  feedbackMessage.value = `已缓存并应用 ${cachedEntries[0]?.name ?? '字体'}。`;
 }
 
 async function importFontFiles() {
@@ -1123,13 +1149,19 @@ async function importFontFiles() {
   for (const [index, file] of files.entries()) {
     const fallbackName = stripFontExtension(file.name) || `字体 ${index + 1}`;
     const name = fileName.value.trim() || fallbackName;
-    newEntries.push(createFontEntry({
+    const entry = createFontEntry({
       name: files.length > 1 && !fileName.value.trim() ? `${name} ${index + 1}` : name,
       source: 'file',
-      url: await readFileAsDataUrl(file),
+      url: '',
       mimeType: inferFontMimeType(file),
       size: file.size
-    }));
+    });
+    try {
+      newEntries.push(await cacheThemeFontFile(entry, file));
+    } catch (error) {
+      openFontLoadError(entry, '导入失败：字体没有缓存到本机。', error);
+      return;
+    }
   }
 
   if (!await validateFontEntriesCanLoad(newEntries, '导入')) return;
@@ -1138,7 +1170,7 @@ async function importFontFiles() {
   nextThemeSettings.fonts.activeFontId = newEntries[0]?.id ?? nextThemeSettings.fonts.activeFontId;
   if (!await trySaveThemeSettings(nextThemeSettings)) return;
   resetImporterDraft();
-  feedbackMessage.value = `已导入并应用 ${newEntries[0]?.name ?? '字体'}。`;
+  feedbackMessage.value = `已缓存并应用 ${newEntries[0]?.name ?? '字体'}。`;
 }
 
 function resetImporterDraft() {
@@ -1157,7 +1189,9 @@ async function applyFont(fontId: string) {
   if (!entry) return;
   applyingFontId.value = fontId;
   try {
-    if (!await validateFontEntryCanLoad(entry, '应用')) return;
+    const cachedEntry = await cacheFontEntryForUse(entry, '应用');
+    if (!cachedEntry || !await validateFontEntryCanLoad(cachedEntry, '应用')) return;
+    Object.assign(entry, cachedEntry);
     entry.enabled = true;
     entry.updatedAt = Date.now();
     nextThemeSettings.fonts.activeFontId = fontId;
@@ -1169,8 +1203,16 @@ async function applyFont(fontId: string) {
 }
 
 async function validateActiveFontOnOpen() {
-  const activeEntry = activeFontEntry.value;
+  let activeEntry = activeFontEntry.value;
   if (!activeEntry) return;
+  if (!hasPersistedThemeFontCache(activeEntry)) {
+    const cachedEntry = await cacheFontEntryForUse(activeEntry, '当前字体缓存');
+    if (!cachedEntry) return;
+    const cachedThemeSettings = cloneThemeSettings(themeSettings.value);
+    cachedThemeSettings.fonts.entries = cachedThemeSettings.fonts.entries.map((entry) => entry.id === cachedEntry.id ? cachedEntry : entry);
+    await saveThemeSettings(cachedThemeSettings);
+    activeEntry = cachedEntry;
+  }
   if (await validateFontEntryCanLoad(activeEntry, '当前字体检测')) return;
   const nextThemeSettings = cloneThemeSettings(themeSettings.value);
   nextThemeSettings.fonts.activeFontId = '';
@@ -1258,14 +1300,9 @@ function fontPreviewStyle(entry: ThemeFontEntry) {
   return { fontFamily: `${getQuotedFontFamily(entry.family)}, var(--app-current-font-family)` };
 }
 
-function isStylesheetFontUrl(url: string) {
-  const normalizedUrl = url.trim().toLowerCase();
-  return normalizedUrl.endsWith('.css') || normalizedUrl.includes('fonts.googleapis.com/css') || normalizedUrl.includes('fontsapi.zeoseven.com');
-}
-
 function sourceLabel(entry: ThemeFontEntry) {
   if (entry.source === 'file') return 'File';
-  if (entry.source === 'url' && isStylesheetFontUrl(entry.url)) return 'CSS Link';
+  if (entry.source === 'url' && isThemeFontStylesheetEntry(entry)) return 'CSS Link';
   if (entry.source === 'url') return 'Link';
   return 'Text';
 }
@@ -1279,7 +1316,7 @@ function formatFileSize(size: number) {
 function formatFontMeta(entry: ThemeFontEntry) {
   const size = formatFileSize(entry.size);
   if (entry.source === 'file') return [entry.mimeType || 'Font file', size].filter(Boolean).join(' · ');
-  if (entry.source === 'url') return isStylesheetFontUrl(entry.url) ? 'CSS stylesheet' : 'Remote font file';
+  if (entry.source === 'url') return isThemeFontStylesheetEntry(entry) ? ['CSS stylesheet', size].filter(Boolean).join(' · ') : ['Remote font file', size].filter(Boolean).join(' · ');
   return 'System font stack';
 }
 </script>

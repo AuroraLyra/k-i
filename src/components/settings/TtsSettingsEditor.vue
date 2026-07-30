@@ -53,7 +53,7 @@
 
       <div class="field-grid two-up">
         <label class="field">
-          <span>Group ID</span>
+          <span>Group ID（旧版可选）</span>
           <input v-model="draft.ttsMinimax.groupId" autocomplete="off" placeholder="MiniMax Group ID" />
         </label>
 
@@ -63,10 +63,22 @@
         </label>
       </div>
 
-      <label class="field">
-        <span>API URL</span>
-        <input v-model="draft.ttsMinimax.apiUrl" placeholder="https://api.minimax.io/v1/t2a_v2" />
-      </label>
+      <div class="field-grid" :class="{ 'two-up': minimaxApiSite === 'custom' }">
+        <label class="field">
+          <span>API 站点</span>
+          <select v-model="minimaxApiSite">
+            <option value="china">国内站</option>
+            <option value="global">国际站</option>
+            <option value="custom">自定义</option>
+          </select>
+        </label>
+
+        <label v-if="minimaxApiSite === 'custom'" class="field">
+          <span>API URL</span>
+          <input v-model="draft.ttsMinimax.apiUrl" placeholder="https://.../v1/t2a_v2" />
+        </label>
+      </div>
+      <p class="provider-note">国内站与国际站当前均无需 Group ID；官方站点认证失败时会自动尝试另一站点。</p>
 
       <label class="field">
         <span>模型</span>
@@ -478,6 +490,7 @@ import { createOpenAiTtsVendor, getResolvedOpenAiTtsConfig, getSelectedVendorMod
 
 type PreviewState = 'idle' | 'loading' | 'success' | 'error';
 type VendorComposerTab = 'provider' | 'models' | 'personalize';
+type MinimaxApiSite = 'china' | 'global' | 'custom';
 
 const props = defineProps<{
   settings: AppSettings;
@@ -490,6 +503,10 @@ const emit = defineEmits<{
 const legacyOpenAiVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
 const modernOpenAiVoices = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'];
 const geminiTtsVoices = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir', 'Leda', 'Orus', 'Aoede'];
+const minimaxApiUrls: Record<Exclude<MinimaxApiSite, 'custom'>, string> = {
+  china: 'https://api.minimaxi.com/v1/t2a_v2',
+  global: 'https://api.minimax.io/v1/t2a_v2'
+};
 const vendorTabs = [
   { id: 'provider' as VendorComposerTab, label: 'openai' },
   { id: 'models' as VendorComposerTab, label: '选择模型' },
@@ -530,6 +547,28 @@ function createDraft(settings: AppSettings) {
 const draft = reactive(createDraft(props.settings));
 activeProvider.value = draft.ttsProvider;
 
+function resolveMinimaxApiSite(apiUrl: string): MinimaxApiSite {
+  try {
+    const hostname = new URL(apiUrl).hostname.toLowerCase();
+    if (hostname === 'api.minimaxi.com' || hostname === 'api-bj.minimaxi.com' || hostname === 'api.minimax.chat') return 'china';
+    if (hostname === 'api.minimax.io' || hostname === 'api-uw.minimax.io') return 'global';
+  } catch {
+    return 'custom';
+  }
+  return 'custom';
+}
+
+const minimaxApiSite = computed<MinimaxApiSite>({
+  get: () => resolveMinimaxApiSite(draft.ttsMinimax.apiUrl),
+  set: (site) => {
+    if (site === 'custom') {
+      if (resolveMinimaxApiSite(draft.ttsMinimax.apiUrl) !== 'custom') draft.ttsMinimax.apiUrl = '';
+      return;
+    }
+    draft.ttsMinimax.apiUrl = minimaxApiUrls[site];
+  }
+});
+
 const openAiVendors = computed(() => draft.ttsOpenAi.vendors);
 const activeOpenAiVendor = computed(() => openAiVendors.value.find((vendor) => vendor.id === draft.ttsOpenAi.activeVendorId) ?? openAiVendors.value[0] ?? null);
 const resolvedOpenAiConfig = computed(() => getResolvedOpenAiTtsConfig(draft));
@@ -560,7 +599,7 @@ const providerTabs = computed(() => [
     title: '角色语音生成',
     visualLabel: 'MM',
     shortLabel: 'Pro',
-    connected: Boolean(draft.ttsMinimax.apiKey.trim() && draft.ttsMinimax.groupId.trim() && draft.ttsMinimax.voiceId.trim())
+    connected: Boolean(draft.ttsMinimax.apiKey.trim() && draft.ttsMinimax.voiceId.trim())
   },
   {
     id: 'openai' as TtsProviderType,
@@ -1141,6 +1180,14 @@ onBeforeUnmount(() => {
   border-radius: 24px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 248, 251, 0.94));
   box-shadow: 0 12px 30px rgba(26, 30, 38, 0.05);
+}
+
+.provider-note {
+  margin: -4px 2px 0;
+  color: #858b93;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .form-grid {

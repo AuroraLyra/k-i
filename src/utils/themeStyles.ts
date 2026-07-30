@@ -273,7 +273,8 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 }
 
 .chat-room .message-list {
-  padding: 10px 10px 8px;
+  padding: 10px 10px calc(8px + var(--keyboard-inset));
+  scroll-padding-bottom: calc(8px + var(--keyboard-inset));
   background: transparent;
 }
 
@@ -1803,7 +1804,7 @@ export const defaultOfflineThemeCss = `/* LINK 线下页默认完整样式。
 }
 
 .offline-room .offline-scroll {
-  padding: 14px calc(14px + var(--safe-right)) 18px calc(14px + var(--safe-left));
+  padding: 14px calc(14px + var(--safe-right)) calc(18px + var(--keyboard-inset)) calc(14px + var(--safe-left));
   scroll-padding-bottom: calc(112px + var(--keyboard-inset));
 }
 

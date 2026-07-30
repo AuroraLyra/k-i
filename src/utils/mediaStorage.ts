@@ -30,6 +30,7 @@ interface LinkStorageManager {
 interface MaterializeStoredMediaOptions {
   missing?: 'throw' | 'empty' | 'preserve';
   onMissing?: (source: string) => void;
+  onMaterialized?: (source: string) => void;
 }
 
 const opfsDirectoryName = 'link-large-media-v1';
@@ -115,7 +116,7 @@ function collectProtectedMediaLocators(liveLocators: Set<string>) {
 }
 
 function isInlineMediaDataUrl(value: string) {
-  return /^data:(?:image|audio)\//i.test(value.trim());
+  return /^data:(?:(?:image|audio|font)\/|application\/(?:font|x-font))/i.test(value.trim());
 }
 
 function dataUrlByteLength(dataUrl: string) {
@@ -146,6 +147,10 @@ export function dataUrlToBlob(dataUrl: string) {
 
 function extensionFromMimeType(mimeType: string) {
   const normalized = mimeType.toLocaleLowerCase();
+  if (normalized.includes('woff2')) return 'woff2';
+  if (normalized.includes('woff')) return 'woff';
+  if (normalized.includes('opentype') || normalized.includes('otf')) return 'otf';
+  if (normalized.includes('truetype') || normalized.includes('ttf')) return 'ttf';
   if (normalized.includes('svg')) return 'svg';
   if (normalized.includes('png')) return 'png';
   if (normalized.includes('webp')) return 'webp';
@@ -163,6 +168,10 @@ function extensionFromMimeType(mimeType: string) {
 
 function mimeTypeFromMediaId(id: string) {
   const extension = id.split('.').pop()?.toLocaleLowerCase() ?? '';
+  if (extension === 'woff2') return 'font/woff2';
+  if (extension === 'woff') return 'font/woff';
+  if (extension === 'otf') return 'font/otf';
+  if (extension === 'ttf') return 'font/ttf';
   if (extension === 'svg') return 'image/svg+xml';
   if (extension === 'png') return 'image/png';
   if (extension === 'webp') return 'image/webp';
@@ -351,6 +360,10 @@ async function storeMediaBlob(blob: Blob) {
   return '';
 }
 
+export async function storeLocalMediaBlob(blob: Blob) {
+  return await storeMediaBlob(blob);
+}
+
 async function externalizeMediaString(value: string, minBytes: number) {
   const mappedUrl = objectUrlSourceMap.get(value);
   if (mappedUrl) return mappedUrl;
@@ -515,7 +528,17 @@ export async function hydrateStoredMediaRefs<T>(value: T, force = false): Promis
 }
 
 export async function materializeStoredMediaRefs<T>(value: T, options: MaterializeStoredMediaOptions = {}): Promise<T> {
-  return await transformMediaStrings(value, (entry) => materializeMediaString(entry, options));
+  const materializedBySource = new Map<string, Promise<string>>();
+  return await transformMediaStrings(value, async (entry) => {
+    const source = objectUrlSourceMap.get(entry) ?? entry;
+    if (!parseStoredMediaLocator(source)) return entry;
+    let materialized = materializedBySource.get(source);
+    if (!materialized) {
+      materialized = materializeMediaString(entry, options).finally(() => options.onMaterialized?.(source));
+      materializedBySource.set(source, materialized);
+    }
+    return await materialized;
+  });
 }
 
 export async function resolveLocalMediaBlob(value: string) {

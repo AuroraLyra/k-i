@@ -2,14 +2,14 @@
   <section class="backup-card cloud-backup-card">
     <header class="card-head">
       <div>
-        <span class="card-kicker">Bring your own storage</span>
-        <h3>一键连接自己的云盘</h3>
+        <span class="card-kicker">Free personal cloud</span>
+        <h3>免费云盘直连</h3>
       </div>
       <span class="status-badge" :class="statusClass">{{ statusLabel }}</span>
     </header>
 
     <p class="security-note">
-      备份只在当前设备加密，并直传到你自己的云盘。LINK 服务器不接收备份、云盘 Token 或恢复密钥。
+      设备直接连接云盘官方接口，使用账号自带免费空间。LINK 服务器不接收、不存储、不转发备份、Token 或恢复密钥。
     </p>
 
     <div class="provider-list" aria-label="选择云备份提供商">
@@ -17,59 +17,53 @@
         v-for="provider in oauthProviders"
         :key="provider.id"
         class="provider-button"
-        :class="[`provider-${provider.id}`, { connected: cloudSettings.provider === provider.id }]"
+        :class="[`provider-${provider.id}`, { connected: cloudSettings.provider === provider.id, unavailable: !isCloudOAuthProviderConfigured(provider.id) }]"
         type="button"
-        :disabled="Boolean(busy) || !isCloudOAuthProviderConfigured(provider.id)"
+        :disabled="Boolean(busy)"
         @click="connectOAuthProvider(provider.id)"
       >
         <span class="provider-logo" aria-hidden="true">{{ provider.mark }}</span>
         <span class="provider-copy">
           <strong>{{ provider.label }}</strong>
-          <small>{{ cloudSettings.provider === provider.id ? connectedAccountLabel : isCloudOAuthProviderConfigured(provider.id) ? '点一下即可连接' : '暂未配置' }}</small>
+          <small>{{ cloudSettings.provider === provider.id ? connectedAccountLabel : isCloudOAuthProviderConfigured(provider.id) ? provider.description : '当前版本缺少 OAuth 配置' }}</small>
         </span>
-        <span class="provider-state">{{ busy === `connect-${provider.id}` ? '连接中…' : cloudSettings.provider === provider.id ? '已连接' : isCloudOAuthProviderConfigured(provider.id) ? '连接' : '不可用' }}</span>
-      </button>
-
-      <button
-        class="provider-button provider-r2-worker"
-        :class="{ connected: cloudSettings.provider === 'r2-worker' }"
-        type="button"
-        :disabled="Boolean(busy)"
-        @click="openR2Setup"
-      >
-        <span class="provider-logo cloudflare-mark" aria-hidden="true">R2</span>
-        <span class="provider-copy">
-          <strong>Cloudflare R2</strong>
-          <small>{{ cloudSettings.provider === 'r2-worker' ? connectedAccountLabel : '大数据 · 用户自有 Worker' }}</small>
-        </span>
-        <span class="provider-state">{{ cloudSettings.provider === 'r2-worker' ? '已连接' : '部署' }}</span>
+        <span class="provider-state">{{ busy === `connect-${provider.id}` ? '连接中…' : cloudSettings.provider === provider.id ? '已连接' : isCloudOAuthProviderConfigured(provider.id) ? '连接' : '查看原因' }}</span>
       </button>
     </div>
 
-    <section v-if="showR2Setup && cloudSettings.provider !== 'r2-worker'" class="r2-setup-card">
-      <div class="r2-setup-head">
-        <span class="provider-logo cloudflare-mark" aria-hidden="true">R2</span>
-        <div>
-          <strong>部署到你的 Cloudflare</strong>
-          <p>Cloudflare 会在你的账号创建 Worker 和 R2；部署完成后只需粘贴一次 Worker 地址。</p>
-        </div>
+    <section v-if="!hasCloudAccount" class="setup-panel">
+      <div class="setup-head">
+        <strong>怎么使用</strong>
+        <span>连接后和 GitHub 备份一样，可手动备份、自动备份和导入恢复。</span>
       </div>
-      <button class="deploy-action" type="button" @click="deployR2Worker">
-        <ExternalLink :size="17" />
-        <span>一键部署并打开 Cloudflare</span>
-      </button>
-      <label class="field">
-        <span>部署完成后粘贴 Worker 地址</span>
-        <div class="field-with-action">
-          <input v-model="workerUrlDraft" type="url" autocomplete="url" placeholder="https://babylink-r2-backup.xxx.workers.dev" />
-          <button class="icon-action connect-worker-action" type="button" :disabled="Boolean(busy)" @click="connectR2Worker">
-            {{ busy === 'connect-r2' ? '连接中' : workerUrlDraft.trim() ? '连接' : '粘贴连接' }}
-          </button>
+      <div class="setup-steps">
+        <div><b>1</b><span>选择上方云盘并完成官方账号授权。</span></div>
+        <div><b>2</b><span>首次使用点“立即备份”；新设备先填写原恢复密钥再导入。</span></div>
+        <div><b>3</b><span>开启自动备份后，应用运行时按设定间隔更新密文。</span></div>
+      </div>
+      <label class="toggle-card setup-toggle">
+        <input type="checkbox" :checked="false" @change="toggleAutoBackup" />
+        <div>
+          <strong>应用运行时自动备份</strong>
+          <span>连接云盘后可开启</span>
         </div>
       </label>
+      <div class="action-row cloud-actions setup-actions">
+        <button class="secondary-action" type="button" :disabled="Boolean(busy)" @click="requestCloudAction('restore')">
+          <Download :size="15" />
+          <span>导入云盘备份</span>
+        </button>
+        <button class="primary-action" type="button" :disabled="Boolean(busy)" @click="requestCloudAction('backup')">
+          <CloudUpload :size="15" />
+          <span>立即备份</span>
+        </button>
+      </div>
+      <button v-if="noCloudProvidersConfigured" class="github-fallback" type="button" @click="emit('open-github')">
+        当前云盘服务尚未配置，先使用 GitHub 免费自动备份
+      </button>
     </section>
 
-    <section v-if="isConnected" class="connected-panel">
+    <section v-else class="connected-panel">
       <div class="connection-row">
         <span class="connection-icon"><ShieldCheck :size="18" /></span>
         <div>
@@ -130,7 +124,7 @@
         </button>
         <button class="secondary-action" type="button" :disabled="Boolean(busy)" @click="restoreBackup">
           <Download :size="15" />
-          <span>恢复</span>
+          <span>导入云盘备份</span>
         </button>
         <button class="primary-action" type="button" :disabled="Boolean(busy)" @click="backupNow">
           <CloudUpload :size="15" />
@@ -150,27 +144,26 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { CloudUpload, Download, ExternalLink, Eye, EyeOff, RefreshCw, ShieldCheck } from 'lucide-vue-next';
-import { cloudBackupProviderLabels, getR2WorkerDeployUrl, isCloudBackupConnected, isCloudOAuthProviderConfigured, pairR2Worker, startCloudOAuth, testCloudBackupConnection, type CloudOAuthConnection } from '@/services/cloudBackup';
+import { CloudUpload, Download, Eye, EyeOff, RefreshCw, ShieldCheck } from 'lucide-vue-next';
+import { cloudBackupProviderLabels, isCloudBackupAccountConnected, isCloudBackupConnected, isCloudOAuthProviderConfigured, startCloudOAuth, testCloudBackupConnection, type CloudOAuthConnection } from '@/services/cloudBackup';
 import { createBackupRecoveryKey } from '@/services/encryptedBackup';
 import { useAppStore } from '@/stores/appStore';
 import type { AppSettings, CloudBackupProvider, CloudBackupSettings } from '@/types/domain';
 
 const props = defineProps<{ settings: AppSettings }>();
+const emit = defineEmits<{ 'open-github': [] }>();
 const store = useAppStore();
-const workerUrlDraft = ref('');
 const recoveryKeyDraft = ref('');
 const intervalDraft = ref(30);
-const showR2Setup = ref(false);
 const showRecoveryKey = ref(false);
 const busy = ref('');
 const feedback = ref('');
 const feedbackKind = ref<'success' | 'error'>('success');
 
 const oauthProviders = [
-  { id: 'google-drive' as const, label: 'Google Drive', mark: 'G' },
-  { id: 'onedrive' as const, label: 'OneDrive', mark: 'O' },
-  { id: 'dropbox' as const, label: 'Dropbox', mark: 'D' }
+  { id: 'google-drive' as const, label: 'Google Drive', mark: 'G', description: '推荐 · 官方免费空间' },
+  { id: 'onedrive' as const, label: 'OneDrive', mark: 'O', description: '官方免费空间' },
+  { id: 'dropbox' as const, label: 'Dropbox', mark: 'D', description: '官方免费空间' }
 ];
 
 interface CloudOAuthMessage {
@@ -180,7 +173,9 @@ interface CloudOAuthMessage {
 }
 
 const cloudSettings = computed(() => props.settings.cloudBackup);
-const isConnected = computed(() => isCloudBackupConnected(cloudSettings.value));
+const hasCloudAccount = computed(() => isCloudBackupAccountConnected(cloudSettings.value));
+const isReady = computed(() => isCloudBackupConnected(cloudSettings.value));
+const noCloudProvidersConfigured = computed(() => oauthProviders.every((provider) => !isCloudOAuthProviderConfigured(provider.id)));
 const activeProviderLabel = computed(() => cloudSettings.value.provider ? cloudBackupProviderLabels[cloudSettings.value.provider] : '云盘');
 const connectedAccountLabel = computed(() => cloudSettings.value.accountLabel || (cloudSettings.value.provider === 'r2-worker' ? '你的 Cloudflare 账号' : '你的私有空间'));
 const progressPercent = computed(() => Math.min(100, Math.max(0, Math.round(cloudSettings.value.progress.percent || 0))));
@@ -189,21 +184,21 @@ const statusClass = computed(() => cloudSettings.value.lastBackupStatus === 'fai
   ? 'failed'
   : cloudSettings.value.lastBackupStatus === 'running'
     ? 'running'
-    : isConnected.value
+    : hasCloudAccount.value
       ? 'success'
       : 'idle');
 const statusLabel = computed(() => {
   if (cloudSettings.value.lastBackupStatus === 'running') return '备份中';
   if (cloudSettings.value.lastBackupStatus === 'failed') return '失败';
-  if (isConnected.value) return '已连接';
+  if (hasCloudAccount.value && !isReady.value) return '待填密钥';
+  if (hasCloudAccount.value) return '已连接';
+  if (noCloudProvidersConfigured.value) return '待开通';
   return '未连接';
 });
 
 watch(() => props.settings.cloudBackup, (settings) => {
-  workerUrlDraft.value = settings.workerUrl;
   recoveryKeyDraft.value = settings.recoveryKey;
   intervalDraft.value = settings.intervalMinutes;
-  if (settings.provider === 'r2-worker') showR2Setup.value = true;
 }, { immediate: true, deep: true });
 
 const oauthMessageListener = (event: MessageEvent) => {
@@ -255,18 +250,10 @@ async function applyOAuthConnection(connection: CloudOAuthConnection) {
     lastBackupError: '',
     latestRemoteBackupAt: 0,
     lastBackupBytes: 0,
-    progress: { phase: 'completed', label: '云盘连接成功，自动备份已开启', percent: 100, updatedAt: Date.now() }
+    progress: { phase: 'completed', label: '云盘连接成功，请选择备份或导入', percent: 100, updatedAt: Date.now() }
   });
   await navigator.clipboard.writeText(recoveryKey).catch(() => undefined);
-  setFeedback(`${cloudBackupProviderLabels[connection.provider]} 已连接，正在完成首次加密备份…`);
-  try {
-    await store.runCloudBackup('manual');
-    setFeedback(`${cloudBackupProviderLabels[connection.provider]} 已连接并完成首次加密备份；恢复密钥已尝试复制。`);
-  } catch (error) {
-    setFeedback(`${cloudBackupProviderLabels[connection.provider]} 已连接，但首次备份失败：${error instanceof Error ? error.message : '请稍后重试。'}`, 'error');
-  } finally {
-    await saveCloudSettings({ enabled: true });
-  }
+  setFeedback(`${cloudBackupProviderLabels[connection.provider]} 已连接。首次使用请点“立即备份”；如果云盘已有备份，请先填写原恢复密钥再导入。`);
 }
 
 async function handleOAuthMessage(message: CloudOAuthMessage) {
@@ -286,6 +273,10 @@ async function handleOAuthMessage(message: CloudOAuthMessage) {
 }
 
 async function connectOAuthProvider(provider: Exclude<CloudBackupProvider, 'r2-worker'>) {
+  if (!isCloudOAuthProviderConfigured(provider)) {
+    setFeedback(`${cloudBackupProviderLabels[provider]} 在当前安装版本中尚未配置 OAuth Client ID，并非你的账号问题。请使用已开通的云盘，或切换到 GitHub 免费备份。`, 'error');
+    return;
+  }
   busy.value = `connect-${provider}`;
   feedback.value = '';
   try {
@@ -293,63 +284,6 @@ async function connectOAuthProvider(provider: Exclude<CloudBackupProvider, 'r2-w
     setFeedback(`请在新窗口完成 ${cloudBackupProviderLabels[provider]} 授权。`);
   } catch (error) {
     setFeedback(error instanceof Error ? error.message : '无法打开云盘授权。', 'error');
-  } finally {
-    busy.value = '';
-  }
-}
-
-function openR2Setup() {
-  showR2Setup.value = true;
-  feedback.value = '';
-}
-
-function deployR2Worker() {
-  window.open(getR2WorkerDeployUrl(), '_blank', 'noopener,noreferrer');
-  setFeedback('部署完成后复制 workers.dev 地址，粘贴到下方即可连接。');
-}
-
-async function connectR2Worker() {
-  busy.value = 'connect-r2';
-  feedback.value = '';
-  try {
-    if (!workerUrlDraft.value.trim()) {
-      workerUrlDraft.value = (await navigator.clipboard.readText().catch(() => '')).trim();
-    }
-    if (!workerUrlDraft.value.trim()) throw new Error('请先复制部署完成后的 workers.dev 地址。');
-    const connection = await pairR2Worker(workerUrlDraft.value);
-    const current = store.settings?.cloudBackup ?? cloudSettings.value;
-    const recoveryKey = current.recoveryKey || createBackupRecoveryKey();
-    recoveryKeyDraft.value = recoveryKey;
-    await saveCloudSettings({
-      enabled: false,
-      provider: 'r2-worker',
-      accessToken: '',
-      refreshToken: '',
-      tokenExpiresAt: 0,
-      accountLabel: '你的 Cloudflare R2',
-      workerUrl: connection.workerUrl,
-      workerToken: connection.workerToken,
-      recoveryKey,
-      remoteFileId: '',
-      lastBackupAt: 0,
-      lastBackupStatus: 'idle',
-      lastBackupError: '',
-      latestRemoteBackupAt: 0,
-      lastBackupBytes: 0,
-      progress: { phase: 'completed', label: 'R2 已连接，自动备份已开启', percent: 100, updatedAt: Date.now() }
-    });
-    await navigator.clipboard.writeText(recoveryKey).catch(() => undefined);
-    setFeedback('你的 R2 已连接，正在完成首次加密备份…');
-    try {
-      await store.runCloudBackup('manual');
-      setFeedback('你的 R2 已连接并完成首次加密备份；恢复密钥已尝试复制。');
-    } catch (error) {
-      setFeedback(`你的 R2 已连接，但首次备份失败：${error instanceof Error ? error.message : '请稍后重试。'}`, 'error');
-    } finally {
-      await saveCloudSettings({ enabled: true });
-    }
-  } catch (error) {
-    setFeedback(error instanceof Error ? error.message : '连接 R2 Worker 失败。', 'error');
   } finally {
     busy.value = '';
   }
@@ -403,9 +337,13 @@ async function saveInterval() {
 
 async function toggleAutoBackup(event: Event) {
   const checked = (event.target as HTMLInputElement).checked;
-  if (checked && !isConnected.value) {
+  if (checked && !isReady.value) {
     (event.target as HTMLInputElement).checked = false;
-    setFeedback('请先连接自己的云盘。', 'error');
+    setFeedback(hasCloudAccount.value ? '请先填写并保存恢复密钥。' : '请先连接自己的云盘。', 'error');
+    return;
+  }
+  if (checked && !cloudSettings.value.lastBackupAt && !window.confirm('开启后会用当前设备数据更新云盘同名备份。如果你正在新设备恢复旧数据，请先取消并点击“导入云盘备份”。确定开启吗？')) {
+    (event.target as HTMLInputElement).checked = false;
     return;
   }
   await saveCloudSettings({ enabled: checked });
@@ -427,6 +365,11 @@ async function testConnection() {
 }
 
 async function backupNow() {
+  if (!isReady.value) {
+    setFeedback(hasCloudAccount.value ? '请先填写并保存恢复密钥。' : '请先连接自己的云盘。', 'error');
+    return;
+  }
+  if (!cloudSettings.value.lastBackupAt && !window.confirm('立即备份会更新云盘中的同名备份。如果你是在新设备导入旧数据，请先取消并选择“导入云盘备份”。确定继续吗？')) return;
   busy.value = 'backup';
   feedback.value = '';
   try {
@@ -440,17 +383,32 @@ async function backupNow() {
 }
 
 async function restoreBackup() {
-  if (!window.confirm('恢复会替换当前设备的本地数据，确定继续吗？')) return;
+  if (!isReady.value) {
+    setFeedback(hasCloudAccount.value ? '请先填写原设备保存的恢复密钥。' : '请先连接存有备份的云盘账号。', 'error');
+    return;
+  }
+  if (!window.confirm('导入云盘备份会替换当前设备的本地数据，确定继续吗？')) return;
   busy.value = 'restore';
   feedback.value = '';
   try {
     await store.restoreCloudBackup({ onProgress: (label, percent) => setFeedback(`${label} ${Math.round(percent)}%`) });
-    setFeedback('你的云端加密备份已恢复。');
+    setFeedback('云盘加密备份已导入当前设备。');
   } catch (error) {
     setFeedback(error instanceof Error ? error.message : '云端恢复失败。', 'error');
   } finally {
     busy.value = '';
   }
+}
+
+function requestCloudAction(action: 'backup' | 'restore') {
+  if (!hasCloudAccount.value) {
+    setFeedback(noCloudProvidersConfigured.value
+      ? '当前安装版本尚未配置云盘 OAuth。可点下方入口使用 GitHub，或等待维护者开通云盘服务。'
+      : `请先连接上方任一云盘，再${action === 'backup' ? '创建备份' : '导入备份'}。`, 'error');
+    return;
+  }
+  if (action === 'backup') void backupNow();
+  else void restoreBackup();
 }
 
 function formatTime(timestamp: number) {
@@ -484,6 +442,8 @@ function formatBytes(bytes: number) {
 .provider-list { display: grid; gap: 8px; }
 .provider-button { display: grid; grid-template-columns: 38px minmax(0,1fr) auto; align-items: center; gap: 10px; width: 100%; min-height: 60px; padding: 10px 12px; border: 1px solid rgba(22,22,22,.055); border-radius: 16px; background: rgba(255,255,255,.86); color: #181b19; text-align: left; box-shadow: 0 8px 24px rgba(30,45,37,.035); }
 .provider-button:disabled { opacity: .62; }
+.provider-button.unavailable:not(:disabled) { border-style: dashed; }
+.provider-button.unavailable:not(:disabled) .provider-state { color: #8a6034; background: #fff2dd; }
 .provider-button.connected { border-color: rgba(22,146,78,.26); background: #f4fcf7; box-shadow: inset 0 0 0 1px rgba(22,146,78,.07); }
 .provider-logo { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: #f1f3f2; color: #252927; font-size: 16px; font-weight: 950; }
 .provider-google-drive .provider-logo { background: #eef5ff; color: #3373d1; }
@@ -495,7 +455,16 @@ function formatBytes(bytes: number) {
 .provider-copy small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-state { padding: 5px 8px; border-radius: 999px; background: rgba(17,17,17,.055); color: #666c68; font-size: 10px; font-weight: 900; }
 .connected .provider-state { background: #dcf4e4; color: #16723b; }
-.r2-setup-card, .connected-panel { display: grid; gap: 12px; padding: 13px; border-radius: 16px; background: rgba(255,255,255,.72); }
+.r2-setup-card, .connected-panel, .setup-panel { display: grid; gap: 12px; padding: 13px; border-radius: 16px; background: rgba(255,255,255,.72); }
+.setup-head { display: grid; gap: 3px; }
+.setup-head strong { font-size: 13px; }
+.setup-head span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.setup-steps { display: grid; gap: 8px; }
+.setup-steps div { display: grid; grid-template-columns: 22px minmax(0,1fr); align-items: center; gap: 8px; color: #59635e; font-size: 11px; line-height: 1.45; }
+.setup-steps b { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 8px; background: #e6f5ec; color: #15723c; font-size: 10px; }
+.setup-toggle { margin-top: 1px; }
+.setup-actions { grid-template-columns: repeat(2, minmax(0,1fr)); }
+.github-fallback { min-height: 38px; padding: 8px 12px; border-radius: 12px; background: #f1f2f4; color: #454b48; font-size: 11px; font-weight: 850; line-height: 1.35; }
 .r2-setup-head { align-items: flex-start; gap: 10px; }
 .r2-setup-head > div:last-child { min-width: 0; }
 .r2-setup-head strong { font-size: 13px; }

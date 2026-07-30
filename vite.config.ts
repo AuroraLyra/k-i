@@ -10,6 +10,7 @@ const imageProxyPath = '/__image-proxy';
 const openAiImageGeneratePath = '/__openai-image-generate';
 const openAiModelsPath = '/__openai-models';
 const imageDownloadPath = '/__image-download';
+const assetDownloadPath = '/__asset-download';
 const appServerProxyTarget = process.env.LINK_SERVER_PROXY_TARGET || 'http://127.0.0.1:3000';
 
 async function readRequestBody(request: IncomingMessage) {
@@ -223,10 +224,55 @@ function registerImageDownloadMiddleware(middlewares: LinkProxyMiddlewares) {
   });
 }
 
+function registerAssetDownloadMiddleware(middlewares: LinkProxyMiddlewares) {
+  middlewares.use(assetDownloadPath, async (request, response) => {
+    if (request.method !== 'GET') {
+      sendProxyError(response, 405, 'Asset download proxy only supports GET requests.');
+      return;
+    }
+
+    const requestUrl = new URL(request.url ?? '', 'http://localhost');
+    const target = requestUrl.searchParams.get('url')?.trim() ?? '';
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(target);
+    } catch {
+      sendProxyError(response, 400, 'Asset download target URL is invalid.');
+      return;
+    }
+
+    if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+      sendProxyError(response, 400, 'Asset download target URL must use http or https.');
+      return;
+    }
+
+    try {
+      const accept = getForwardHeader(request, 'accept') || '*/*';
+      const upstreamResponse = await fetch(targetUrl, {
+        headers: {
+          Accept: accept,
+          'User-Agent': 'Mozilla/5.0 AppleWebKit/537.36 BabyLink-Font-Cache/1.0',
+          Referer: `${targetUrl.protocol}//${targetUrl.host}/`
+        }
+      });
+      response.statusCode = upstreamResponse.status;
+      response.statusMessage = upstreamResponse.statusText;
+      response.setHeader('X-Link-Proxy-Target-Host', targetUrl.host);
+      const upstreamContentType = upstreamResponse.headers.get('content-type');
+      if (upstreamContentType) response.setHeader('Content-Type', upstreamContentType);
+      response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendProxyError(response, 502, `Font asset download failed: ${message}`);
+    }
+  });
+}
+
 function registerOpenAiCompatibleMiddlewares(middlewares: LinkProxyMiddlewares) {
   registerTextProxyMiddleware(middlewares);
   registerImageProxyMiddleware(middlewares);
   registerImageDownloadMiddleware(middlewares);
+  registerAssetDownloadMiddleware(middlewares);
 }
 
 export default defineConfig({

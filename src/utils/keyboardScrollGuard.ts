@@ -15,17 +15,20 @@ const RESTORE_DELAYS = [40, 120, 260, 520, 820];
 export function useKeyboardScrollGuard(scrollTarget: Ref<HTMLElement | null>) {
   let frameId = 0;
   let focused = false;
-  let restoreUntil = 0;
   let snapshot: ScrollSnapshot | null = null;
   const timerIds = new Set<number>();
+
+  function clearRestoreTimeouts() {
+    for (const timerId of timerIds) window.clearTimeout(timerId);
+    timerIds.clear();
+  }
 
   function clearRestoreTimers() {
     if (frameId !== 0) {
       window.cancelAnimationFrame(frameId);
       frameId = 0;
     }
-    for (const timerId of timerIds) window.clearTimeout(timerId);
-    timerIds.clear();
+    clearRestoreTimeouts();
   }
 
   function captureKeyboardScrollAnchor() {
@@ -53,22 +56,19 @@ export function useKeyboardScrollGuard(scrollTarget: Ref<HTMLElement | null>) {
   }
 
   function queueKeyboardScrollRestore(duration = KEYBOARD_TRANSITION_MS) {
-    restoreUntil = Math.max(restoreUntil, window.performance.now() + duration);
-    clearRestoreTimers();
+    clearRestoreTimeouts();
 
-    const restoreFrame = () => {
+    const restoreAfterRender = () => {
       frameId = 0;
       void nextTick(() => {
         restoreKeyboardScrollAnchor();
-        if (focused && snapshot && window.performance.now() < restoreUntil) {
-          frameId = window.requestAnimationFrame(restoreFrame);
-        }
       });
     };
 
-    frameId = window.requestAnimationFrame(restoreFrame);
+    if (frameId === 0) frameId = window.requestAnimationFrame(restoreAfterRender);
 
     for (const delay of RESTORE_DELAYS) {
+      if (delay > duration) continue;
       const timerId = window.setTimeout(() => {
         timerIds.delete(timerId);
         restoreKeyboardScrollAnchor();
@@ -94,7 +94,6 @@ export function useKeyboardScrollGuard(scrollTarget: Ref<HTMLElement | null>) {
 
   function releaseKeyboardScrollGuard() {
     snapshot = null;
-    restoreUntil = 0;
     clearRestoreTimers();
   }
 

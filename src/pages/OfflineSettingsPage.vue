@@ -13,11 +13,25 @@
       </div>
     </header>
 
-    <main class="offline-settings-main">
+    <main ref="settingsMainRef" class="offline-settings-main">
       <section class="settings-hero">
-        <span>{{ characterDisplayName }}</span>
-        <strong>RP chapter studio</strong>
-        <p>这些选项会写入线下章节提示词。</p>
+        <div class="settings-hero-kicker">
+          <span>the offline edit</span>
+          <em>vol. 01</em>
+        </div>
+        <div class="settings-hero-title">
+          <div>
+            <small><span class="settings-hero-for-label">for</span> {{ characterDisplayName }}</small>
+            <strong>Chapter<br />Studio</strong>
+          </div>
+          <span aria-hidden="true">✦</span>
+        </div>
+        <p>把叙事视角、角色边界与文字气质整理成这一章的专属配方。</p>
+        <div class="settings-hero-tags" aria-hidden="true">
+          <span>narrative</span>
+          <span>character</span>
+          <span>tone</span>
+        </div>
       </section>
 
       <section v-if="activeTab === 'enhance'" class="settings-section" aria-label="描写增强">
@@ -31,44 +45,66 @@
         </label>
       </section>
 
+      <template v-if="activeTab === 'guidance'">
+      <section v-for="group in offlineGuidanceGroups" :key="group.id" class="settings-section" :aria-label="group.title">
+        <h2>{{ group.title }}</h2>
+        <p class="setting-note">{{ group.description }}</p>
+        <label v-for="item in group.items" :key="item.key" class="toggle-row">
+          <span>
+            <strong>{{ item.label }}</strong>
+            <small>{{ item.description }}</small>
+          </span>
+          <input :checked="Boolean(offlineSettings[item.key])" type="checkbox" @change="updateToggle(item.key, $event)" />
+        </label>
+      </section>
+      </template>
+
       <template v-if="activeTab === 'structure'">
       <section class="settings-section" aria-label="章节结构">
         <h2>章节结构</h2>
-        <div class="setting-block">
-          <span class="setting-label">段落长度</span>
-          <div class="segmented-control segmented-control--three">
-            <button v-for="option in paragraphOptions" :key="option.id" type="button" :class="{ active: offlineSettings.paragraphMode === option.id }" @click="updateOfflineSettings({ paragraphMode: option.id })">
+        <div v-for="block in structureBlocks" :key="block.kind" class="setting-block">
+          <div class="setting-block-head">
+            <span class="setting-label">{{ block.label }}</span>
+            <button class="small-action" type="button" @click="openStructureEditor(block.kind)">
+              <Plus :size="13" />
+              自定义
+            </button>
+          </div>
+          <div :class="structureControlClass(block.layout)">
+            <button v-for="option in block.options" :key="option.id" type="button" :class="{ active: isBuiltInStructureActive(block.kind, option.id) }" @click="applyBuiltInStructure(block.kind, option.id)">
               {{ option.label }}
             </button>
           </div>
-        </div>
-
-        <div class="setting-block">
-          <span class="setting-label">叙事视角</span>
-          <div class="option-grid">
-            <button v-for="option in perspectiveOptions" :key="option.id" type="button" :class="{ active: offlineSettings.perspective === option.id }" @click="updateOfflineSettings({ perspective: option.id })">
-              {{ option.label }}
-            </button>
+          <div v-if="customStructurePresets(block.kind).length" class="structure-custom-list" :aria-label="`${block.label}自定义选项`">
+            <article v-for="preset in customStructurePresets(block.kind)" :key="preset.id" class="structure-custom-row">
+              <button class="structure-custom-apply" type="button" :class="{ active: isCustomStructureActive(block.kind, preset.id) }" @click="applyCustomStructurePreset(block.kind, preset.id)">
+                <strong>{{ preset.name }}</strong>
+                <small>{{ isCustomStructureActive(block.kind, preset.id) ? '应用中' : '自定义规则' }}</small>
+              </button>
+              <button class="structure-custom-action" type="button" @click="openStructureEditor(block.kind, preset)">编辑</button>
+              <button class="structure-custom-action structure-custom-action--danger" type="button" aria-label="删除自定义结构选项" @click="deleteCustomStructurePreset(block.kind, preset.id)">
+                <Trash2 :size="13" />
+              </button>
+            </article>
           </div>
-        </div>
-
-        <div class="setting-block">
-          <span class="setting-label">剧情拓展</span>
-          <div class="segmented-control">
-            <button v-for="option in interruptionOptions" :key="option.id" type="button" :class="{ active: offlineSettings.interruptionMode === option.id }" @click="updateOfflineSettings({ interruptionMode: option.id })">
-              {{ option.label }}
-            </button>
+          <div v-if="editingStructureKind === block.kind" class="structure-custom-editor">
+            <label class="text-field">
+              <span>自定义名称</span>
+              <input v-model="structureNameDraft" :placeholder="`例如：我的${block.label}`" />
+            </label>
+            <label class="text-field text-field--textarea">
+              <span>完整提示词</span>
+              <textarea v-model="structureContentDraft" rows="5" :placeholder="block.placeholder"></textarea>
+            </label>
+            <div class="structure-editor-actions">
+              <button type="button" :disabled="!structureNameDraft.trim() || !structureContentDraft.trim()" @click="saveAndApplyStructurePreset(block.kind)">
+                <Check :size="14" />
+                保存并应用
+              </button>
+              <button type="button" @click="closeStructureEditor">取消</button>
+            </div>
           </div>
-        </div>
-
-        <div class="setting-block">
-          <span class="setting-label">转述方式</span>
-          <div class="segmented-control">
-            <button v-for="option in retellOptions" :key="option.id" type="button" :class="{ active: offlineSettings.retellMode === option.id }" @click="updateOfflineSettings({ retellMode: option.id })">
-              {{ option.label }}
-            </button>
-          </div>
-          <p class="setting-note">转述会在章节前原样承接用户输出，并润色扩写动作、行为、神情和话语。</p>
+          <p v-if="block.note" class="setting-note">{{ block.note }}</p>
         </div>
       </section>
 
@@ -159,8 +195,8 @@
     </main>
 
     <footer class="offline-settings-tabs" aria-label="线下设置分类">
-      <button v-for="tab in tabs" :key="tab.id" type="button" :class="{ active: activeTab === tab.id }" @click="activeTab = tab.id">
-        <component :is="tab.icon" :size="17" />
+      <button v-for="tab in tabs" :key="tab.id" type="button" :class="{ active: activeTab === tab.id }" :aria-pressed="activeTab === tab.id" @click="selectTab(tab.id)">
+        <component :is="tab.icon" :size="18" :stroke-width="1.9" />
         <span>{{ tab.label }}</span>
       </button>
     </footer>
@@ -169,11 +205,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, Check, Feather, Layers3, Plus, SlidersHorizontal, Trash2 } from 'lucide-vue-next';
+import { ArrowLeft, Check, Feather, Layers3, Plus, SlidersHorizontal, Trash2, UserRoundPen } from 'lucide-vue-next';
+import { offlineGuidanceGroups, type OfflineGuidanceSettingKey } from '@/data/offlineGuidance';
 import { useAppStore } from '@/stores/appStore';
-import type { ConversationOfflineSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode } from '@/types/domain';
+import type { ConversationOfflineSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineStructureKind } from '@/types/domain';
 import { getCharacterDisplayName } from '@/utils/character';
 import { createId } from '@/utils/id';
 
@@ -181,10 +218,11 @@ const props = defineProps<{
   id: string;
 }>();
 
-type SettingsTab = 'enhance' | 'structure' | 'style';
+type SettingsTab = 'enhance' | 'guidance' | 'structure' | 'style';
 
 const tabs: Array<{ id: SettingsTab; label: string; icon: typeof SlidersHorizontal }> = [
   { id: 'enhance', label: '描写增强', icon: SlidersHorizontal },
+  { id: 'guidance', label: '角色引导', icon: UserRoundPen },
   { id: 'structure', label: '章节结构', icon: Layers3 },
   { id: 'style', label: '文风基调', icon: Feather }
 ];
@@ -213,7 +251,27 @@ const retellOptions: Array<{ id: OfflineRetellMode; label: string }> = [
   { id: 'direct', label: '不转述' }
 ];
 
-const toggleItems: Array<{ key: keyof Pick<ConversationOfflineSettings, 'enhanceAppearance' | 'enhanceOutfit' | 'expandLength' | 'characterPsychology'>; label: string; description: string }> = [
+type StructureOptionId = OfflineParagraphMode | OfflinePerspective | OfflineInterruptionMode | OfflineRetellMode;
+type StructureControlLayout = 'two' | 'three' | 'grid';
+
+const structurePlaceholders: Record<OfflineStructureKind, string> = {
+  paragraph: '写下段落长度与切分规则，例如每段承担什么功能、何时长段、何时短段、禁止哪些灌水方式。可使用 {{char}} 和 {{user}} 作为角色名占位符。',
+  perspective: '写下叙事视角规则，例如人称、镜头距离、能进入谁的内心、哪些信息必须留白。可使用 {{char}} 和 {{user}}。',
+  interruption: '写下剧情拓展规则，例如是否允许代接用户动作、哪些低风险内容可补、哪些关键决定绝不能代替。',
+  retell: '写下转述规则，例如是否承接用户最新输入、承接到什么程度、如何避免重复和擅自改写。'
+};
+
+const structureBlocks: Array<{ kind: OfflineStructureKind; label: string; layout: StructureControlLayout; options: Array<{ id: StructureOptionId; label: string }>; note?: string; placeholder: string }> = [
+  { kind: 'paragraph', label: '段落长度', layout: 'three', options: paragraphOptions, placeholder: structurePlaceholders.paragraph },
+  { kind: 'perspective', label: '叙事视角', layout: 'grid', options: perspectiveOptions, placeholder: structurePlaceholders.perspective },
+  { kind: 'interruption', label: '剧情拓展', layout: 'two', options: interruptionOptions, placeholder: structurePlaceholders.interruption },
+  { kind: 'retell', label: '转述方式', layout: 'two', options: retellOptions, note: '转述会在章节前原样承接用户输出，并润色扩写动作、行为、神情和话语。', placeholder: structurePlaceholders.retell }
+];
+
+type EnhanceSettingKey = keyof Pick<ConversationOfflineSettings, 'enhanceAppearance' | 'enhanceOutfit' | 'expandLength' | 'characterPsychology'>;
+type OfflineToggleKey = EnhanceSettingKey | OfflineGuidanceSettingKey;
+
+const toggleItems: Array<{ key: EnhanceSettingKey; label: string; description: string }> = [
   { key: 'enhanceAppearance', label: '增强外貌描写', description: '更细地写神态、距离、光线下的外貌细节' },
   { key: 'enhanceOutfit', label: '增强服饰描写', description: '把衣着、材质、穿搭状态自然写入场景' },
   { key: 'expandLength', label: '增加对话篇幅', description: '扩展互动、环境和动作过渡' },
@@ -241,6 +299,11 @@ const writingStyleNameDraft = ref('');
 const writingStyleContentDraft = ref('');
 const toneNameDraft = ref('');
 const toneContentDraft = ref('');
+const settingsMainRef = ref<HTMLElement | null>(null);
+const editingStructureKind = ref<OfflineStructureKind | null>(null);
+const editingStructurePresetId = ref('');
+const structureNameDraft = ref('');
+const structureContentDraft = ref('');
 
 type PresetKind = 'writingStyle' | 'tone';
 
@@ -293,8 +356,137 @@ function updateOfflineSettings(patch: Partial<ConversationOfflineSettings>) {
   });
 }
 
-function updateToggle(key: keyof Pick<ConversationOfflineSettings, 'enhanceAppearance' | 'enhanceOutfit' | 'expandLength' | 'characterPsychology'>, event: Event) {
+function updateToggle(key: OfflineToggleKey, event: Event) {
   updateOfflineSettings({ [key]: (event.target as HTMLInputElement).checked });
+}
+
+function structureControlClass(layout: StructureControlLayout) {
+  return {
+    'segmented-control': layout !== 'grid',
+    'segmented-control--three': layout === 'three',
+    'option-grid': layout === 'grid',
+    'structure-option-list': true
+  };
+}
+
+function customStructurePresets(kind: OfflineStructureKind) {
+  return offlineSettings.value.customStructurePresets[kind];
+}
+
+function activeCustomStructurePresetId(kind: OfflineStructureKind) {
+  return offlineSettings.value.activeCustomStructurePresetIds[kind];
+}
+
+function currentBuiltInStructureValue(kind: OfflineStructureKind) {
+  if (kind === 'paragraph') return offlineSettings.value.paragraphMode;
+  if (kind === 'perspective') return offlineSettings.value.perspective;
+  if (kind === 'interruption') return offlineSettings.value.interruptionMode;
+  return offlineSettings.value.retellMode;
+}
+
+function isBuiltInStructureActive(kind: OfflineStructureKind, optionId: StructureOptionId) {
+  return !activeCustomStructurePresetId(kind) && currentBuiltInStructureValue(kind) === optionId;
+}
+
+function isCustomStructureActive(kind: OfflineStructureKind, presetId: string) {
+  return activeCustomStructurePresetId(kind) === presetId;
+}
+
+function updateStructureBuiltIn(kind: OfflineStructureKind, patch: Partial<ConversationOfflineSettings>) {
+  updateOfflineSettings({
+    ...patch,
+    activeCustomStructurePresetIds: {
+      ...offlineSettings.value.activeCustomStructurePresetIds,
+      [kind]: ''
+    }
+  });
+}
+
+function applyBuiltInStructure(kind: OfflineStructureKind, optionId: StructureOptionId) {
+  if (kind === 'paragraph') {
+    updateStructureBuiltIn(kind, { paragraphMode: optionId as OfflineParagraphMode });
+    return;
+  }
+  if (kind === 'perspective') {
+    updateStructureBuiltIn(kind, { perspective: optionId as OfflinePerspective });
+    return;
+  }
+  if (kind === 'interruption') {
+    updateStructureBuiltIn(kind, { interruptionMode: optionId as OfflineInterruptionMode });
+    return;
+  }
+  updateStructureBuiltIn(kind, { retellMode: optionId as OfflineRetellMode });
+}
+
+function openStructureEditor(kind: OfflineStructureKind, preset?: OfflinePromptPreset) {
+  editingStructureKind.value = kind;
+  editingStructurePresetId.value = preset?.id ?? '';
+  structureNameDraft.value = preset?.name ?? `自定义${structureBlocks.find((block) => block.kind === kind)?.label ?? '结构'}`;
+  structureContentDraft.value = preset?.content ?? '';
+}
+
+function closeStructureEditor() {
+  editingStructureKind.value = null;
+  editingStructurePresetId.value = '';
+  structureNameDraft.value = '';
+  structureContentDraft.value = '';
+}
+
+function saveAndApplyStructurePreset(kind: OfflineStructureKind) {
+  if (editingStructureKind.value !== kind) return;
+  const name = structureNameDraft.value.trim();
+  const content = structureContentDraft.value.trim();
+  if (!name || !content) return;
+  const preset: OfflinePromptPreset = {
+    id: editingStructurePresetId.value || createId(`structure-${kind}`),
+    name,
+    content
+  };
+  const presets = customStructurePresets(kind);
+  const nextPresets = presets.some((item) => item.id === preset.id)
+    ? presets.map((item) => (item.id === preset.id ? preset : item))
+    : [...presets, preset];
+  updateOfflineSettings({
+    customStructurePresets: {
+      ...offlineSettings.value.customStructurePresets,
+      [kind]: nextPresets
+    },
+    activeCustomStructurePresetIds: {
+      ...offlineSettings.value.activeCustomStructurePresetIds,
+      [kind]: preset.id
+    }
+  });
+  closeStructureEditor();
+}
+
+function applyCustomStructurePreset(kind: OfflineStructureKind, presetId: string) {
+  updateOfflineSettings({
+    activeCustomStructurePresetIds: {
+      ...offlineSettings.value.activeCustomStructurePresetIds,
+      [kind]: presetId
+    }
+  });
+}
+
+function deleteCustomStructurePreset(kind: OfflineStructureKind, presetId: string) {
+  const nextPresets = customStructurePresets(kind).filter((preset) => preset.id !== presetId);
+  updateOfflineSettings({
+    customStructurePresets: {
+      ...offlineSettings.value.customStructurePresets,
+      [kind]: nextPresets
+    },
+    activeCustomStructurePresetIds: {
+      ...offlineSettings.value.activeCustomStructurePresetIds,
+      [kind]: activeCustomStructurePresetId(kind) === presetId ? '' : activeCustomStructurePresetId(kind)
+    }
+  });
+  if (editingStructureKind.value === kind && editingStructurePresetId.value === presetId) closeStructureEditor();
+}
+
+async function selectTab(tab: SettingsTab) {
+  activeTab.value = tab;
+  await nextTick();
+  settingsMainRef.value?.scrollTo({ top: 0, behavior: 'auto' });
 }
 
 function commitTextSetting(key: 'wordCount') {
@@ -743,7 +935,7 @@ function goBack() {
   flex: 0 0 auto;
   z-index: 18;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 7px;
   width: 100%;
   max-width: 720px;
@@ -784,3 +976,5 @@ function goBack() {
   white-space: nowrap;
 }
 </style>
+
+<style scoped src="@/styles/offlineSettingsKorean.css"></style>

@@ -65,6 +65,10 @@ function getLinkMediaLocator(url) {
 
 function getLinkMediaMimeType(id) {
   const extension = String(id.split('.').pop() || '').toLowerCase();
+  if (extension === 'woff2') return 'font/woff2';
+  if (extension === 'woff') return 'font/woff';
+  if (extension === 'otf') return 'font/otf';
+  if (extension === 'ttf') return 'font/ttf';
   if (extension === 'svg') return 'image/svg+xml';
   if (extension === 'png') return 'image/png';
   if (extension === 'webp') return 'image/webp';

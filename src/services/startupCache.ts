@@ -46,9 +46,16 @@ function sanitizeStartupMediaUrl(value: string | undefined) {
 }
 
 function createStartupFontEntry(entry: ThemeFontEntry): ThemeFontEntry {
-  const url = entry.url.trim();
-  const startupUrl = /^blob:/i.test(url) || (/^data:/i.test(url) && url.length > startupMediaDataUrlLimit) ? '' : url;
-  return { ...entry, url: startupUrl };
+  const sanitizeFontUrl = (value: string | undefined) => {
+    const url = String(value ?? '').trim();
+    return /^blob:/i.test(url) || (/^data:/i.test(url) && url.length > startupMediaDataUrlLimit) ? '' : url;
+  };
+  return {
+    ...entry,
+    url: sanitizeFontUrl(entry.url),
+    cachedUrl: sanitizeFontUrl(entry.cachedUrl),
+    cachedAssets: entry.cachedAssets?.map(sanitizeFontUrl).filter(Boolean) ?? []
+  };
 }
 
 function createStartupSettings(settings: AppSettings, activeUserId: string): StartupCacheSettings {

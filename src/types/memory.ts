@@ -16,6 +16,8 @@ export type MemoryStateTrend = 'up' | 'down' | 'stable';
 
 export type MemoryEpisodeStatus = 'active' | 'forgotten';
 
+export type MemoryEpisodeForgottenReason = 'user-request' | 'source-invalidated';
+
 export type MemoryTemporalBasis = 'message-time' | 'sequence-only' | 'story-time';
 
 export type MemoryLocationActor = 'character' | 'user' | 'shared-scene' | 'unknown';
@@ -51,6 +53,7 @@ export interface MemoryEpisode {
   channel: MemoryChannel;
   status: MemoryEpisodeStatus;
   forgottenAt?: number;
+  forgottenReason?: MemoryEpisodeForgottenReason;
   sourceMessageIds: string[];
   sourceHash: string;
   startFloor: number;

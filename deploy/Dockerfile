@@ -1,5 +1,11 @@
 FROM node:22-alpine AS build
 WORKDIR /app
+ARG VITE_GOOGLE_DRIVE_CLIENT_ID=""
+ARG VITE_ONEDRIVE_CLIENT_ID=""
+ARG VITE_DROPBOX_APP_KEY=""
+ENV VITE_GOOGLE_DRIVE_CLIENT_ID=$VITE_GOOGLE_DRIVE_CLIENT_ID
+ENV VITE_ONEDRIVE_CLIENT_ID=$VITE_ONEDRIVE_CLIENT_ID
+ENV VITE_DROPBOX_APP_KEY=$VITE_DROPBOX_APP_KEY
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts index.html ./

@@ -1,5 +1,5 @@
 <template>
-  <section v-if="conversation && character" class="screen no-tabs chat-settings-page">
+  <section v-if="conversation && character" class="screen no-tabs chat-settings-page" :class="{ 'memory-active': activeTab === 'memory' }">
     <header class="top-bar chat-settings-topbar">
       <button class="chat-settings-title-button" type="button" aria-label="返回聊天" @click="goBack">
         <h1 class="top-title">{{ isGroup ? 'Group Settings' : 'Chat Settings' }}</h1>
@@ -101,6 +101,12 @@ function openTab(tab: PanelTab | GroupSettingsTab) {
     radial-gradient(circle at 8% 0%, rgba(255, 218, 227, 0.58), transparent 30%),
     radial-gradient(circle at 96% 8%, rgba(6, 199, 85, 0.16), transparent 28%),
     linear-gradient(180deg, #fbfcfb 0%, #f5f7f6 54%, #edf3f1 100%);
+}
+
+.chat-settings-page.memory-active,
+.chat-settings-page.memory-active .chat-settings-topbar,
+.chat-settings-page.memory-active .chat-settings-main {
+  background: #ffffff;
 }
 
 .chat-settings-topbar {

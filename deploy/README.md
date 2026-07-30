@@ -124,7 +124,7 @@ curl -X POST https://babylink.top/api/admin/napcat/sync -H "Authorization: Beare
 
 - 聊天、角色、世界书、消息和 API 配置保存在用户设备 IndexedDB。
 - Fastify/PostgreSQL 只保存 QQ、授权群成员状态、设备、会话、发布版本和安全审计。
-- 云备份在浏览器端通过 PBKDF2-SHA-256 派生密钥并使用 AES-256-GCM 加密；Google Drive、OneDrive、Dropbox 由浏览器直传，Cloudflare R2 使用用户自己部署的 Worker，LINK 服务端不接收备份内容。
+- 云备份在设备内通过 PBKDF2-SHA-256 派生密钥并使用 AES-256-GCM 加密；Google Drive、OneDrive、Dropbox 使用用户账号自带免费空间并由设备直传，LINK 服务端不接收、不存储、不转发备份内容、Token 或恢复密钥。
 - 云端自动备份仅在应用运行或重新回到前台时执行，移动系统不会保证网页真正后台运行。
 - 用户必须离线保存恢复密钥；密钥丢失后管理员也无法恢复备份。
 

@@ -31,13 +31,13 @@
           :character="character"
           :user="conversationUser ?? undefined"
           :appearance="chatSettings.appearance"
-          :hide-avatar="shouldHideAvatar(entry.messageIndex) && entry.message.id !== unreadMindStateMessageId"
+          :hide-avatar="entry.hideAvatar && entry.message.id !== unreadMindStateMessageId"
           :profile-alert="entry.message.id === unreadMindStateMessageId"
           :can-regenerate-image="canRegenerateChatImage"
           :regenerating-image="regeneratingChatImageMessageIds.includes(entry.message.id)"
           :selection-mode="selectionMode"
           :selected="isMessageSelected(entry.message)"
-          :can-quote="canQuoteMessage(entry.message)"
+          :can-quote="entry.canQuote"
           @apply-image="applyChatImageCandidate"
           @accept-music-listen-invite="acceptMusicListenInvite(entry.message)"
           @accept-call="acceptCallMessage(entry.message)"
@@ -868,6 +868,8 @@ type OnlineMessageEntry = {
   message: ChatMessage;
   messageIndex: number;
   timeLabel: string;
+  canQuote: boolean;
+  hideAvatar: boolean;
 };
 
 type ActiveCallState = Omit<AppActiveCallState, 'conversationId' | 'peerName' | 'avatar' | 'subtitle' | 'minimized' | 'floatPosition' | 'updatedAt'>;
@@ -976,7 +978,7 @@ const activeMessage = ref<ChatMessage | null>(null);
 const selectionMode = ref(false);
 const selectedMessageIds = ref<string[]>([]);
 const quoteTarget = ref<ChatMessageQuote | null>(null);
-const composerFocused = ref(false);
+let composerFocused = false;
 const composerText = ref(readComposerDraft(props.id));
 const editDraft = ref('');
 const editLocationNameDraft = ref('');
@@ -1192,6 +1194,7 @@ const characterPhotoPool = computed(() => {
     voomPosts: store.voomPosts
   });
 });
+const callBackgroundPhotoPoolKey = computed(() => activeCall.value ? characterPhotoPool.value.join('|') : '');
 const allOnlineMessages = computed(() => {
   const messages = store.messagesForConversation(props.id).filter((message) => message.mode === 'online');
   const displayMessages = messages.filter((message) => !message.contextOnly && !message.gobangId && !isVoomNarrationMessage(message) && !isCallSubtitleMessage(message));
@@ -1205,8 +1208,15 @@ const onlineMessageEntries = computed<OnlineMessageEntry[]>(() => onlineMessages
   const timeLabel = shouldShowChatTimeDivider(message.createdAt, previousMessage?.createdAt)
     ? formatChatTimeDivider(message.createdAt)
     : '';
-  return { message, messageIndex, timeLabel };
+  return {
+    message,
+    messageIndex,
+    timeLabel,
+    canQuote: canQuoteMessage(message),
+    hideAvatar: shouldHideAvatar(messageIndex)
+  };
 }));
+const selectedMessageIdSet = computed(() => new Set(selectedMessageIds.value));
 function shouldHideAvatar(index: number) {
   if (!chatSettings.value.appearance.showOnlyFirstAvatarInReply) return false;
   const message = onlineMessages.value[index];
@@ -1759,18 +1769,18 @@ async function scrollToOnlineMessage(messageId: string) {
 
 function handleComposerFocus() {
   const shouldStickToBottom = isMessageListNearBottom();
-  composerFocused.value = true;
+  composerFocused = true;
   startKeyboardScrollGuard();
   if (shouldStickToBottom) queueMessagesToBottomAfterLayout();
 }
 
 function handleComposerBlur() {
-  composerFocused.value = false;
+  composerFocused = false;
   stopKeyboardScrollGuard();
 }
 
 function handleComposerDraftText(content: string) {
-  const shouldStickToBottom = composerFocused.value || isMessageListNearBottom();
+  const shouldStickToBottom = composerFocused || isMessageListNearBottom();
   composerText.value = content;
   writeComposerDraft(props.id, content);
   if (shouldStickToBottom) queueMessagesToBottomAfterLayout();
@@ -1784,7 +1794,7 @@ function blurActiveKeyboardInput() {
 }
 
 function openStickerPanel() {
-  const shouldStickToBottom = composerFocused.value || isMessageListNearBottom();
+  const shouldStickToBottom = composerFocused || isMessageListNearBottom();
   blurActiveKeyboardInput();
   showStickers.value = true;
   if (shouldStickToBottom) queueMessagesToBottomAfterLayout();
@@ -1919,7 +1929,7 @@ watch([
   () => activeCall.value?.callId,
   () => activeCall.value?.mode,
   () => character.value?.id,
-  () => characterPhotoPool.value.join('|'),
+  () => callBackgroundPhotoPoolKey.value,
   () => characterImageProfile.value.appearancePrompt,
   () => characterImageProfile.value.facePrompt,
   () => characterImageProfile.value.referenceImageEnabled,
@@ -1934,7 +1944,7 @@ watch([
 }, { flush: 'post', immediate: true });
 
 watch(() => composerStickerSuggestions.value.length, () => {
-  if (composerFocused.value || isMessageListNearBottom()) queueMessagesToBottomAfterLayout();
+  if (composerFocused || isMessageListNearBottom()) queueMessagesToBottomAfterLayout();
 });
 
 watch(showStickers, (open) => {
@@ -3496,7 +3506,7 @@ function canQuoteMessage(message: ChatMessage) {
 }
 
 function quoteMessage(message: ChatMessage) {
-  if (!canQuoteMessage(message)) return;
+  if (message.sender === 'system' || message.id.includes('__')) return;
   const quote = store.createMessageQuoteSnapshot(message);
   if (!quote) return;
   quoteTarget.value = quote;
@@ -3534,9 +3544,8 @@ function editableMessageText(message: ChatMessage) {
 }
 
 function isMessageSelected(message: ChatMessage) {
-  const selectedIds = new Set(selectedMessageIds.value);
   const ids = messageIdsForAction(message);
-  return ids.length > 0 && ids.every((id) => selectedIds.has(id));
+  return ids.length > 0 && ids.every((id) => selectedMessageIdSet.value.has(id));
 }
 
 function toggleMessageSelection(message: ChatMessage) {

@@ -1,4 +1,4 @@
-import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
+import { AsyncZipDeflate, strFromU8, strToU8, unzip, Zip } from 'fflate';
 import { isNativeBackupSaveAvailable, saveNativeBackupArchive } from '@/services/nativeBackup';
 import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatImageCandidate, ChatMessage, ChatMessageQuote, ChatVoiceAttachment, FavoriteMessageRecord, GeneratedImageRecord, Sticker, VoomImageCandidate, VoomPost, WorldBookEntry } from '@/types/domain';
 
@@ -24,6 +24,24 @@ export interface LinkBackupChunkManifest {
     byteLength: number;
   }>;
 }
+
+interface BackupWritableFileStream {
+  write(data: Blob): Promise<void>;
+  close(): Promise<void>;
+}
+
+export interface PreparedBackupDestination {
+  name: string;
+  createWritable(): Promise<BackupWritableFileStream>;
+}
+
+export interface BackupArchiveSaveResult {
+  method: 'native' | 'file-system' | 'browser-download';
+  fileName: string;
+  location: string;
+}
+
+export type BackupArchiveProgress = (label: string, percent: number) => void | Promise<void>;
 
 export const linkBackupSnapshotArrayKeys: Array<keyof Omit<AppSnapshot, 'settings'>> = [
   'users',
@@ -69,11 +87,6 @@ export const stickerBackupPlaceholder = 'data:image/svg+xml,%3Csvg xmlns=%22http
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function cloneSnapshot(snapshot: AppSnapshot): AppSnapshot {
-  if (typeof structuredClone === 'function') return structuredClone(snapshot) as AppSnapshot;
-  return JSON.parse(JSON.stringify(snapshot)) as AppSnapshot;
 }
 
 function isInlineMediaUrl(value: string) {
@@ -245,19 +258,20 @@ function sanitizeSettingsForBackup(settings: AppSettings): AppSettings {
 }
 
 function sanitizeSnapshotForBackup(snapshot: AppSnapshot): AppSnapshot {
-  const safeSnapshot = cloneSnapshot(snapshot);
-  safeSnapshot.characters = safeSnapshot.characters.map((character) => sanitizeCharacterForBackup(character));
-  safeSnapshot.messages = safeSnapshot.messages.map((message) => sanitizeMessageForBackup(message));
-  safeSnapshot.voomPosts = safeSnapshot.voomPosts.map((post) => sanitizeVoomPostForBackup(post));
-  safeSnapshot.worldBooks = safeSnapshot.worldBooks.map((entry) => sanitizeWorldBookForBackup(entry));
-  safeSnapshot.stickers = safeSnapshot.stickers.map((sticker) => sanitizeStickerForBackup(sticker));
-  safeSnapshot.generatedImages = safeSnapshot.generatedImages
-    .map((record) => sanitizeGeneratedImageForBackup(record))
-    .filter((record) => record.imageUrl);
-  safeSnapshot.memoryEmbeddings = [];
-  safeSnapshot.favorites = (safeSnapshot.favorites ?? []).map((record) => sanitizeFavoriteForBackup(record));
-  safeSnapshot.settings = sanitizeSettingsForBackup(safeSnapshot.settings);
-  return safeSnapshot;
+  return {
+    ...snapshot,
+    characters: snapshot.characters.map((character) => sanitizeCharacterForBackup(character)),
+    messages: snapshot.messages.map((message) => sanitizeMessageForBackup(message)),
+    voomPosts: snapshot.voomPosts.map((post) => sanitizeVoomPostForBackup(post)),
+    worldBooks: snapshot.worldBooks.map((entry) => sanitizeWorldBookForBackup(entry)),
+    stickers: snapshot.stickers.map((sticker) => sanitizeStickerForBackup(sticker)),
+    generatedImages: snapshot.generatedImages
+      .map((record) => sanitizeGeneratedImageForBackup(record))
+      .filter((record) => record.imageUrl),
+    memoryEmbeddings: [],
+    favorites: (snapshot.favorites ?? []).map((record) => sanitizeFavoriteForBackup(record)),
+    settings: sanitizeSettingsForBackup(snapshot.settings)
+  };
 }
 
 function normalizeBackupSnapshot(value: unknown): AppSnapshot {
@@ -319,20 +333,64 @@ export function stringifyLinkBackupFile(backup: LinkBackupFile) {
   return JSON.stringify(backup);
 }
 
-export function createLinkBackupArchiveBlob(backup: LinkBackupFile) {
-  const json = stringifyLinkBackupFile(backup);
-  const zipped = zipSync({ 'link-backup.json': strToU8(json) }, { level: 6, mtime: new Date(backup.exportedAt) });
-  return new Blob([zipped], { type: 'application/zip' });
+function nextTextChunkEnd(text: string, offset: number, chunkCharacters: number) {
+  let end = Math.min(text.length, offset + chunkCharacters);
+  if (end < text.length) {
+    const lastCodeUnit = text.charCodeAt(end - 1);
+    const nextCodeUnit = text.charCodeAt(end);
+    if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff && nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff) end -= 1;
+  }
+  return end;
 }
 
-function readBackupJsonFromZip(bytes: Uint8Array) {
-  let files: Record<string, Uint8Array>;
-  try {
-    files = unzipSync(bytes);
-  } catch {
-    throw new Error('备份压缩包无法读取。');
-  }
+export async function createLinkBackupArchiveBlob(backup: LinkBackupFile, onProgress?: (percent: number) => void | Promise<void>) {
+  await onProgress?.(2);
+  const json = stringifyLinkBackupFile(backup);
+  const outputChunks: ArrayBuffer[] = [];
+  let resolveCompression!: () => void;
+  let rejectCompression!: (error: Error) => void;
+  const compressionCompleted = new Promise<void>((resolve, reject) => {
+    resolveCompression = resolve;
+    rejectCompression = reject;
+  });
+  const zip = new Zip((error, chunk, final) => {
+    if (error) {
+      rejectCompression(error);
+      return;
+    }
+    outputChunks.push(chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength));
+    if (final) resolveCompression();
+  });
+  const entry = new AsyncZipDeflate('link-backup.json', { level: 6 });
+  entry.mtime = new Date(backup.exportedAt);
+  zip.add(entry);
 
+  const chunkCharacters = 256 * 1024;
+  for (let offset = 0; offset < json.length;) {
+    const end = nextTextChunkEnd(json, offset, chunkCharacters);
+    entry.push(strToU8(json.slice(offset, end)), end === json.length);
+    offset = end;
+    await onProgress?.(8 + offset / Math.max(1, json.length) * 72);
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  }
+  if (!json.length) entry.push(new Uint8Array(), true);
+  zip.end();
+  await onProgress?.(85);
+  await compressionCompleted;
+  zip.terminate();
+  await onProgress?.(100);
+  return new Blob(outputChunks, { type: 'application/zip' });
+}
+
+async function readBackupJsonFromZip(bytes: Uint8Array) {
+  const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) => {
+    unzip(bytes, {
+      filter: (file) => /(?:^|\/)link-backup\.json$/i.test(file.name) || /\.json$/i.test(file.name)
+    }, (error, result) => {
+      if (error) reject(new Error('备份压缩包无法读取。'));
+      else resolve(result);
+    });
+  });
   const fileName = Object.keys(files).find((name) => /(?:^|\/)link-backup\.json$/i.test(name))
     ?? Object.keys(files).find((name) => /\.json$/i.test(name));
   if (!fileName) throw new Error('备份压缩包里没有 JSON 备份文件。');
@@ -359,7 +417,7 @@ export async function parseLinkBackupBlob(file: Blob): Promise<LinkBackupFile> {
   const name = file instanceof File ? file.name.toLocaleLowerCase() : '';
   const bytes = new Uint8Array(await file.arrayBuffer());
   const text = name.endsWith('.zip') || bytes[0] === 0x50 && bytes[1] === 0x4b
-    ? readBackupJsonFromZip(bytes)
+    ? await readBackupJsonFromZip(bytes)
     : strFromU8(bytes);
   return parseLinkBackupFileText(text);
 }
@@ -374,7 +432,31 @@ export function createBackupArchiveFilename(userId: string) {
   return createBackupFilename(userId).replace(/\.json$/i, '.zip');
 }
 
-function downloadBlob(blob: Blob, filename: string) {
+export function canPrepareBackupDestination() {
+  return typeof (window as Window & { showSaveFilePicker?: unknown }).showSaveFilePicker === 'function';
+}
+
+export async function prepareBackupDestination(filename: string): Promise<PreparedBackupDestination | null> {
+  const picker = (window as Window & {
+    showSaveFilePicker?: (options: {
+      suggestedName: string;
+      types: Array<{ description: string; accept: Record<string, string[]> }>;
+    }) => Promise<PreparedBackupDestination>;
+  }).showSaveFilePicker;
+  if (!picker) return null;
+  return await picker({
+    suggestedName: filename,
+    types: [{ description: 'BabyLink ZIP 备份', accept: { 'application/zip': ['.zip'] } }]
+  });
+}
+
+async function downloadBlob(blob: Blob, filename: string, destination?: PreparedBackupDestination | null): Promise<BackupArchiveSaveResult> {
+  if (destination) {
+    const writable = await destination.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return { method: 'file-system', fileName: destination.name || filename, location: destination.name || filename };
+  }
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -386,19 +468,33 @@ function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => {
     anchor.remove();
     URL.revokeObjectURL(url);
-  }, 0);
+  }, 60_000);
+  return { method: 'browser-download', fileName: filename, location: `浏览器下载记录 / ${filename}` };
 }
 
 export function downloadLinkBackupFile(backup: LinkBackupFile, filename: string) {
   const blob = new Blob([stringifyLinkBackupFile(backup)], { type: 'application/json;charset=utf-8' });
-  downloadBlob(blob, filename);
+  void downloadBlob(blob, filename);
 }
 
-export async function downloadLinkBackupArchive(backup: LinkBackupFile, filename: string) {
-  const archive = createLinkBackupArchiveBlob(backup);
+export async function downloadLinkBackupArchive(
+  backup: LinkBackupFile,
+  filename: string,
+  options: { destination?: PreparedBackupDestination | null; onProgress?: BackupArchiveProgress } = {}
+): Promise<BackupArchiveSaveResult> {
+  const archive = await createLinkBackupArchiveBlob(backup, async (percent) => {
+    await options.onProgress?.('正在分块压缩 ZIP', 89 + percent * 0.07);
+  });
   if (isNativeBackupSaveAvailable()) {
-    await saveNativeBackupArchive(archive, filename);
-    return;
+    const result = await saveNativeBackupArchive(archive, filename, async (writtenBytes, totalBytes) => {
+      await options.onProgress?.('正在写入系统文件', 96 + writtenBytes / Math.max(1, totalBytes) * 3);
+    });
+    if (!result?.saved) throw new Error('系统没有确认备份文件已保存。');
+    await options.onProgress?.('系统已确认备份写入', 100);
+    return { method: 'native', fileName: result.fileName, location: result.location };
   }
-  downloadBlob(archive, filename);
+  await options.onProgress?.(options.destination ? '正在写入所选文件' : '正在交给浏览器下载', 98);
+  const result = await downloadBlob(archive, filename, options.destination);
+  await options.onProgress?.(result.method === 'file-system' ? '文件写入完成' : '已创建浏览器下载任务', 100);
+  return result;
 }

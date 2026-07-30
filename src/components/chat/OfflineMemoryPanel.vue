@@ -23,4 +23,9 @@ const characterName = computed(() => getCharacterAiName(props.character));
 
 <style scoped>
 .offline-memory-page{position:fixed;inset:0;z-index:36;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;background:#f8f3f0;color:#2b292d}.offline-memory-topbar{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;align-items:center;gap:8px;min-height:calc(58px + env(safe-area-inset-top));padding:env(safe-area-inset-top) 14px 0;border-bottom:1px solid rgba(83,62,68,.07);background:rgba(255,252,249,.92);backdrop-filter:blur(18px)}.offline-memory-icon{display:grid;width:36px;height:36px;place-items:center;border:0;border-radius:50%;background:#fff;color:#92727d;box-shadow:0 5px 15px rgba(94,72,78,.08)}.status-icon{justify-self:end;background:#e4f0eb;color:#769589}.offline-memory-title{display:grid;gap:1px;min-width:0;text-align:center}.offline-memory-title span{color:#b08e98;font-size:8px;font-weight:800;letter-spacing:.16em}.offline-memory-title strong{overflow:hidden;font-family:Georgia,"Noto Serif SC",serif;font-size:15px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}.offline-memory-scroll{overflow-x:hidden;overflow-y:auto;padding:12px 12px calc(24px + env(safe-area-inset-bottom));overscroll-behavior:contain;-webkit-overflow-scrolling:touch}@media(min-width:760px){.offline-memory-scroll{padding-inline:24px}}
+.offline-memory-page,
+.offline-memory-topbar,
+.offline-memory-scroll {
+  background: #ffffff;
+}
 </style>

@@ -13,6 +13,9 @@ const config: CapacitorConfig = {
     allowMixedContent: false
   },
   plugins: {
+    Keyboard: {
+      resizeOnFullScreen: true
+    },
     SystemBars: {
       style: 'LIGHT',
       hidden: true,

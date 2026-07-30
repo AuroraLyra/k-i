@@ -42,6 +42,36 @@ export function getConversationFloorCount(messages: ChatMessage[]) {
   return getConversationFloors(messages).length;
 }
 
+export function getRecentCompleteFloorMessages(messages: ChatMessage[], messageLimit: number) {
+  const floors = getConversationFloors(messages);
+  const selectedFloors: ChatMessage[][] = [];
+  let selectedMessageCount = 0;
+  const normalizedLimit = Math.max(1, Math.round(Number(messageLimit) || 1));
+  for (let index = floors.length - 1; index >= 0 && selectedMessageCount < normalizedLimit; index -= 1) {
+    selectedFloors.unshift(floors[index]);
+    selectedMessageCount += floors[index].length;
+  }
+  return selectedFloors.flat();
+}
+
+export function resolveMemoryEpisodeFloorRange(
+  sourceFloors: Iterable<number>,
+  storedStartFloor: unknown,
+  storedEndFloor: unknown
+) {
+  const currentFloors = [...sourceFloors]
+    .map((floor) => Math.max(0, Math.floor(Number(floor) || 0)))
+    .filter(Boolean);
+  if (currentFloors.length) {
+    return { startFloor: Math.min(...currentFloors), endFloor: Math.max(...currentFloors) };
+  }
+
+  const storedStart = Math.max(0, Math.floor(Number(storedStartFloor) || 0));
+  const storedEnd = Math.max(0, Math.floor(Number(storedEndFloor) || 0));
+  const startFloor = storedStart || (storedEnd ? 1 : 0);
+  return { startFloor, endFloor: Math.max(startFloor, storedEnd) };
+}
+
 export function getMessagesInFloorRange(messages: ChatMessage[], startFloor: number, endFloor: number) {
   return getConversationFloors(messages)
     .slice(Math.max(0, startFloor - 1), Math.max(0, endFloor))

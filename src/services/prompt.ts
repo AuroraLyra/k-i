@@ -1,4 +1,5 @@
-import type { ChatMode, ConversationOfflineSettings, OfflinePromptPreset, PromptContext, WorldBookEntry, WorldBookLoreEntry } from '@/types/domain';
+import type { ChatMode, ConversationOfflineSettings, OfflinePromptPreset, OfflineStructureKind, PromptContext, WorldBookEntry, WorldBookLoreEntry } from '@/types/domain';
+import { offlineGuidancePrompts } from '@/data/offlineGuidance';
 import { normalizeTimeAwarenessSettings, renderTimeAwarenessPrompt } from '@/utils/timeAwareness';
 import { activeOfflineTonePreset, activeOfflineWritingStylePreset, defaultOfflineSettings, normalizeOfflineSettings } from '@/utils/memory';
 import { getCurrentUserTurnMessages } from '@/utils/messageTurns';
@@ -511,119 +512,268 @@ const modeInstructions: Record<ChatMode, string> = {
 };
 
 const offlineParagraphInstruction: Record<ConversationOfflineSettings['paragraphMode'], string> = {
-  long: '段落模式：长段落。使用更完整的场景、动作和情绪推进，每段承载较多信息。',
-  short: '段落模式：短段落。使用更利落的段落切分，节奏清楚，留白更多。',
-  mixed: '段落模式：长短段落交错。关键场景用长段落铺开，转折、对白和停顿用短段落切开。'
+  long: `段落模式：长段落。
+每个段落围绕一个完整叙事单元展开，例如一次连续动作、一轮对话交锋或一段环境变化。段内按“触发—反应—行动—结果”组织信息，让场景、动作、对白与情绪彼此衔接，而不是把互不相关的细节堆成文字墙。
+长段落仍需有呼吸感：场景焦点改变、说话人明显转换、时间或空间发生推进时及时分段；关键对白可以单独成段。避免一个段落包办整章，也不要用连续长句和同义反复虚增篇幅。`,
+  short: `段落模式：短段落。
+使用利落、清楚的段落切分，每段只承担一个动作、一个观察、一句关键对白或一个情绪落点。通过段落之间的推进形成节奏与留白，不把同一动作拆成大量没有信息增量的碎片。
+短段不等于电报体。句子保持完整，人物、动作对象和因果关系必须清楚；连续对白要让说话人可辨，必要时用简短动作或环境声音承接。避免每句话都单独成段、滥用省略号或靠空行伪造氛围。`,
+  mixed: `段落模式：长短段落交错。
+根据内容功能自然变换：需要建立空间、连续动作、复杂心理或因果推进时用长段落；转折、关键对白、突然打断、决定性动作与沉默落点用短段落。段落长短变化必须服务阅读节奏，不能机械地一长一短轮换。
+每个场景至少有一个稳定展开的叙事支点，也保留少量能让读者停顿的短段。避免全章碎片化，也避免在高潮处仍用密不透风的长段压住关键瞬间。`
 };
 
-const offlinePerspectiveInstruction: Record<ConversationOfflineSettings['perspective'], string> = {
-  'omniscient-third': '叙事视角：上帝视角第三人称。可以观察场景、角色和用户可见行为。',
-  'character-third': '叙事视角：角色第三人称。以角色为叙事中心，使用第三人称描写角色的行动、感受和判断。',
-  'character-second': '叙事视角：角色第二人称。以“你”指代角色，叙述角色正在经历的行动和感受。',
-  'user-first': '叙事视角：用户第一人称。以“我”承接用户已给出的行动和感受，复述和细化用户已输入的内容。',
-  'user-second': '叙事视角：用户第二人称。以“你”指代用户，复述和细化用户已给出的行动、对话和可见状态。'
+const offlineStructureLabels: Record<OfflineStructureKind, string> = {
+  paragraph: '段落长度',
+  perspective: '叙事视角',
+  interruption: '剧情拓展',
+  retell: '转述方式'
 };
+
+function renderOfflineStructureInstruction(
+  settings: ConversationOfflineSettings,
+  kind: OfflineStructureKind,
+  fallback: string,
+  characterName: string,
+  userName: string
+) {
+  const activePresetId = settings.activeCustomStructurePresetIds[kind];
+  const preset = settings.customStructurePresets[kind].find((item) => item.id === activePresetId);
+  if (!preset) return fallback;
+  const content = preset.content
+    .replace(/\{\{char\}\}/g, () => characterName)
+    .replace(/\{\{user\}\}/g, () => userName);
+  return `${offlineStructureLabels[kind]}：自定义「${preset.name}」\n${content}`;
+}
 
 function renderOfflineWritingStyleInstruction(preset: OfflinePromptPreset) {
   const writingStyle = preset.content.trim() || preset.name.trim() || defaultOfflineSettings.writingStyle;
-  if (/^(白描|小薯片)$/i.test(writingStyle)) {
-    return `写作文风：
-采用白描式叙事。不要声称模仿任何具体作者；只执行可描述的写作技法。
-1. 不写宏大背景，只照亮此刻正在发生的人、物、动作和对话。环境、时代和解释性背景都退后，读者的注意力集中在眼前这一幕。
-2. 不追求面面俱到，只求传神。用精准的一两个名词、动词或动作，让人物和物件立起来。
-3. 不使用华丽辞藻、抒情判断、夸张比喻或情绪宣告。语言要透明、朴素、干净。
-4. 情绪不要直接说破，让它藏在杯子、钥匙、衣角、停顿、账单、冷掉的食物、没响的手机这类具体物件和动作后面。
-5. 尽量戒掉形容词和副词。不要写“很难过”“飞快地”“美丽的”，改写为可观察的动作和物体状态。
-6. 重要对白之后，用一两个动作或空间距离承接潜台词，不要用解释性旁白替读者下结论。`;
-  }
   return `写作文风预设：${preset.name}
 ${writingStyle}
-执行该文风时，不要声称模仿任何具体作者；只抽取可描述的技法、语气、节奏和描写密度。`;
+
+文风执行优先级：
+1. 把预设转换成可观察、可执行的语言选择，包括句式、词汇、叙述距离、对白比例、细节密度和段落节奏；不要只在开头做一次风格展示，之后退回通用 AI 文风。
+2. 文风负责“怎么写”，不能篡改角色设定、事实边界、当前视角、用户控制权和剧情因果。预设与硬性边界冲突时，边界优先。
+3. 不声称正在模仿、扮演或复刻任何具体作者。即使预设名称来自作者、笔名或作品，也只执行其中明确描述的通用写作技法。
+4. 不机械复用示例句、标志性句式或固定意象；每次从当前场景里的真实人物、物件和动作重新组织语言。
+5. 同一章内保持语体稳定。除非剧情中出现短信、书信或他人文本，不突然切换成散文、诗歌、剧本、总结报告或说教口吻。
+6. 完稿时删除套话、重复解释、无功能修饰和与当前文风冲突的惯用 AI 句式，只保留能推动场景、塑造人物或留下必要余味的文字。`;
 }
 
 function renderOfflineToneInstruction(preset: OfflinePromptPreset) {
   return `基调预设：${preset.name}
-${preset.content.trim() || preset.name}`;
+${preset.content.trim() || preset.name}
+
+基调执行原则：
+1. 基调是整章的情绪温度与叙事倾向，不是强制剧情结果。不能为了符合基调凭空制造告白、冲突、误会、悲剧或巧合。
+2. 基调通过事件选择、人物反应、对白分寸、环境细节和收束方式共同体现，不靠反复使用同一组情绪词或氛围意象。
+3. 允许局部情绪与主基调形成自然反差：日常里可以短暂难过，酸涩里也可以有轻松片刻，热恋中仍会疲惫或意见不同；人物不能被单一情绪锁死。
+4. 情绪强度必须匹配关系阶段与事件积累。普通小事只引发相称反应，重要变化要有铺垫、过程和余波。
+5. 本章结尾延续当前事件的真实状态，可以安静收住、留下待办或自然转入下一动作，不为强调基调强行升华或制造悬念。`;
 }
 
 function renderOfflinePerspectiveInstruction(perspective: ConversationOfflineSettings['perspective'], characterName: string, userName: string) {
   return {
-    'omniscient-third': `视角设定：以第三方上帝视角叙述。像观察力敏锐、笔触细腻的第三方作家，忠实记录外部对话与互动，可以深入刻画${characterName}的内心世界。`,
-    'character-third': `视角设定：以${characterName}为叙事中心的第三人称。重点写${characterName}能看见、听见、误解和感受到的内容；不要越过${characterName}的信息边界。`,
-    'character-second': `视角设定：以“你”指代${characterName}。叙述${characterName}正在经历的行动、感受和判断；不要把“你”误写成${userName}。`,
-    'user-first': `视角设定：以“我”承接${userName}已经输入的行动和状态。`,
-    'user-second': `视角设定：以“你”指代${userName}。`
+    'omniscient-third': `视角设定：第三方上帝视角。
+你是一位观察力敏锐、笔触细腻但不抢戏的第三方叙述者，以姓名或第三人称代词称呼${characterName}与${userName}。
+1. 忠实记录场景中可见的动作、表情、空间变化、环境声音和双方实际说出的对话。
+2. 可以深入刻画${characterName}的内心世界，包括即时判断、联想、误解、犹豫与没有说出口的反应；心理内容仍受${characterName}的认知、经历和信息范围限制。
+3. “上帝视角”只表示叙述镜头可以观察场景和进入${characterName}内心，不代表可以读取${userName}未输入的心理、秘密、动机或未来决定。${userName}的内心只能依据用户明确输入来写。
+4. 镜头切换要有清楚落点，不在一句话内反复跳进多个人的意识，不用作者议论替人物判断对错。
+5. 全章保持第三人称稳定，禁止无故切换成“我”或把“你”的指代写乱。`,
+    'character-third': `视角设定：${characterName}中心的第三人称限知视角。
+以姓名或“他/她”等第三人称指代${characterName}，叙事镜头跟随${characterName}的身体位置、注意力与认知边界。
+1. 只写${characterName}能够看见、听见、触碰、回忆、推测和感受到的内容；被遮挡的动作、未听见的对话和不在场事件不能直接当作事实呈现。
+2. 可以写${characterName}对${userName}言行的解读，但必须保留主观局限，允许误会、迟疑和判断错误；不得把推测写成${userName}真实内心。
+3. 环境描写优先选择${characterName}当下会注意到的细节，注意力会受情绪、任务、疲惫和人物性格影响。
+4. 其他人物的心理只能通过其可见言行推断，不进入其内部意识。
+5. 全章保持第三人称与限知距离稳定，不在需要补信息时临时切成上帝视角。`,
+    'character-second': `视角设定：${characterName}中心的第二人称限知视角。
+全文以“你”指代${characterName}，让叙述贴近${characterName}正在经历的动作、感官、记忆与判断；${userName}必须用姓名或明确的第三人称称呼，绝不能把“你”误写成${userName}。
+1. 叙事信息严格限制在${characterName}能够感知或合理想到的范围，不能读取${userName}未输入的心理。
+2. “你”只承担叙事人称，不使用命令式口吻替${characterName}下指令，不把正文写成互动游戏操作说明。
+3. 心理、动作与感官自然连续，避免每句都以“你”开头造成机械重复；可适当省略主语，但指代必须始终清楚。
+4. 其他人物的意图通过言行与${characterName}的有限判断呈现，不把判断冒充客观事实。
+5. 全章保持第二人称稳定，不在对白外突然改用“我”或第三人称称呼${characterName}。`,
+    'user-first': `视角设定：${userName}第一人称承接视角。
+正文叙述中的“我”固定指${userName}。只承接用户已经明确输入的${userName}行动、对话、感受与判断，并在不改变原意的前提下润色、细化其可见过程。
+1. 不替${userName}新增未输入的心理结论、态度转变、承诺、选择、台词或关键动作；用户没有说明的内容必须留白。
+2. ${characterName}使用姓名或第三人称指代。可以写${characterName}可观察的言行，也可以按其他设置写${characterName}的心理，但不能让“我”获得不可能知道的信息。
+3. 对${userName}输入的扩写只补充与原动作直接相连、不会改变意图的物理细节；任何可能影响剧情方向的补充都不擅自添加。
+4. 叙述声音保持第一人称稳定，不把${characterName}的心理误写成“我”的感受，不在段落中突然切换旁观上帝视角。`,
+    'user-second': `视角设定：${userName}第二人称承接视角。
+正文叙述中的“你”固定指${userName}，${characterName}必须用姓名或明确的第三人称称呼。叙述者只复述和细化用户已经输入的${userName}行动、对话与可见状态。
+1. 不替“你”编造未输入的心理、动机、感官结论、台词、选择或关键动作；不知道的部分保持空白。
+2. 可以描写${characterName}对“你”的可见反应与其自身心理，但不能以第二人称断言“你其实在想什么”。
+3. 避免命令式、教程式句型。“你”是叙事人称，不是要求用户执行动作的指令。
+4. 扩写必须忠于用户原意，只补直接相连的动作过程、空间关系和客观反馈，不擅自完成用户尚未完成的行为。
+5. 全章保持指代清楚，不让“你”在${userName}与${characterName}之间切换。`
   }[perspective];
 }
 
 function renderOfflinePsychologyInstruction(enabled: boolean, characterName: string, userName: string) {
   if (!enabled) {
-    return `心理描写：关闭独立心理段。不要输出星号包裹的心理段；${characterName}的心理尽量通过动作、对白、停顿和物件体现。`;
+    return `心理描写：关闭。
+不要输出星号包裹的独立心理段，也不要用“他想”“她意识到”“内心深处”等解释性旁白直接摊开心理。
+${characterName}的情绪、判断与潜台词尽量通过可见动作、对白选择、停顿、视线、空间距离、物件使用和行为前后变化间接体现。可以保留必要且简短的感受性叙述，但不能变相写成长篇内心独白。
+关闭心理描写不等于把角色写成没有情绪的木偶；要让读者从行为证据中读出复杂性，同时遵守当前叙事视角和信息边界。`;
   }
   return `心理描写：
-正文中必须插入 2 至 4 段独立的${characterName}心理描写，每段约 50 字。
-格式固定为：*具体心理内容*。星号内部只能写心理内容本身，禁止写“心理描写：”“内心：”“想法：”等标签。
-心理活动必须符合${characterName}当下的性格逻辑、认知水平与情感状态。
-每段心理都必须是对${userName}某个具体行为、某句话、某个停顿或某个可见神态的即时反应；可以是解读、困惑、否认、心动、戒备，也可以是${characterName}自己都辨不明的混沌情绪。
-拒绝套路化内心独白。心理描写要短、准、有局限，不能全知全能，不能看透${userName}的全部想法，不能预知未来。
-心理段应穿插在情节关键节点，尤其在${userName}说完某句话或做完某个动作之后。`;
+正文中必须自然穿插 2 至 4 段独立的${characterName}心理描写，每段约 50 字；篇幅较短或事件不足时宁可少而准确，也不能重复同一情绪凑数。
+
+格式要求：
+1. 每段固定写成：*具体心理内容*。
+2. 星号内部只能出现心理内容本身，禁止添加“心理描写：”“内心：”“想法：”等标签，禁止把动作、环境说明或对话一并包进星号。
+3. 心理段单独成段，并放在触发它的具体言行之后；不要连续堆叠多段心理，也不要每个动作后都插入。
+
+内容要求：
+1. 心理活动必须符合${characterName}当下的性格逻辑、成长经历、认知水平、信息范围与情感状态。人物不会因为叙述需要突然变得异常通透、高情商或全知。
+2. 每段都回应一个明确触发点：${userName}的某句话、某个动作、一个停顿、可见神态，或场景里刚发生的具体变化。不能脱离当下泛泛回顾感情。
+3. 可以写解读、困惑、否认、心动、戒备、走神、误会、自我辩解、口是心非，以及连${characterName}自己都暂时辨不明的混沌情绪。
+4. 拒绝套路化内心独白。心理描写应像短刀，精准切入角色想回避或尚未说清的瞬间，而不是重复正文已经展示的情绪。
+5. 心理必须真实且有局限。${characterName}可以猜测${userName}为何这样做，但不能看透${userName}未输入的全部想法，不能预知未来，也不能把猜测写成事实。
+6. 允许内心与表面言语不一致，允许不合时宜的走神、尴尬和自相矛盾；但这些反应要源自人设与当前事件，不能为了“复杂”随机添加。
+7. 用角色本人会有的内部语言来思考，避免统一的抒情腔、心理学分析腔和作者总结。不同角色的词汇、注意点与回避方式应当不同。`;
 }
 
 function renderOfflineInterruptionInstruction(mode: ConversationOfflineSettings['interruptionMode'], characterName: string, userName: string) {
   if (mode === 'advance') {
     return `抢话模式：开启。
-可以基于${userName}最新输入的内容进行合理剧情拓展。
-推动${characterName}、环境、外部事件或可自然发生的后续反应；可合理新增${userName}未输入的台词、情绪结论或行动选择，但不得替${userName}做关键性决策。`;
+允许在${userName}最新输入已经给出明确方向时，替${userName}补充少量低风险、可逆、符合上下文的后续反应，以换取更连贯的章节推进；但这不是夺取用户控制权。
+1. 优先推动${characterName}、环境、时间、配角与外部事件。只有场景若完全停住时，才补充${userName}最自然的承接动作或短回应。
+2. 可以补充不会改变立场的微动作、礼貌性回应、已开始动作的自然完成，以及由明确情绪直接产生的轻微反应。
+3. 可以润色和延伸${userName}已表达的意思，但不能反转原意，不能替${userName}接受告白、原谅伤害、承诺关系、发生亲密行为、离开或留下、消费金钱、泄露秘密或做其他关键决定。
+4. 不得用“抢话”替${userName}下心理定论。即便补充一句自然台词，也只表达上下文已经明确的信息，不凭空创造新的价值判断和关系态度。
+5. 每次最多推进一个紧邻步骤，并在新的选择点停下，把真正影响走向的决定留给用户。
+6. 若用户明确要求“不要替我行动/说话”，本轮立即按防抢话标准执行，优先级高于此模式。`;
   }
   return `防抢话：
-禁止代替${userName}做出任何决定。
-${userName}的所有言行必须严格来源于用户输入。
-如果用户输入“${userName}没有回答”，可以写沉默持续、环境声音、${characterName}的动作和反应；不能写${userName}心里很难过，也不能写${userName}终于开口说话。
-整章只对${userName}输出内容进行相对应的复述与详细描写，绝对不要超出用户输出内容的场景、对话或决策。`;
+禁止代替${userName}做出任何决定。${userName}的所有言行、心理、感官结论与态度变化都必须严格来源于用户输入。
+1. 可以准确复述并细化${userName}已经明确写出的动作、话语和状态，但不得改变原意、补完未完成动作或推导新的下一步。
+2. 用户只写了动作，就不要替${userName}添加台词；只写了台词，就不要补充带有立场含义的动作；只写了沉默，就让沉默保持沉默。
+3. 可以继续写时间流逝、环境声音、物件变化、配角行动、${characterName}的动作、对白和有限心理，让世界继续运转，而不是用操控${userName}来推进剧情。
+4. 禁止编造${userName}未输入的情绪和动机，例如“其实很难过”“心里已经原谅”；禁止编造未输入的感官、身体反应、回忆、决定和台词。
+5. 不把${userName}没有反对解释成默认同意，不把沉默解释成害羞、接受、拒绝或欲擒故纵。
+
+边界示例：若用户输入“${userName}没有回答”，可以写沉默持续了几秒、窗外车辆经过、${characterName}看向杯沿并等待；不能写${userName}心里难过，也不能写${userName}沉默后终于开口。
+
+整章可以对${userName}已输入内容做相对应的润色与细节拓展，但绝对不要超出用户给出的场景事实、对话、心理或决策。章节应在需要${userName}作出新反应的位置自然停住。`;
 }
 
-function renderOfflineRetellInstruction(mode: ConversationOfflineSettings['retellMode'], userName: string) {
+function renderOfflineRetellInstruction(mode: ConversationOfflineSettings['retellMode'], characterName: string, userName: string) {
   if (mode === 'retell') {
     return `转述模式：开启。
-章节开头必须先原样复述${userName}最新输入的核心内容，并把这段输入润色扩写成可见动作、行为、神情、话语、停顿和空间变化。`;
+章节开头必须先承接${userName}最新输入的核心内容，再把它自然融入当前场景。这里的“转述”是忠实重现并润色扩写，不是机械复制整段原文。
+1. ${userName}的原话、动作方向、先后顺序、态度和完成程度必须保持不变；不能把试探改成确认，把犹豫改成果断，把尚未完成的动作写成已经完成。
+2. 对话中的关键信息和有辨识度的措辞应原样保留，必要时只调整标点与嵌入叙事的位置，不擅自改写含义。
+3. 可以补充原输入直接支持的可见动作过程、神情、停顿、声音、空间变化和环境反馈；不得新增${userName}未表达的心理、台词、决定或关系结论。
+4. 承接完成后立刻进入${characterName}与环境的后续反应，不在后文多次重复同一段用户输入，不用“你刚才说/做了……”再次总结。
+5. 若用户输入很长，只抓住本轮会实际影响场景的核心顺序，避免逐句改写造成开头臃肿；若输入很短，也不要凭空扩成远超原意的动作链。`;
   }
   return `转述模式：关闭。
-不要在章节开头固定复述${userName}输入；直接承接最新输入展开当前场景。`;
+不要在章节开头重复、改写或总结${userName}的最新输入，也不要用“在你说完后”“听到你刚才的话”这类固定套句重新复盘。
+从用户输入造成的即时结果开始写：环境如何响应、${characterName}看见或听见了什么、${characterName}接下来如何行动和说话。
+仍要保持上下文连续，不能跳过用户动作已经造成的空间或物件变化；不转述只是不重演输入，并不代表忽略输入。不得借“直接承接”替${userName}补写新的台词、心理或决定。`;
 }
 
 function renderOfflineProhibitedInstruction(characterName: string, userName: string) {
-  return `禁止条例：
-${characterName}可以有欲望、软肋、狼狈和失控，但必须真实、有铺垫。
-禁止邪魅一笑、霸道总裁式壁咚、油腻情话、刻板霸总/娇妻反应、毫无理由的掌控感。
-拒绝全知全能：${characterName}不知道事情全貌，会犯错，会误解，只能基于当下信息反应。
-拒绝围着${userName}转：${characterName}有自己的生活、精神世界、工作、爱好、过往和日常压力。两人的关系是两个独立世界的交汇，不是一方对另一方的依附。
-线下模块允许描写两人见面、同场行动和面对面互动，但只能承接${userName}已经接受进入线下模块这一事实与用户输入；不要补写${userName}未输入的关键行程、心理、决定或现实地址。`;
+  return `线下叙事基础边界：
+1. ${characterName}可以有欲望、软肋、狼狈、错误判断和短暂失控，但每种反应都必须来自既有人设、具体事件与充分铺垫，不能套用通用恋爱人格。
+2. 禁止邪魅一笑、霸道总裁式壁咚、油腻情话、刻板霸总或娇妻反应、毫无理由的掌控感，以及用身份、财富、力量或性别压过对方的模板桥段。
+3. 拒绝全知全能。${characterName}不知道事情全貌，会遗漏线索、误解别人，也只能依据当下能获得的信息作出判断；叙述者不能为了推进剧情把未知事实塞进角色脑中。
+4. 拒绝让${characterName}只围着${userName}转。${characterName}有自己的生活、精神世界、工作、爱好、过往、社交关系与现实压力；两人的关系是两个独立世界的交汇，不是一方对另一方的依附。
+5. 线下模块允许描写两人见面、同场行动和面对面互动，但只能承接用户已进入线下模块这一事实与当前输入。不要补写${userName}未输入的关键行程、心理、决定、隐私信息或现实地址。
+6. 不把“剧情需要”当作越界理由。若推进必须依赖${userName}提供新选择，就让${characterName}、环境或配角作出合理反应，并在选择点停下。`;
 }
 
-function renderOfflineRhythmInstruction(settings: ConversationOfflineSettings) {
+function renderOfflineRhythmInstruction(settings: ConversationOfflineSettings, characterName: string) {
   return `叙事节奏：
-正文字数：${settings.wordCount || defaultOfflineSettings.wordCount}。${settings.expandLength ? '篇幅增强已开启，可以扩展互动、环境和动作过渡，但不要灌水。' : '按设定字数完成，不要为了凑字拖慢节奏。'}
-基调按当前“基调预设”执行，不要只理解成一个情绪标签。
-确保角色对白占据重要篇幅，用对话推动关系、揭示性格、展现冲突或温情。
-从用户最新消息开始，细致描绘当下的场景、氛围、人物动作与细微停顿。
-除非用户明确要求时间跳跃，例如“第二天”“多年后”“转场到”，否则严禁直接跳到未来时间点。让故事在此刻自然流动。`;
+1. 正文字数目标：${settings.wordCount || defaultOfflineSettings.wordCount}。字数是完成度目标，不是要求机械凑满；优先保证当前事件完整、逻辑清楚和结尾自然。
+2. 从用户最新输入所在的确切时刻开始，先确认人物位置、正在进行的动作、尚未处理的物件与上一轮留下的问题，再继续当前场景。
+3. 每一段至少承担一种有效功能：推进动作、交换新信息、展示人物选择、改变关系状态、更新环境或留下后续线索。删除只重复气氛和情绪的段落。
+4. 确保${characterName}的对白占据与场景相称的重要篇幅，用对话推动关系、揭示性格、处理事务、表达分歧或形成温情；不要让旁白包办所有交流。
+5. 动作、对白、心理与环境按实际发生顺序互相承接。重要反应要有触发点，场景物件和人物位置不能无故重置。
+6. 节奏允许快慢变化：日常过渡简洁带过，关键选择与关系变化适度放慢；不能把每个动作都逐帧拆解，也不能跳过真正需要呈现的过程。
+7. 基调按当前预设持续执行，但不把基调误解成单一情绪标签；人物仍可有与主基调相称的局部反差。
+8. 除非用户明确要求时间跳跃，例如“第二天”“多年后”或“转场到”，否则严禁直接跳到未来时点。让故事在此刻自然流动，并在当前事件出现自然停顿时收束。`;
+}
+
+function renderOfflineAppearanceInstruction(enabled: boolean) {
+  if (!enabled) {
+    return `增强外貌描写：关闭。
+外貌只在辨认人物、动作造成可见变化或剧情明确需要时简洁出现。不要主动扫描五官、身材和肤色，不在每次出场重复角色卡信息，也不因亲密情节自动加入凝视式描写。已有外貌事实仍须保持连续，不能随意改动。`;
+  }
+  return `增强外貌描写：开启。
+1. 在人物初次进入新场景、距离或光线明显改变、情绪造成可见变化、动作牵动发丝或表情时，自然补足外貌细节。
+2. 每次只选择与当前视角和动作最相关的一至三个细节，例如眼下疲色、被风吹乱的头发、笑意收住后的嘴角；不从头到脚逐项扫描。
+3. 外貌必须通过光线、距离、遮挡和观察者注意力呈现。看不清的地方不精确描写，角色不会注意到的细节不强行写入。
+4. 保持角色既有五官、发型、体态、年龄感与明显特征连续，不擅自美化、幼化、改变肤色或添加角色设定中不存在的永久特征。
+5. 用中性、具体、尊重人物的语言描写，不把身体物化成供凝视的部件，不用模板化“绝美”“完美轮廓”“勾人”等空泛判断。
+6. 外貌细节要承担人物状态、关系距离或场景变化的功能；同一特征本章写清一次后，除非发生变化，不反复换词赞美。`;
+}
+
+function renderOfflineOutfitInstruction(enabled: boolean) {
+  if (!enabled) {
+    return `增强服饰描写：关闭。
+服饰不主动扩写，只在动作需要说明口袋、袖口、鞋履、防寒、防雨或身份场合时简洁提及。不要自行设计整套穿搭，不重复展示品牌、材质与颜色；已经出现的衣着仍要保持连续，不能在同一场景无故更换。`;
+  }
+  return `增强服饰描写：开启。
+1. 根据天气、时间、地点、人物职业、既有审美和当天事务，写出可信的衣着选择；角色设定没有说明时，使用普通、低推断的现实服饰，不凭空增加奢侈品牌或夸张造型。
+2. 服饰通过动作自然出现：卷起袖口、拉好拉链、衣摆被椅角压住、口袋里摸出钥匙。不要暂停剧情单独播报穿搭清单。
+3. 材质、颜色和版型只选择对触感、温度、动作、身份或氛围有作用的细节，不堆砌专业名词，不把每次换场都写成时尚点评。
+4. 严格保持衣着连续性。脱下、弄湿、沾灰、起皱、借给别人或换装都需要明确动作与原因，后文应保留相应状态。
+5. 服饰可以体现人物习惯、经济能力、场合分寸和情绪变化，但不要用衣着替人物下道德结论，也不要无依据性化普通穿着。
+6. 与外貌描写协调分配篇幅。同一处细节写清后不反复赞美，让衣着继续参与动作和现实生活。`;
+}
+
+function renderOfflineLengthInstruction(enabled: boolean, wordCount: string) {
+  if (!enabled) {
+    return `增加对话篇幅：关闭。
+按“${wordCount || defaultOfflineSettings.wordCount}”的默认完成度简洁写完当前叙事单元。保留必要对白、因果、动作承接和情绪余波，但不主动新增旁支事件、重复试探、冗长环境铺陈或多轮同义对话。达到自然停顿后及时收束。`;
+  }
+  return `增加对话篇幅：开启。
+在“${wordCount || defaultOfflineSettings.wordCount}”目标内扩展互动、环境和动作过渡，但每一处扩写都必须带来新信息或新变化。
+1. 优先扩展有来回的有效对白，让人物追问、澄清、回避、改口或回应对方真正说过的内容；禁止把一句意思换词重复多遍。
+2. 补足动作之间的物理过程、人物位置变化、环境反馈和现实事务，让场景连续，而不是堆叠静态形容词。
+3. 允许加入与当前事件直接相关的小阻碍、配角打断或生活细节，但不能为了篇幅另起无关支线、强造冲突或跳到新场景。
+4. 情绪通过触发、压下、表达与余波形成过程，不能用多段同义心理反复强调。
+5. 当本轮核心事件已经获得回应并来到新的用户选择点时停止，不用总结全文、预告下一章或追加第二个结尾。`;
+}
+
+function renderOfflineGuidanceInstruction(settings: ConversationOfflineSettings) {
+  const enabledGuidance = [
+    settings.emotionalGuidance ? offlineGuidancePrompts.emotionalGuidance : '',
+    settings.desireRestraint ? offlineGuidancePrompts.desireRestraint : '',
+    settings.antiToxicMasculinity ? offlineGuidancePrompts.antiToxicMasculinity : '',
+    settings.antiClicheRomance ? offlineGuidancePrompts.antiClicheRomance : '',
+    settings.dynamicWorldNarrative ? offlineGuidancePrompts.dynamicWorldNarrative : ''
+  ].filter(Boolean);
+  if (!enabledGuidance.length) return '';
+  return `角色与大世界引导（仅执行当前已开启的分类）：
+${enabledGuidance.join('\n\n')}`;
 }
 
 const offlineSelfReviewPrompt = `输出前内部自我检测：
-请在内部沿 12 个维度检查并打磨正文，但不要输出检查过程、亮点、问题列表或分析文字。
-1. 叙事逻辑与因果链：每个转折和情绪变化都有前因，不靠作者全知硬推。
-2. 人物立体性与独立性：角色不是单一恋爱模板，有自己的生活、缺点和外部压力。
-3. 对话质感与潜文本：对白符合身份与情绪，有沉默、停顿、话里有话。
-4. 心理描写克制精准：心理段服务人物和情感，不把人物写得过于清醒全知。
-5. 环境描写功能性：环境与情绪呼应，用具体声音、温度、气味或物件支撑氛围。
-6. 情感节奏：关系升温或拉扯要匹配事件积累，避免提前深情。
-7. 关系健康度：保持边界、平等与相互性，避免单方面拯救或控制。
-8. 生活实感：加入自然的日常细节、时间压力或现实琐事，避免悬浮。
-9. 对话与动作协调：重要对白配合具体动作、空间距离和潜意识反应。
-10. 人物关系网：角色世界里可以有工作、朋友、家人或外部事件介入。
-11. 语言风格统一：贯彻白描或用户自定义文风，不突然切换语体和视角。
-12. 阅读体验：保留想象空间和余韵，在恰当处收住。
-完成内部检查后，对正文进行最后一次精修，只输出符合 JSON 格式的最终版本。`;
+请在内部逐项检查并打磨正文，但绝对不要输出检查过程、评分、亮点、问题列表、修改说明或分析文字。
+1. 指令落实：当前选择的文风、基调、视角、段落、心理、抢话、转述、外貌、服饰与篇幅开关是否全部正确生效，有无互相串档。
+2. 用户控制权：是否只写了设置允许范围内的用户言行；有没有擅自补充用户心理、关键动作、台词、同意、拒绝或关系决定。
+3. 信息与视角：每条信息是否能由当前叙述视角获得；人物的推测有没有被误写成事实，人称与指代是否全章稳定。
+4. 叙事逻辑与因果链：每个动作、转折、巧合和情绪变化是否有前因；人物位置、物件状态、天气与时间是否连续。
+5. 人物立体性与独立性：角色是否严格符合自身经历、语言习惯、优缺点和现实压力，而不是通用恋爱模板或无条件围着用户转。
+6. 对话质感：对白是否符合身份、场合、关系距离与当下目的；是否有信息增量、潜台词和真实回应，是否删除了说教、复读与设定说明书。
+7. 动作承接：重要对白前后是否有必要而不机械的动作、停顿或空间变化；有没有每句话都配同款神态的流水线问题。
+8. 心理精度：开启时，独立心理段数量、格式、触发点与信息边界是否正确；关闭时，是否仍偷写了长篇直接内心独白。
+9. 环境功能：声音、温度、气味、光线与物件是否参与行动或情绪，而不是静态布景、五感清单或无功能的氛围堆砌。
+10. 外貌服饰：开启时是否具体、克制、连续且与场景有关；关闭时是否仍主动扩写；有没有重复扫描、物化凝视或无故换装。
+11. 情感节奏：关系变化是否匹配事件积累与关系阶段；有没有提前深情、强行发糖、无端拉扯或突然冲突。
+12. 关系健康度：互动是否保持平等、边界与相互性；人物可以有脾气和缺点，但不能把控制、压迫、羞辱或单方面拯救浪漫化。
+13. 生活实感：场景中是否保留身体状态、待办事务、时间压力、社交关系与现实小事；它们是否自然出现而非刻意打卡。
+14. 节奏与篇幅：每段是否有功能，长短是否符合当前段落模式；扩写是否带来新变化，是否存在灌水、同义反复、过早跳时或迟迟不收束。
+15. 文风与基调：语言是否贯彻当前预设且不机械复用示例；有没有通用 AI 套话、过度修辞、突然换语体、作者议论或强行升华。
+16. 结尾位置：是否在当前事件得到一轮有效回应或来到新的用户选择点时自然停住；不要总结主题、预告后续、替用户决定或追加第二个结尾。
+17. 输出格式：最终只输出系统要求的合法 JSON；所有换行、引号与特殊字符正确转义，正文之外不附加任何解释。
+
+完成内部检查后进行最后一次精修：删除重复解释与无功能句子，补齐必要因果和指代，只输出符合 JSON 格式的最终版本。`;
 
 function renderOfflineSettingsPrompt(settings: ConversationOfflineSettings | null | undefined, context: PromptContext) {
   const offlineSettings = normalizeOfflineSettings(settings ?? defaultOfflineSettings);
@@ -636,22 +786,17 @@ function renderOfflineSettingsPrompt(settings: ConversationOfflineSettings | nul
     '线下章节写作设置：',
     renderOfflineWritingStyleInstruction(writingStylePreset),
     renderOfflineToneInstruction(tonePreset),
-    renderOfflinePerspectiveInstruction(offlineSettings.perspective, characterName, userName),
+    renderOfflineStructureInstruction(offlineSettings, 'perspective', renderOfflinePerspectiveInstruction(offlineSettings.perspective, characterName, userName), characterName, userName),
     renderOfflinePsychologyInstruction(offlineSettings.characterPsychology, characterName, userName),
-    renderOfflineInterruptionInstruction(offlineSettings.interruptionMode, characterName, userName),
-    renderOfflineRetellInstruction(offlineSettings.retellMode, userName),
+    renderOfflineStructureInstruction(offlineSettings, 'interruption', renderOfflineInterruptionInstruction(offlineSettings.interruptionMode, characterName, userName), characterName, userName),
+    renderOfflineStructureInstruction(offlineSettings, 'retell', renderOfflineRetellInstruction(offlineSettings.retellMode, characterName, userName), characterName, userName),
     renderOfflineProhibitedInstruction(characterName, userName),
-    renderOfflineRhythmInstruction(offlineSettings),
-    offlineSettings.enhanceAppearance
-      ? '增强外貌描写：开启。自然补足与当前动作、距离、光线相关的外貌细节。'
-      : '增强外貌描写：关闭。外貌只在剧情必要时简洁出现。',
-    offlineSettings.enhanceOutfit
-      ? '增强服饰描写：开启。自然写入与场景、姿态和角色习惯相关的服饰细节。'
-      : '增强服饰描写：关闭。服饰不主动扩写。',
-    offlineSettings.expandLength
-      ? '增加对话篇幅：开启。在不灌水的前提下扩展互动、环境和动作过渡。'
-      : '增加对话篇幅：关闭。按默认篇幅完成本章。',
-    offlineParagraphInstruction[offlineSettings.paragraphMode],
+    renderOfflineRhythmInstruction(offlineSettings, characterName),
+    renderOfflineAppearanceInstruction(offlineSettings.enhanceAppearance),
+    renderOfflineOutfitInstruction(offlineSettings.enhanceOutfit),
+    renderOfflineLengthInstruction(offlineSettings.expandLength, offlineSettings.wordCount),
+    renderOfflineStructureInstruction(offlineSettings, 'paragraph', offlineParagraphInstruction[offlineSettings.paragraphMode], characterName, userName),
+    renderOfflineGuidanceInstruction(offlineSettings),
     offlineSelfReviewPrompt
   ].join('\n');
 }

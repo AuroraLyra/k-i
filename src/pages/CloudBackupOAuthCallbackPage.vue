@@ -33,7 +33,7 @@ async function saveConnection(connection: CloudOAuthConnection) {
     ...store.settings,
     cloudBackup: {
       ...current,
-      enabled: true,
+      enabled: false,
       provider: connection.provider,
       accessToken: connection.accessToken,
       refreshToken: connection.refreshToken,
@@ -48,7 +48,7 @@ async function saveConnection(connection: CloudOAuthConnection) {
       lastBackupError: '',
       latestRemoteBackupAt: 0,
       lastBackupBytes: 0,
-      progress: { phase: 'completed', label: '云盘连接成功，自动备份已开启', percent: 100, updatedAt: Date.now() }
+      progress: { phase: 'completed', label: '云盘连接成功，请选择备份或导入', percent: 100, updatedAt: Date.now() }
     }
   });
 }

@@ -28,7 +28,7 @@
       <div class="compression-copy">
         <span class="eyebrow">MEMORY COMPRESSION</span>
         <strong>{{ compressionHeadline }}</strong>
-        <p v-if="stats.compressionActive">旧楼层仍保存在时间轴里，但回复时由角色记忆代替原文进入模型。</p>
+        <p v-if="stats.compressionActive">更早的已归档楼层由角色记忆代替；最近原文仍按下方设置发送给模型。</p>
         <p v-else>打开压缩后，已形成日记的旧楼层会退出回复上下文；消息本身不会被删除。</p>
       </div>
       <div class="compression-numbers">
@@ -45,11 +45,11 @@
       </div>
       <div class="settings-list">
         <label class="setting-line"><span><strong>启用角色记忆</strong><small>回复时召回这个角色与 {{ userName }} 的共享 brain。</small></span><input v-model="memoryDraft.enabled" type="checkbox" @change="saveMemorySettings" /></label>
-        <label class="setting-line"><span><strong>压缩旧楼层</strong><small>已写入日记的旧原文不再重复发送给模型。</small></span><input v-model="memoryDraft.compressionEnabled" type="checkbox" @change="saveMemorySettings" /></label>
+        <label class="setting-line"><span><strong>压缩旧楼层</strong><small>超出最近原文范围的已归档内容不再重复发送给模型。</small></span><input v-model="memoryDraft.compressionEnabled" type="checkbox" @change="saveMemorySettings" /></label>
         <label class="setting-line"><span><strong>自动写日记</strong><small>每积累几个完整楼层，就编码一次角色主观记忆。</small></span><input v-model="memoryDraft.autoCapture" type="checkbox" @change="saveMemorySettings" /></label>
-        <label class="number-line"><span><strong>每批楼层</strong><small>建议 6–12 个完整楼层。</small></span><input v-model.number="memoryDraft.captureEvery" type="number" min="2" max="40" @change="saveMemorySettings" /></label>
-        <label class="number-line"><span><strong>保留最近原文</strong><small>保证眼前聊天的语气和上下文连续。</small></span><input v-model.number="memoryDraft.recentMessageLimit" type="number" min="6" max="24" @change="saveMemorySettings" /></label>
-        <label class="number-line"><span><strong>记忆召回预算</strong><small>越低越省 token，建议 600–1200。</small></span><input v-model.number="memoryDraft.recallTokenBudget" type="number" min="300" max="2400" step="50" @change="saveMemorySettings" /></label>
+        <label class="number-line"><span><strong>每批楼层</strong><small>范围 2–120，建议 12–30；这是自动目标，模式切换、手动或尾批可更少。</small></span><input v-model.number="memoryDraft.captureEvery" type="number" :min="chatMemorySettingLimits.captureEvery.minimum" :max="chatMemorySettingLimits.captureEvery.maximum" :step="chatMemorySettingLimits.captureEvery.step" @change="saveMemorySettings" /></label>
+        <label class="number-line"><span><strong>保留最近原文</strong><small>按消息条数计算（不是楼层）；即使已写入日记也会保留，且不会拆开完整楼层。</small></span><input v-model.number="memoryDraft.recentMessageLimit" type="number" :min="chatMemorySettingLimits.recentMessageLimit.minimum" :max="chatMemorySettingLimits.recentMessageLimit.maximum" :step="chatMemorySettingLimits.recentMessageLimit.step" @change="saveMemorySettings" /></label>
+        <label class="number-line"><span><strong>记忆召回预算</strong><small>范围 300–8000 tokens，默认 5000；条数不限，各类记忆按预算动态分配。</small></span><input v-model.number="memoryDraft.recallTokenBudget" type="number" :min="chatMemorySettingLimits.recallTokenBudget.minimum" :max="chatMemorySettingLimits.recallTokenBudget.maximum" :step="chatMemorySettingLimits.recallTokenBudget.step" @change="saveMemorySettings" /></label>
         <label class="setting-line"><span><strong>允许缓慢成长</strong><small>关系与印象只依据重复证据逐步变化。</small></span><input v-model="memoryDraft.growthEnabled" type="checkbox" @change="saveMemorySettings" /></label>
       </div>
       <div class="settings-actions">
@@ -90,7 +90,7 @@
               <template v-else>
                 <h4>{{ memoryText(episode.title) }}</h4>
                 <p>{{ memoryText(episode.narrative) }}</p>
-                <footer><span v-if="episode.location"><MapPin :size="12" />{{ memoryText(episode.location) }}</span><span v-if="episode.emotion"><Heart :size="12" />{{ memoryText(episode.emotion) }}</span><span v-if="episode.startFloor > 0"><Layers3 :size="12" />{{ episode.startFloor }}–{{ episode.endFloor }}楼</span></footer>
+                <footer><span v-if="episode.location"><MapPin :size="12" />{{ memoryText(episode.location) }}</span><span v-if="episode.emotion"><Heart :size="12" />{{ memoryText(episode.emotion) }}</span><span v-if="episode.startFloor > 0"><Layers3 :size="12" />{{ episodeFloorLabel(episode) }}</span></footer>
                 <div v-if="episode.themeIds.length" class="tag-row"><span v-for="tag in themeNames(episode.themeIds).slice(0, 3)" :key="tag">#{{ memoryText(tag) }}</span></div>
               </template>
             </div>
@@ -136,6 +136,7 @@ import { useAppStore } from '@/stores/appStore';
 import type { ChatMemorySettings } from '@/types/domain';
 import type { MemoryAssertion, MemoryChannel, MemoryEpisode, MemoryStateKind, MemoryStateSnapshot, MemoryTheme } from '@/types/memory';
 import { getCharacterAiName } from '@/utils/character';
+import { chatMemorySettingLimits, normalizeChatMemorySetting } from '@/utils/memorySettings';
 import { getUserAiName } from '@/utils/profile';
 
 type MemoryTab = 'diary' | 'us' | 'collections' | 'archive';
@@ -216,9 +217,9 @@ watch(() => props.conversationId, () => {
 });
 
 async function saveMemorySettings() {
-  memoryDraft.captureEvery = Math.min(40, Math.max(2, Math.round(Number(memoryDraft.captureEvery) || 8)));
-  memoryDraft.recentMessageLimit = Math.min(24, Math.max(6, Math.round(Number(memoryDraft.recentMessageLimit) || 10)));
-  memoryDraft.recallTokenBudget = Math.min(2400, Math.max(300, Math.round(Number(memoryDraft.recallTokenBudget) || 900)));
+  memoryDraft.captureEvery = normalizeChatMemorySetting('captureEvery', memoryDraft.captureEvery);
+  memoryDraft.recentMessageLimit = normalizeChatMemorySetting('recentMessageLimit', memoryDraft.recentMessageLimit);
+  memoryDraft.recallTokenBudget = normalizeChatMemorySetting('recallTokenBudget', memoryDraft.recallTokenBudget);
   await store.saveConversationSettings({ ...currentSettings.value, conversationId: props.conversationId, memory: { ...memoryDraft } });
 }
 
@@ -337,6 +338,7 @@ async function forgetAssertion(assertion: MemoryAssertion) { await store.forgetM
 function setMessage(message: string, tone: 'success' | 'warning') { actionMessage.value = message; actionTone.value = tone; window.setTimeout(() => { if (actionMessage.value === message) actionMessage.value = ''; }, 4500); }
 function normalizeSearch(value: string) { return String(value ?? '').normalize('NFKC').toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, ''); }
 function memoryText(value: string) { return String(value ?? ''); }
+function episodeFloorLabel(episode: MemoryEpisode) { return episode.startFloor === episode.endFloor ? `第 ${episode.startFloor} 楼` : `第 ${episode.startFloor}–${episode.endFloor} 楼`; }
 function themeNames(themeIds: string[]) { const map = new Map(graph.value.themes.map((theme) => [theme.id, theme.name])); return themeIds.map((id) => map.get(id)).filter((name): name is string => Boolean(name)); }
 function activeThemeAssertionCount(theme: MemoryTheme) { return activeAssertions.value.filter((assertion) => theme.assertionIds.includes(assertion.id)).length; }
 function subjectName(entityId: string) { return memoryText(graph.value.entities.find((entity) => entity.id === entityId)?.name || '这件事'); }
@@ -358,4 +360,22 @@ function kindLabel(kind: MemoryAssertion['kind']) { return ({ fact: '事实', pr
 .diary-card .diary-card-head{align-items:flex-start}.diary-card-meta{display:flex;min-width:0;align-items:center;gap:7px}.diary-card-meta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.diary-card-actions{display:flex;flex:0 0 auto;gap:4px}.diary-card-actions button{display:grid;width:26px;height:26px;padding:0;place-items:center;border:0;border-radius:50%;background:transparent;color:#9d7883}.diary-card-actions button:disabled{opacity:.45}.diary-editor{display:grid;gap:10px;margin-top:12px}.diary-editor label{display:grid;gap:5px;color:#9b8d92;font-size:9px}.diary-editor input,.diary-editor textarea{width:100%;padding:9px 10px;border:1px solid #eadfe1;border-radius:10px;outline:0;background:#fff;color:var(--ink);font-size:12px;line-height:1.65;resize:vertical}.diary-editor input:focus,.diary-editor textarea:focus{border-color:#d7b8c0;box-shadow:0 0 0 2px rgba(215,184,192,.15)}.diary-editor-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diary-edit-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%;margin-top:12px}.diary-edit-actions button{width:100%;padding:9px 10px;border:0;border-radius:10px;background:#f4eff0;color:#8f7e84;font-size:10px}.diary-edit-actions button:disabled{opacity:.45}
 .diary-load-more{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:10px 14px;border:1px solid #eadfe1;border-radius:13px;background:#fffaf9;color:#946f7a;font-size:11px}.diary-load-more span{color:#b4a5aa;font-size:9px}
 .diary-delete-confirm{flex-wrap:wrap;justify-content:flex-start;margin-top:10px;padding:9px 10px;border-radius:11px;background:#fff0ed}.diary-delete-confirm span{min-width:180px;flex:1;color:#9a6d69;line-height:1.5}.diary-delete-confirm button{flex:0 0 auto}
+.memory-studio {
+  --paper: #ffffff;
+  background: #ffffff;
+}
+
+.studio-header,
+.compression-note,
+.compression-numbers span,
+.search-box,
+.empty-diary,
+.state-note,
+.collection-card,
+.belief-card,
+.archive-item,
+.archive-item.pinned,
+.muted-empty {
+  background: #ffffff;
+}
 </style>

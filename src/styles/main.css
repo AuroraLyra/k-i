@@ -88,6 +88,10 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+html.is-native-app.keyboard-open body {
+  transform: translateZ(0);
+}
+
 #app {
   position: relative;
   min-height: var(--app-height);
@@ -105,6 +109,38 @@ select {
 .fanfic-font-scope,
 .fanfic-font-scope * {
   font-family: var(--app-current-font-family) !important;
+}
+
+.offline-room,
+.offline-room *,
+.offline-room *::before,
+.offline-room *::after,
+.offline-settings-page,
+.offline-settings-page *,
+.offline-settings-page *::before,
+.offline-settings-page *::after {
+  font-family: var(--app-current-font-family) !important;
+}
+
+.offline-settings-page .settings-title-block > span,
+.offline-settings-page .settings-hero-kicker span,
+.offline-settings-page .settings-hero-kicker em,
+.offline-settings-page .settings-hero-title strong,
+.offline-settings-page .settings-hero-title > span,
+.offline-settings-page .settings-hero-tags span,
+.offline-settings-page .settings-hero-for-label,
+.offline-room .offline-title-copy small,
+.offline-room .chapter-stream-head > div > span,
+.offline-room .chapter-stream-status,
+.offline-room .chapter-speaker-mark,
+.offline-room .chapter-floor-label b,
+.offline-room .chapter-entry-tools time,
+.offline-room .offline-composer-mark {
+  font-family: Georgia, "Times New Roman", serif !important;
+}
+
+.offline-settings-page .settings-section h2 {
+  letter-spacing: 0 !important;
 }
 
 button {

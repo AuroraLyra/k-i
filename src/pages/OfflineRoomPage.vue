@@ -13,12 +13,18 @@
         </button>
       </div>
       <div class="offline-title-block">
-        <span>offline chapter</span>
-        <strong>{{ characterDisplayName }}</strong>
+        <span class="offline-title-avatar">
+          <img :src="character.avatar" :alt="characterDisplayName" />
+          <i aria-hidden="true"></i>
+        </span>
+        <span class="offline-title-copy">
+          <small>offline manuscript</small>
+          <strong>{{ characterDisplayName }}</strong>
+        </span>
       </div>
       <div class="offline-topbar-actions offline-topbar-actions--right">
         <button class="offline-icon-button" type="button" aria-label="角色记忆" @click="openMemoryPanel">
-          <BrainCircuit :size="20" />
+          <NotebookTabs :size="20" :stroke-width="1.9" />
         </button>
         <button class="offline-icon-button" type="button" aria-label="线下设置" @click="openOfflineSettings">
           <Settings2 :size="20" />
@@ -28,6 +34,14 @@
 
     <main ref="offlineScrollRef" class="offline-scroll" @scroll.passive="handleOfflineScroll">
       <section class="chapter-stream" aria-label="线下章节记录">
+        <header class="chapter-stream-head">
+          <div>
+            <span>dialogue</span>
+            <strong>{{ chapterFloors.length ? `${chapterFloors.length} 个章节楼层` : '等待第一幕开始' }}</strong>
+          </div>
+          <span class="chapter-stream-status"><i aria-hidden="true"></i> chapter</span>
+        </header>
+
         <button
           v-if="hasEarlierFloors"
           class="floor-history-loader"
@@ -46,7 +60,11 @@
           @click="handleFloorClick(floor)"
         >
           <div class="chapter-entry-meta">
-            <span>{{ floor.floorNumber }}F {{ floorSenderName(floor) }}</span>
+            <span class="chapter-floor-label">
+              <span class="chapter-speaker-mark">{{ floor.sender === 'user' ? 'Q.' : floor.sender === 'char' ? 'A.' : 'N.' }}</span>
+              <i aria-hidden="true"></i>
+              <b>{{ floor.floorNumber }}</b>
+            </span>
             <div class="chapter-entry-tools">
               <em v-if="floor.hidden">已隐藏</em>
               <time>{{ formatChatTime(floor.createdAt) }}</time>
@@ -132,33 +150,38 @@
 
     <footer class="offline-dock">
       <div class="offline-toolbar">
-        <button class="tool-button" type="button" :disabled="currentConversationReplying" @click="continueOfflineChapter">
-          <span>继续</span>
-        </button>
-        <button class="tool-button" type="button" :disabled="!canRegenerate || currentConversationReplying" @click="openRegeneratePromptDialog">
-          <span>重回</span>
-        </button>
-        <button class="tool-button tool-button--danger" type="button" :class="{ active: truncateDeleteMode }" :disabled="!chapterFloors.length" @click="toggleTruncateDeleteMode">
-          <span>删除</span>
-        </button>
-        <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转首楼" @click="jumpToFirstFloor">
-          <ChevronsUp :size="16" />
-        </button>
-        <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转上一楼" @click="jumpToPreviousFloor">
-          <ChevronUp :size="17" />
-        </button>
-        <button class="icon-tool-button" type="button" :class="{ active: showJumpDialog }" :disabled="!chapterFloors.length" aria-label="选择楼层跳转" @click="openJumpDialog">
-          <ListTree :size="17" />
-        </button>
-        <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转下一楼" @click="jumpToNextFloor">
-          <ChevronDown :size="17" />
-        </button>
-        <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转底楼" @click="jumpToLastFloor">
-          <ChevronsDown :size="16" />
-        </button>
+        <div class="offline-primary-tools">
+          <button class="tool-button" type="button" :disabled="currentConversationReplying" @click="continueOfflineChapter">
+            <span>继续这一幕</span>
+          </button>
+          <button class="tool-button" type="button" :disabled="!canRegenerate || currentConversationReplying" @click="openRegeneratePromptDialog">
+            <span>重写回复</span>
+          </button>
+          <button class="tool-button tool-button--danger" type="button" :class="{ active: truncateDeleteMode }" :disabled="!chapterFloors.length" @click="toggleTruncateDeleteMode">
+            <span>整理楼层</span>
+          </button>
+        </div>
+        <div class="offline-floor-tools" aria-label="楼层导航">
+          <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转首楼" @click="jumpToFirstFloor">
+            <ChevronsUp :size="16" />
+          </button>
+          <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转上一楼" @click="jumpToPreviousFloor">
+            <ChevronUp :size="17" />
+          </button>
+          <button class="icon-tool-button" type="button" :class="{ active: showJumpDialog }" :disabled="!chapterFloors.length" aria-label="选择楼层跳转" @click="openJumpDialog">
+            <ListTree :size="17" />
+          </button>
+          <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转下一楼" @click="jumpToNextFloor">
+            <ChevronDown :size="17" />
+          </button>
+          <button class="icon-tool-button" type="button" :disabled="!chapterFloors.length" aria-label="跳转底楼" @click="jumpToLastFloor">
+            <ChevronsDown :size="16" />
+          </button>
+        </div>
       </div>
 
       <form class="offline-composer" @submit.prevent="send">
+        <span class="offline-composer-mark" aria-hidden="true">✦</span>
         <textarea
           ref="composerRef"
           v-model="draft"
@@ -170,9 +193,7 @@
           @focus="startKeyboardScrollGuard"
           @blur="stopKeyboardScrollGuard"
         />
-        <button class="send-button" type="submit" :disabled="currentConversationReplying || !draft.trim()" aria-label="发送">
-          <SendHorizontal :size="18" />
-        </button>
+        <button class="send-button" type="submit" :disabled="currentConversationReplying || !draft.trim()" aria-label="发送"></button>
       </form>
     </footer>
 
@@ -228,7 +249,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ArrowLeft, BookOpenText, BrainCircuit, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, ListTree, MessageCircle, PencilLine, SendHorizontal, Settings2 } from 'lucide-vue-next';
+import { ArrowLeft, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, ListTree, MessageCircle, NotebookTabs, PencilLine, Settings2 } from 'lucide-vue-next';
 import OfflineMemoryPanel from '@/components/chat/OfflineMemoryPanel.vue';
 import { useAppStore } from '@/stores/appStore';
 import type { ChatMessage } from '@/types/domain';
@@ -1163,7 +1184,7 @@ async function exitOffline() {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 14px calc(14px + var(--safe-right)) 18px calc(14px + var(--safe-left));
+  padding: 14px calc(14px + var(--safe-right)) calc(18px + var(--keyboard-inset)) calc(14px + var(--safe-left));
   -webkit-overflow-scrolling: touch;
   overflow-anchor: none;
   scroll-padding-bottom: calc(112px + var(--keyboard-inset));
@@ -1898,3 +1919,6 @@ async function exitOffline() {
 }
 
 </style>
+
+<style scoped src="@/styles/offlineRoomCanvasKorean.css"></style>
+<style scoped src="@/styles/offlineRoomControlsKorean.css"></style>

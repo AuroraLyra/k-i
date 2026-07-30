@@ -14,7 +14,8 @@ import { createDefaultSmallTheaterTopics, defaultSmallTheaterTopicDrafts, normal
 import { createDefaultProfileTheme, extractProfileThemeContent, isDefaultProfileTheme, normalizeProfileTheme, normalizeProfileThemesForCharacter, normalizeProfileThemeContentLines, renderProfileThemeHtml, selectRandomEnabledProfileTheme } from '@/utils/profileThemes';
 import { getSmallTheaterVisibleText } from '@/utils/smallTheaterHtml';
 import { RECENT_STICKER_GROUP_NAME, cacheStickerImageUrl, createStickerFromDraft, createStickerGroup, getStickerDisplayImageUrl, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
-import { getConversationActiveMessages, getConversationFloorCount, getConversationFloors, getMessageFloorMap, normalizeConversationSettings } from '@/utils/memory';
+import { getConversationActiveMessages, getConversationFloorCount, getConversationFloors, getMessageFloorMap, getRecentCompleteFloorMessages, normalizeConversationSettings } from '@/utils/memory';
+import { resolveMemoryEpisodeFloorRange } from '@/utils/memoryFloors';
 import { selectMemoryCaptureFloors } from '@/utils/memoryCapture';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { discoverGeneratedGroups, estimateRoleplayReplyInputTokens, fetchVendorModels, generateCoupleSpaceSnapshot, generateGroupChatReply, generateImageByProvider, generateRoleplayReply, generateSmallTheater, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, requestTextEmbedding, requestTextEmbeddings, shouldAutoGenerateMoment, type GroupDiscoveryCharacterContext, type RoleplayCallResponse, type RoleplayGobangResponse, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
@@ -28,14 +29,14 @@ import { persistFanficStartupCache } from '@/services/fanficStartupCache';
 import { playRingtone } from '@/services/ringtone';
 import { synthesizeSpeech } from '@/services/tts';
 import { classifyGobangApiError, generateGobangMove, GobangApiError } from '@/services/gobang';
-import { createLinkBackupFile, parseLinkBackupFileText, parseLinkBackupText, stickerBackupPlaceholder, stringifyLinkBackupFile } from '@/utils/backup';
+import { createLinkBackupFile, parseLinkBackupFileText, parseLinkBackupText, stickerBackupPlaceholder } from '@/utils/backup';
 import { markRestoredGlobalNoticesSeen } from '@/utils/globalNotices';
 import { getVoomFrequencyChance, stripVoomCommentReplyPrefix } from '@/utils/voom';
 import { compressInlineImageDataUrl } from '@/utils/imageFile';
-import { hydrateStoredMediaRefs, isLocalMediaCacheUrl, materializeStoredMediaRefs } from '@/utils/mediaStorage';
+import { collectStoredMediaLocators, hydrateStoredMediaRefs, isLocalMediaCacheUrl, materializeStoredMediaRefs } from '@/utils/mediaStorage';
 import { normalizeCoupleSpaceState } from '@/utils/coupleSpace';
 import { applyGobangMove, createGobangGame, respondGobangInvitation, updateGobangApiState } from '@/utils/gobang';
-import { createMemoryAssertionDedupeKey, createMemoryBrainId, createMemorySourceHash, createRecallUpserts, estimateMemoryTokens, fadeMemoryAccessibility, hashMemoryText, integrateMemoryExtraction, latestMemoryStates, memoryId, recallCharacterMemory, refreshMemoryThemeReports } from '@/utils/memoryGraph';
+import { createMemoryAssertionDedupeKey, createMemoryBrainId, createMemorySourceHash, createRecallUpserts, estimateMemoryTokens, fadeMemoryAccessibility, hashMemoryText, integrateMemoryExtraction, isMemorySourceSnapshotCurrent, latestMemoryStates, memoryId, recallCharacterMemory, refreshMemoryThemeReports, resolveMemoryEpisodeForgottenReason } from '@/utils/memoryGraph';
 import { consolidateMemoryThemeReport, extractTemporalMemory, generateTemporalMemoryDiary } from '@/services/memoryExtraction';
 import { registerTabooWorldBookProvider } from '@/services/tabooWorldBook';
 import { createUserTimeSnapshot } from '@/utils/timeAwareness';
@@ -858,28 +859,19 @@ export const useAppStore = defineStore('app', () => {
     return getConversationActiveMessages(messagesForConversation(id));
   }
 
-  function recentCompleteFloors(messages: ChatMessage[], messageLimit: number) {
-    const floors = getConversationFloors(messages);
-    const selectedFloors: ChatMessage[][] = [];
-    let selectedMessageCount = 0;
-    for (let index = floors.length - 1; index >= 0 && selectedMessageCount < messageLimit; index -= 1) {
-      selectedFloors.unshift(floors[index]);
-      selectedMessageCount += floors[index].length;
-    }
-    return selectedFloors.flat();
-  }
-
   function promptMessagesForConversation(id: string) {
     const activeMessages = visibleMessagesForConversation(id);
     const memorySettings = settingsForConversation(id).memory;
     const conversationEpisodes = memoryGraphForConversation(id).episodes.filter((episode) => episode.conversationId === id);
     const forgottenMessageIds = new Set(
       conversationEpisodes
-        .filter((episode) => episode.status === 'forgotten')
+        .filter((episode) => episode.status === 'forgotten' && episode.forgottenReason !== 'source-invalidated')
         .flatMap((episode) => episode.sourceMessageIds)
     );
     const recallableMessages = activeMessages.filter((message) => !forgottenMessageIds.has(message.id));
-    if (!memorySettings.enabled || !memorySettings.compressionEnabled) return recallableMessages.slice(-24);
+    if (!memorySettings.enabled || !memorySettings.compressionEnabled) {
+      return getRecentCompleteFloorMessages(recallableMessages, memorySettings.recentMessageLimit);
+    }
     const archivedMessageIds = new Set(
       conversationEpisodes
         .filter((episode) => episode.status === 'active')
@@ -887,7 +879,7 @@ export const useAppStore = defineStore('app', () => {
     );
     if (!archivedMessageIds.size && !forgottenMessageIds.size) return recallableMessages;
     const recentMessageIds = new Set(
-      recentCompleteFloors(recallableMessages, Math.max(1, memorySettings.recentMessageLimit)).map((message) => message.id)
+      getRecentCompleteFloorMessages(recallableMessages, memorySettings.recentMessageLimit).map((message) => message.id)
     );
     return recallableMessages.filter((message) => !forgottenMessageIds.has(message.id)
       && (!archivedMessageIds.has(message.id) || recentMessageIds.has(message.id)));
@@ -925,15 +917,20 @@ export const useAppStore = defineStore('app', () => {
       brainId,
       episodes: rawEpisodes.map((episode) => {
         const sourceMessageIds = new Set(episode.sourceMessageIds);
-        const episodeMessages = sourceMessagesForConversation(episode.conversationId).filter((message) => sourceMessageIds.has(message.id));
+        const sourceMessages = sourceMessagesForConversation(episode.conversationId);
+        const episodeMessages = sourceMessages.filter((message) => sourceMessageIds.has(message.id));
         const episodeFloorMap = sourceFloorMapsByConversation.get(episode.conversationId) ?? new Map<string, number>();
         const sourceFloors = episodeMessages.map((message) => episodeFloorMap.get(message.id) ?? 0).filter(Boolean);
-        const fallbackStartFloor = sourceFloors.length ? Math.min(...sourceFloors) : 0;
-        const fallbackEndFloor = sourceFloors.length ? Math.max(...sourceFloors) : fallbackStartFloor;
+        const floorRange = resolveMemoryEpisodeFloorRange(sourceFloors, episode.startFloor, episode.endFloor);
+        const legacyFloorTitle = /^历史记忆 · \d+[-–]\d+楼$/.test(episode.title);
         return {
           ...episode,
-          startFloor: Math.max(0, Number(episode.startFloor) || fallbackStartFloor),
-          endFloor: Math.max(0, Number(episode.endFloor) || fallbackEndFloor),
+          forgottenReason: resolveMemoryEpisodeForgottenReason(episode, new Set(sourceMessages.map((message) => message.id))),
+          startFloor: floorRange.startFloor,
+          endFloor: floorRange.endFloor,
+          title: legacyFloorTitle && !episode.manuallyEditedAt && floorRange.startFloor > 0
+            ? `历史记忆 · ${floorRange.startFloor}-${floorRange.endFloor}楼`
+            : episode.title,
           sourceTokenEstimate: Math.max(0, Number(episode.sourceTokenEstimate) || estimateMemoryTokens(episodeMessages.map((message) => messageReadableContent(message)).join('\n'))),
           occurredEndAt: Number(episode.occurredEndAt) || (episodeMessages.length ? Math.max(...episodeMessages.map((message) => message.createdAt || episode.occurredAt)) : episode.occurredAt)
         };
@@ -959,7 +956,7 @@ export const useAppStore = defineStore('app', () => {
     return latestMemoryStates(memoryGraphForConversation(id).stateSnapshots);
   }
 
-  function recallMemoryForConversation(id: string, queryText = '', maxEntries = 12): MemoryRecallResult {
+  function recallMemoryForConversation(id: string, queryText = ''): MemoryRecallResult {
     const graph = memoryGraphForConversation(id);
     const budgetTokens = settingsForConversation(id).memory.recallTokenBudget;
     if (!graph.brainId) return { items: [], episodes: [], themes: [], states: [], contextText: '', estimatedTokens: 0, budgetTokens };
@@ -967,7 +964,6 @@ export const useAppStore = defineStore('app', () => {
       ...graph,
       brainId: graph.brainId,
       query: queryText,
-      limit: maxEntries,
       maxTokens: budgetTokens,
       timeAwarenessEnabled: settingsForConversation(id).timeAwareness.enabled
     });
@@ -991,7 +987,6 @@ export const useAppStore = defineStore('app', () => {
           ...graph,
           brainId: graph.brainId,
           query: getLastUserTurnText(activeMessages),
-          limit: 14,
           maxTokens: memorySettings.recallTokenBudget,
           timeAwarenessEnabled: settingsForConversation(id).timeAwareness.enabled
         })
@@ -1013,7 +1008,7 @@ export const useAppStore = defineStore('app', () => {
     };
   }
 
-  function memoryContextForConversation(id: string, queryText = '', options: { includeResolved?: boolean; maxTokens?: number; maxEntries?: number; storeDebug?: boolean; excludeSourceMessageIds?: string[] } = {}) {
+  function memoryContextForConversation(id: string, queryText = '', options: { includeResolved?: boolean; maxTokens?: number; storeDebug?: boolean; excludeSourceMessageIds?: string[] } = {}) {
     if (!settingsForConversation(id).memory.enabled) return '';
     const excludedIds = new Set(options.excludeSourceMessageIds ?? []);
     const graph = memoryGraphForConversation(id);
@@ -1022,7 +1017,6 @@ export const useAppStore = defineStore('app', () => {
       brainId: graph.brainId,
       assertions: graph.assertions.filter((assertion) => !assertion.evidenceMessageIds.some((messageId) => excludedIds.has(messageId))),
       query: queryText,
-      limit: options.maxEntries ?? (queryText.trim() ? 14 : 10),
       maxTokens: options.maxTokens ?? settingsForConversation(id).memory.recallTokenBudget,
       timeAwarenessEnabled: settingsForConversation(id).timeAwareness.enabled
     });
@@ -1038,7 +1032,7 @@ export const useAppStore = defineStore('app', () => {
     return [];
   }
 
-  async function memoryContextForConversationAsync(id: string, queryText = '', options: { includeResolved?: boolean; maxTokens?: number; maxEntries?: number; storeDebug?: boolean; modelOverride?: string; queryVector?: number[]; excludeSourceMessageIds?: string[] } = {}) {
+  async function memoryContextForConversationAsync(id: string, queryText = '', options: { includeResolved?: boolean; maxTokens?: number; storeDebug?: boolean; modelOverride?: string; queryVector?: number[]; excludeSourceMessageIds?: string[] } = {}) {
     if (!settingsForConversation(id).memory.enabled) return '';
     const excludedIds = new Set(options.excludeSourceMessageIds ?? []);
     const graph = memoryGraphForConversation(id);
@@ -1056,7 +1050,6 @@ export const useAppStore = defineStore('app', () => {
       brainId: graph.brainId,
       assertions: graph.assertions.filter((assertion) => !assertion.evidenceMessageIds.some((messageId) => excludedIds.has(messageId))),
       query: queryText,
-      limit: options.maxEntries ?? (queryText.trim() ? 14 : 10),
       maxTokens: options.maxTokens ?? memorySettings.recallTokenBudget,
       queryVector,
       timeAwarenessEnabled: settingsForConversation(id).timeAwareness.enabled
@@ -3170,7 +3163,7 @@ export const useAppStore = defineStore('app', () => {
       .filter((episode) => episode.status === 'active' && episode.sourceMessageIds.some((id) => idSet.has(id)))
       .map((episode) => episode.id);
     for (const episodeId of affectedEpisodeIds) {
-      await deleteMemoryEpisode(episodeId, { allowRecapture });
+      await deleteMemoryEpisode(episodeId, { allowRecapture, forgottenReason: 'source-invalidated' });
     }
   }
 
@@ -5293,22 +5286,27 @@ export const useAppStore = defineStore('app', () => {
     };
   }
 
-  async function compactSnapshotMediaForBackup(snapshot: AppSnapshot): Promise<AppSnapshot> {
+  async function compactSnapshotMediaForBackup(snapshot: AppSnapshot, onProgress?: BackupProgressCallback): Promise<AppSnapshot> {
     const compactImage = createBackupImageCompactor();
     const characters: CharacterProfile[] = [];
     for (const character of snapshot.characters) characters.push(await compactCharacterForBackup(character, compactImage));
+    await onProgress?.('正在压缩角色图片', 62);
 
     const messages: ChatMessage[] = [];
     for (const message of snapshot.messages) messages.push(await compactMessageForBackup(message, compactImage));
+    await onProgress?.('正在压缩聊天图片', 68);
 
     const voomPostsForBackup: VoomPost[] = [];
     for (const post of snapshot.voomPosts) voomPostsForBackup.push(await compactVoomPostForBackup(post, compactImage));
+    await onProgress?.('正在压缩 VOOM 图片', 73);
 
     const generatedImagesForBackup: GeneratedImageRecord[] = [];
     for (const record of snapshot.generatedImages ?? []) generatedImagesForBackup.push(await compactGeneratedImageForBackup(record, compactImage));
+    await onProgress?.('正在压缩生图记录', 78);
 
     const stickersForBackup: Sticker[] = [];
     for (const sticker of snapshot.stickers) stickersForBackup.push(await compactStickerForBackup(sticker, compactImage));
+    await onProgress?.('正在压缩本地贴纸', 82);
 
     const favoritesForBackup: FavoriteMessageRecord[] = [];
     for (const favorite of snapshot.favorites ?? []) {
@@ -5317,6 +5315,7 @@ export const useAppStore = defineStore('app', () => {
         message: await compactMessageForBackup(favorite.message, compactImage)
       });
     }
+    await onProgress?.('正在整理收藏内容', 85);
 
     return {
       ...snapshot,
@@ -5331,13 +5330,25 @@ export const useAppStore = defineStore('app', () => {
 
   async function createBackupFile(onProgress?: BackupProgressCallback) {
     if (!ready.value) await hydrate();
-    await onProgress?.('正在读取本地数据', 20);
+    await onProgress?.('正在读取本地数据库', 8);
+    const sourceSnapshot = await loadSnapshot();
+    const storedMediaTotal = collectStoredMediaLocators(sourceSnapshot).size;
+    let storedMediaCompleted = 0;
+    let lastMediaProgress = -1;
     const missingMedia = new Set<string>();
-    const snapshot = await materializeStoredMediaRefs(await loadSnapshot(), {
+    await onProgress?.(storedMediaTotal ? `正在读取本地媒体 0/${storedMediaTotal}` : '本地媒体读取完成', storedMediaTotal ? 15 : 52);
+    const snapshot = await materializeStoredMediaRefs(sourceSnapshot, {
       missing: 'empty',
-      onMissing: (source) => missingMedia.add(source)
+      onMissing: (source) => missingMedia.add(source),
+      onMaterialized: () => {
+        storedMediaCompleted += 1;
+        const percent = storedMediaTotal ? 15 + Math.round(storedMediaCompleted / storedMediaTotal * 37) : 52;
+        if (percent === lastMediaProgress) return;
+        lastMediaProgress = percent;
+        void onProgress?.(`正在读取本地媒体 ${Math.min(storedMediaCompleted, storedMediaTotal)}/${storedMediaTotal}`, percent);
+      }
     });
-    await onProgress?.('正在整理备份内容', 65);
+    await onProgress?.('正在整理备份内容', 56);
     const normalizedVoomPosts = snapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post));
     const backupSnapshot = await compactSnapshotMediaForBackup({
       ...snapshot,
@@ -5348,8 +5359,11 @@ export const useAppStore = defineStore('app', () => {
       smallTheaters: normalizeStoredSmallTheaters(snapshot.smallTheaters ?? []),
       musicCommentThreads: normalizeStoredMusicCommentThreads(snapshot.musicCommentThreads ?? []),
       favorites: normalizeFavorites(snapshot.favorites ?? [])
-    });
-    return createLinkBackupFile(backupSnapshot, missingMedia.size);
+    }, onProgress);
+    await onProgress?.('正在清洗敏感配置', 87);
+    const backup = createLinkBackupFile(backupSnapshot, missingMedia.size);
+    await onProgress?.('备份内容准备完成', 89);
+    return backup;
   }
 
   async function importBackupSnapshot(snapshot: AppSnapshot, options: ImportBackupOptions = {}): Promise<ImportBackupResult> {
@@ -5414,12 +5428,14 @@ export const useAppStore = defineStore('app', () => {
     await saveCloudBackupProgress('uploading', reason === 'auto' ? '正在准备自动加密备份' : '正在准备加密备份', 3);
 
     try {
-      const backup = await createBackupFile();
+      const backup = await createBackupFile(async (label, percent) => {
+        await saveCloudBackupProgress('uploading', label, 3 + percent * 0.3);
+      });
       let lastProgress = -1;
       const result = await uploadEncryptedCloudBackup(settings.value?.cloudBackup ?? config, backup, async (progress) => {
         if (progress.percent === lastProgress) return;
         lastProgress = progress.percent;
-        await saveCloudBackupProgress('uploading', progress.label, progress.percent);
+        await saveCloudBackupProgress('uploading', progress.label, 30 + progress.percent * 0.7);
       });
       await saveCloudBackupState({
         accessToken: result.accessToken,
@@ -5612,7 +5628,9 @@ export const useAppStore = defineStore('app', () => {
         repo: repository.repo,
         branch: repository.branch || config.branch || 'main'
       });
-      const backup = await createBackupFile();
+      const backup = await createBackupFile(async (label, percent) => {
+        await saveGitHubBackupProgress('checking', label, 27 + percent * 0.42);
+      });
       const activeConfig = settings.value?.githubBackup ?? config;
       await saveGitHubBackupProgress('uploading', reason === 'auto' ? '正在上传自动备份' : '正在上传手动备份', 65);
       await uploadGitHubBackup(
@@ -5623,8 +5641,13 @@ export const useAppStore = defineStore('app', () => {
           branch: activeConfig.branch,
           path: activeConfig.path
         },
-        stringifyLinkBackupFile(backup),
-        `${reason === 'auto' ? 'Auto' : 'Manual'} LINK backup ${new Date().toISOString()}`
+        backup,
+        `${reason === 'auto' ? 'Auto' : 'Manual'} LINK backup ${new Date().toISOString()}`,
+        {
+          onProgress: async ({ label, percent }) => {
+            await saveGitHubBackupProgress('uploading', label, 65 + percent * 0.3);
+          }
+        }
       );
       const history = await loadGitHubBackupHistory(3).catch(() => activeConfig.history ?? []);
       const latest = history[0];
@@ -7105,7 +7128,8 @@ export const useAppStore = defineStore('app', () => {
     const graph = memoryGraphForConversation(conversationId);
     const capturedMessageIds = new Set(
       graph.episodes
-        .filter((episode) => episode.conversationId === conversationId && (episode.status === 'active' || episode.status === 'forgotten'))
+        .filter((episode) => episode.conversationId === conversationId
+          && (episode.status === 'active' || (episode.status === 'forgotten' && episode.forgottenReason !== 'source-invalidated')))
         .flatMap((episode) => episode.sourceMessageIds)
     );
     const activeMessages = getConversationActiveMessages(messagesForConversation(conversationId))
@@ -7133,7 +7157,7 @@ export const useAppStore = defineStore('app', () => {
     const sourceMessages = selectedFloors.flatMap((entry) => entry.messages);
     const sourceHash = createMemorySourceHash(sourceMessages);
     const existingEpisode = graph.episodes.find((episode) => episode.sourceHash === sourceHash
-      && (episode.status === 'active' || episode.status === 'forgotten'));
+      && (episode.status === 'active' || (episode.status === 'forgotten' && episode.forgottenReason !== 'source-invalidated')));
     if (existingEpisode) return existingEpisode;
     const startFloor = selectedFloors[0].floor;
     const endFloor = selectedFloors[selectedFloors.length - 1].floor;
@@ -7153,7 +7177,6 @@ export const useAppStore = defineStore('app', () => {
         ...graph,
         brainId: graph.brainId,
         query: extractionQuery,
-        limit: 24,
         maxTokens: Math.min(1_200, chatSettings.memory.recallTokenBudget),
         timeAwarenessEnabled: chatSettings.timeAwareness.enabled
       }).items.map((item) => item.assertion);
@@ -7185,9 +7208,16 @@ export const useAppStore = defineStore('app', () => {
           ? extracted.stateDeltas
           : extracted.stateDeltas.filter((delta) => delta.kind !== 'adaptive-personality')
       };
+      const latestActiveMessages = getConversationActiveMessages(messagesForConversation(conversationId))
+        .filter((message) => message.replyVariantState !== 'inactive' && message.status !== 'failed');
+      if (!isMemorySourceSnapshotCurrent(sourceMessages, latestActiveMessages)) return null;
+      const latestGraph = memoryGraphForConversation(conversationId);
+      const latestExistingEpisode = latestGraph.episodes.find((episode) => episode.sourceHash === sourceHash
+        && (episode.status === 'active' || (episode.status === 'forgotten' && episode.forgottenReason !== 'source-invalidated')));
+      if (latestExistingEpisode) return latestExistingEpisode;
       const upserts = integrateMemoryExtraction({
-        ...graph,
-        brainId: graph.brainId,
+        ...latestGraph,
+        brainId: latestGraph.brainId,
         characterId: character.id,
         characterName,
         userId: boundUser.id,
@@ -7306,7 +7336,7 @@ export const useAppStore = defineStore('app', () => {
     return updated;
   }
 
-  async function deleteMemoryEpisode(episodeId: string, options: { allowRecapture?: boolean } = {}) {
+  async function deleteMemoryEpisode(episodeId: string, options: { allowRecapture?: boolean; forgottenReason?: 'user-request' | 'source-invalidated' } = {}) {
     const episode = memoryEpisodes.value.find((item) => item.id === episodeId);
     if (!episode || episode.status === 'forgotten') return false;
     const now = Date.now();
@@ -7352,6 +7382,7 @@ export const useAppStore = defineStore('app', () => {
       ...episode,
       status: 'forgotten',
       forgottenAt: now,
+      forgottenReason: options.forgottenReason ?? 'user-request',
       sourceTokenEstimate: 0,
       title: '已遗忘',
       narrative: '',

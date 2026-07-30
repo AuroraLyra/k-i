@@ -683,6 +683,11 @@ function normalizeThemeFontEntry(entry: Partial<ThemeFontEntry> | null | undefin
     family,
     source,
     url: source === 'family' ? '' : url,
+    cachedUrl: source === 'family' ? '' : String(entry?.cachedUrl ?? '').trim(),
+    cachedCss: source === 'family' ? '' : String(entry?.cachedCss ?? '').trim(),
+    cachedAssets: source === 'family' || !Array.isArray(entry?.cachedAssets)
+      ? []
+      : entry.cachedAssets.map((asset) => String(asset ?? '').trim()).filter(Boolean),
     mimeType: String(entry?.mimeType ?? '').trim(),
     size: Math.max(0, Math.round(Number(entry?.size ?? 0) || 0)),
     enabled: entry?.enabled !== false,

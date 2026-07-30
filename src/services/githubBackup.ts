@@ -592,14 +592,23 @@ function incrementalDirForPath(path: string) {
   return `${normalizeBackupPath(path)}.incremental`;
 }
 
-async function uploadGitHubBackupContent(target: GitHubBackupTarget, pathValue: string, content: string, message: string) {
+async function uploadGitHubBackupContent(
+  target: GitHubBackupTarget,
+  pathValue: string,
+  content: string,
+  message: string,
+  options?: GitHubBackupUploadOptions,
+  progressStart = 0,
+  progressEnd = progressStart
+) {
   const bytes = new TextEncoder().encode(content);
   if (bytes.length > githubBackupChunkSize) {
-    await uploadGitHubChunkedContent(target, pathValue, bytes, message);
+    await uploadGitHubChunkedContent(target, pathValue, bytes, message, options, progressStart, progressEnd);
     return;
   }
 
   await uploadGitHubTextFile(target, pathValue, content, message);
+  if (progressEnd > progressStart) await emitUploadProgress(options, `已上传 ${normalizeBackupPath(pathValue)}`, progressEnd);
 }
 
 async function uploadGitHubTextFile(target: GitHubBackupTarget, pathValue: string, content: string, message: string) {
@@ -631,18 +640,29 @@ async function uploadGitHubTextFile(target: GitHubBackupTarget, pathValue: strin
   });
 }
 
-async function uploadGitHubChunkedContent(target: GitHubBackupTarget, pathValue: string, bytes: Uint8Array, message: string) {
+async function uploadGitHubChunkedContent(
+  target: GitHubBackupTarget,
+  pathValue: string,
+  bytes: Uint8Array,
+  message: string,
+  options?: GitHubBackupUploadOptions,
+  progressStart = 0,
+  progressEnd = progressStart
+) {
   const path = normalizeBackupPath(pathValue);
   const exportedAt = Date.now();
   const backupId = createBackupId(exportedAt);
   const partDir = `${path}.parts/${backupId}`;
   const chunks: LinkBackupChunkManifest['chunks'] = [];
+  const totalChunks = Math.max(1, Math.ceil(bytes.length / githubBackupChunkSize));
 
   for (let offset = 0, index = 0; offset < bytes.length; offset += githubBackupChunkSize, index += 1) {
     const chunk = bytes.slice(offset, Math.min(offset + githubBackupChunkSize, bytes.length));
     const chunkPath = `${partDir}/part-${String(index + 1).padStart(4, '0')}.b64`;
     chunks.push({ index, path: chunkPath, byteLength: chunk.byteLength });
     await uploadGitHubTextFile(target, chunkPath, encodeBytesBase64(chunk), `${message} part ${index + 1}`);
+    const percent = progressStart + (index + 1) / totalChunks * Math.max(0, progressEnd - progressStart);
+    await emitUploadProgress(options, `正在上传 GitHub 分片 ${index + 1}/${totalChunks}`, percent);
   }
 
   const manifest: LinkBackupChunkManifest = {
@@ -656,6 +676,7 @@ async function uploadGitHubChunkedContent(target: GitHubBackupTarget, pathValue:
     chunks
   };
   await uploadGitHubTextFile(target, path, JSON.stringify(manifest), `${message} manifest (${chunks.length} parts)`);
+  if (progressEnd > progressStart) await emitUploadProgress(options, `GitHub 分片 ${chunks.length}/${chunks.length} 已提交`, progressEnd);
 }
 
 async function deleteGitHubFileIfExists(target: GitHubBackupTarget, pathValue: string, message: string) {
@@ -798,8 +819,13 @@ function createIncrementalManifest(basePath: string, baseExportedAt: number, inc
   };
 }
 
-export async function uploadGitHubBackup(target: GitHubBackupTarget, content: string, message: string, options: GitHubBackupUploadOptions = {}) {
-  const nextBackup = parseLinkBackupFileText(content);
+export async function uploadGitHubBackup(target: GitHubBackupTarget, content: string | LinkBackupFile, message: string, options: GitHubBackupUploadOptions = {}) {
+  const nextBackup = typeof content === 'string' ? parseLinkBackupFileText(content) : content;
+  let serializedContent = typeof content === 'string' ? content : '';
+  const getSerializedContent = () => {
+    serializedContent ||= stringifyLinkBackupFile(nextBackup);
+    return serializedContent;
+  };
   const exportedAt = nextBackup.exportedAt || Date.now();
   const backupId = createBackupId(exportedAt);
   const incrementalDir = incrementalDirForPath(target.path);
@@ -817,10 +843,10 @@ export async function uploadGitHubBackup(target: GitHubBackupTarget, content: st
   if (!remoteState) {
     const basePath = `${incrementalDir}/base-${backupId}.json`;
     await emitUploadProgress(options, '正在上传首个全量基线', 35);
-    await uploadGitHubBackupContent(target, basePath, content, `${message} base`);
+    await uploadGitHubBackupContent(target, basePath, getSerializedContent(), `${message} base`, options, 35, 82);
     const manifest = createIncrementalManifest(basePath, nextBackup.exportedAt, [], exportedAt);
     await emitUploadProgress(options, '正在写入增量入口 manifest', 85);
-    await uploadGitHubBackupContent(target, target.path, JSON.stringify(manifest), `${message} manifest`);
+    await uploadGitHubBackupContent(target, target.path, JSON.stringify(manifest), `${message} manifest`, options, 85, 98);
     await emitUploadProgress(options, '增量备份已完成', 100);
     return;
   }
@@ -833,7 +859,7 @@ export async function uploadGitHubBackup(target: GitHubBackupTarget, content: st
 
   if (!remoteState.manifest) {
     await emitUploadProgress(options, '正在迁移旧全量备份为增量基线', 38);
-    await uploadGitHubBackupContent(target, basePath, remoteState.text, `${message} previous base`);
+    await uploadGitHubBackupContent(target, basePath, remoteState.text, `${message} previous base`, options, 38, 50);
     cleanupPaths.push(...remoteState.rootChunkPaths);
   }
 
@@ -850,7 +876,7 @@ export async function uploadGitHubBackup(target: GitHubBackupTarget, content: st
     };
     await emitUploadProgress(options, `正在上传增量变更（${delta.changeCount} 改 / ${delta.deletionCount} 删）`, 55);
     const { changeCount: _changeCount, deletionCount: _deletionCount, settingsChanged: _settingsChanged, ...persistableDelta } = delta;
-    await uploadGitHubBackupContent(target, deltaPath, JSON.stringify(persistableDelta), `${message} delta`);
+    await uploadGitHubBackupContent(target, deltaPath, JSON.stringify(persistableDelta), `${message} delta`, options, 55, 82);
     increments.push(deltaEntry);
   } else {
     await emitUploadProgress(options, '本次没有数据变化，正在刷新 manifest', 65);
@@ -863,12 +889,12 @@ export async function uploadGitHubBackup(target: GitHubBackupTarget, content: st
     baseExportedAt = nextBackup.exportedAt;
     increments = [];
     await emitUploadProgress(options, '增量链过长，正在压缩为新基线', 72);
-    await uploadGitHubBackupContent(target, compactBasePath, content, `${message} compact base`);
+    await uploadGitHubBackupContent(target, compactBasePath, getSerializedContent(), `${message} compact base`, options, 72, 84);
   }
 
   const manifest = createIncrementalManifest(basePath, baseExportedAt, increments, exportedAt);
   await emitUploadProgress(options, '正在写入增量入口 manifest', 86);
-  await uploadGitHubBackupContent(target, target.path, JSON.stringify(manifest), `${message} manifest (${increments.length} deltas)`);
+  await uploadGitHubBackupContent(target, target.path, JSON.stringify(manifest), `${message} manifest (${increments.length} deltas)`, options, 86, 92);
 
   if (cleanupPaths.length) {
     await emitUploadProgress(options, '正在清理旧增量文件', 94);

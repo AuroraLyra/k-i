@@ -25,6 +25,7 @@
           :user-id="store.user?.id || '--'"
           :settings="currentSettings"
           :active-section="activeBackupTab"
+          @change-section="activeBackupTab = $event"
         />
         <DataManagementPanel v-else-if="mode === 'data'" />
         <AccessAccountPanel v-else />

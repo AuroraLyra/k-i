@@ -18,6 +18,11 @@ export interface TtsSynthesisOptions {
 const legacyOpenAiSpeechVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
 const defaultGeminiTtsVoice = 'Kore';
 const geminiTtsVoices = ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir', 'Leda', 'Orus', 'Aoede'];
+const minimaxGlobalApiOrigin = 'https://api.minimax.io';
+const minimaxChinaApiOrigin = 'https://api.minimaxi.com';
+const minimaxGlobalHostnames = new Set(['api.minimax.io', 'api-uw.minimax.io']);
+const minimaxChinaHostnames = new Set(['api.minimaxi.com', 'api-bj.minimaxi.com', 'api.minimax.chat']);
+const minimaxLegacyGroupIdHostnames = new Set(['api.minimax.chat']);
 
 function minimaxMimeTypeForFormat(format: MinimaxTtsSettings['audioFormat']) {
   if (format === 'wav') return 'audio/wav';
@@ -152,11 +157,69 @@ async function readAudioResponse(response: Response, fallbackMimeType: string) {
   };
 }
 
+function getMinimaxApiSite(endpoint: string) {
+  try {
+    const hostname = new URL(endpoint).hostname.toLowerCase();
+    if (minimaxGlobalHostnames.has(hostname)) return 'global';
+    if (minimaxChinaHostnames.has(hostname)) return 'china';
+  } catch {
+    return 'custom';
+  }
+  return 'custom';
+}
+
+function setMinimaxGroupId(endpoint: string, groupId: string, includeGroupId: boolean) {
+  try {
+    const url = new URL(endpoint);
+    const groupIdKeys: string[] = [];
+    url.searchParams.forEach((_value, key) => {
+      if (key.toLowerCase() === 'groupid') groupIdKeys.push(key);
+    });
+    groupIdKeys.forEach((key) => url.searchParams.delete(key));
+    if (includeGroupId && groupId.trim()) url.searchParams.set('GroupId', groupId.trim());
+    return url.toString();
+  } catch {
+    if (!includeGroupId || !groupId.trim() || /[?&]GroupId=/i.test(endpoint)) return endpoint;
+    return `${endpoint}${endpoint.includes('?') ? '&' : '?'}GroupId=${encodeURIComponent(groupId.trim())}`;
+  }
+}
+
+function shouldIncludeMinimaxGroupId(endpoint: string) {
+  try {
+    const hostname = new URL(endpoint).hostname.toLowerCase();
+    return minimaxLegacyGroupIdHostnames.has(hostname)
+      || (!minimaxGlobalHostnames.has(hostname) && !minimaxChinaHostnames.has(hostname));
+  } catch {
+    return true;
+  }
+}
+
 function buildMinimaxEndpoint(apiUrl: string, groupId: string) {
   const endpoint = apiUrl.trim().replace(/\s+/g, '');
   if (!endpoint) throw new Error('请先填写 MiniMax TTS API 地址。');
-  if (!groupId.trim() || /[?&]GroupId=/i.test(endpoint)) return endpoint;
-  return `${endpoint}${endpoint.includes('?') ? '&' : '?'}GroupId=${encodeURIComponent(groupId.trim())}`;
+  return setMinimaxGroupId(endpoint, groupId, shouldIncludeMinimaxGroupId(endpoint));
+}
+
+function replaceMinimaxOrigin(endpoint: string, origin: string) {
+  const url = new URL(endpoint);
+  const target = new URL(origin);
+  url.protocol = target.protocol;
+  url.host = target.host;
+  return url.toString();
+}
+
+function getMinimaxEndpointCandidates(apiUrl: string, groupId: string) {
+  const primary = buildMinimaxEndpoint(apiUrl, groupId);
+  const site = getMinimaxApiSite(primary);
+  if (site === 'custom') return [primary];
+
+  const alternativeOrigin = site === 'global' ? minimaxChinaApiOrigin : minimaxGlobalApiOrigin;
+  const alternative = buildMinimaxEndpoint(replaceMinimaxOrigin(primary, alternativeOrigin), groupId);
+  return alternative === primary ? [primary] : [primary, alternative];
+}
+
+function normalizeMinimaxApiKey(apiKey: string) {
+  return apiKey.trim().replace(/^Bearer\s+/i, '').replace(/\s+/g, '');
 }
 
 function createRequestId() {
@@ -276,6 +339,19 @@ function getMinimaxError(payload: unknown) {
   return String(baseResp?.status_msg ?? record.status_msg ?? record.message ?? 'MiniMax TTS 生成失败。').trim();
 }
 
+function getMinimaxStatusCode(payload: unknown) {
+  const record = normalizeObject(payload);
+  const baseResp = normalizeObject(record?.base_resp);
+  return Number(baseResp?.status_code ?? record?.status_code ?? 0);
+}
+
+function isMinimaxAuthenticationError(response: Response, payload: unknown, rawText: string) {
+  const statusCode = getMinimaxStatusCode(payload);
+  if (response.status === 401 || statusCode === 1004 || statusCode === 2049) return true;
+  const message = `${getMinimaxError(payload)} ${rawText}`;
+  return /invalid\s*(?:api[\s_-]*)?key|(?:api[\s_-]*)?key\s*(?:is\s*)?invalid|authentication\s*failed|unauthori[sz]ed|鉴权失败|认证失败|无效.{0,8}(?:密钥|key)|(?:密钥|key).{0,8}无效/i.test(message);
+}
+
 function getDoubaoError(payload: unknown) {
   const record = normalizeObject(payload);
   if (!record) return '';
@@ -310,54 +386,61 @@ async function normalizeAudioPayload(candidate: string, mimeType: string, fallba
 export async function synthesizeMinimaxSpeech(text: string, settings: MinimaxTtsSettings): Promise<TtsAudioResult> {
   const content = text.trim();
   if (!content) throw new Error('语音内容为空。');
-  if (!settings.apiKey.trim()) throw new Error('请先填写 MiniMax API Key。');
-  if (!settings.groupId.trim()) throw new Error('请先填写 MiniMax Group ID。');
+  const apiKey = normalizeMinimaxApiKey(settings.apiKey);
+  if (!apiKey) throw new Error('请先填写 MiniMax API Key。');
   if (!settings.voiceId.trim()) throw new Error('请先填写 MiniMax Voice ID。');
 
   const mimeType = minimaxMimeTypeForFormat(settings.audioFormat);
-  const response = await fetch(buildMinimaxEndpoint(settings.apiUrl, settings.groupId), {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${settings.apiKey.trim()}`,
-      'Content-Type': 'application/json'
+  const body = JSON.stringify({
+    model: settings.model,
+    text: content,
+    stream: false,
+    voice_setting: {
+      voice_id: settings.voiceId,
+      speed: settings.speed,
+      vol: settings.volume,
+      pitch: settings.pitch
     },
-    body: JSON.stringify({
-      model: settings.model,
-      text: content,
-      stream: false,
-      voice_setting: {
-        voice_id: settings.voiceId,
-        speed: settings.speed,
-        vol: settings.volume,
-        pitch: settings.pitch
-      },
-      audio_setting: {
-        sample_rate: settings.sampleRate,
-        bitrate: settings.bitrate,
-        format: settings.audioFormat,
-        channel: settings.channel
-      }
-    })
+    audio_setting: {
+      sample_rate: settings.sampleRate,
+      bitrate: settings.bitrate,
+      format: settings.audioFormat,
+      channel: settings.channel
+    }
   });
+  const endpoints = getMinimaxEndpointCandidates(settings.apiUrl, settings.groupId);
 
-  const rawText = await response.text();
-  let payload: unknown = rawText;
-  try {
-    payload = JSON.parse(rawText) as unknown;
-  } catch {
-    if (!response.ok) throw new Error(rawText.trim() || `MiniMax TTS 请求失败：${response.status}`);
+  for (let index = 0; index < endpoints.length; index += 1) {
+    const response = await fetch(endpoints[index], {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body
+    });
+
+    const rawText = await response.text();
+    let payload: unknown = rawText;
+    try {
+      payload = JSON.parse(rawText) as unknown;
+    } catch {
+      if (!response.ok && !(index < endpoints.length - 1 && isMinimaxAuthenticationError(response, payload, rawText))) {
+        throw new Error(rawText.trim() || `MiniMax TTS 请求失败：${response.status}`);
+      }
+    }
+
+    const apiError = getMinimaxError(payload);
+    if (!response.ok || apiError) {
+      if (index < endpoints.length - 1 && isMinimaxAuthenticationError(response, payload, rawText)) continue;
+      throw new Error(apiError || rawText.trim() || `MiniMax TTS 请求失败：${response.status}`);
+    }
+
+    const audio = await normalizeAudioPayload(extractAudioCandidate(payload), mimeType);
+    return { ...audio, provider: 'minimax', voiceId: settings.voiceId };
   }
 
-  if (!response.ok) {
-    const message = getMinimaxError(payload) || rawText.trim() || `MiniMax TTS 请求失败：${response.status}`;
-    throw new Error(message);
-  }
-
-  const apiError = getMinimaxError(payload);
-  if (apiError) throw new Error(apiError);
-
-  const audio = await normalizeAudioPayload(extractAudioCandidate(payload), mimeType);
-  return { ...audio, provider: 'minimax', voiceId: settings.voiceId };
+  throw new Error('MiniMax TTS 请求失败。');
 }
 
 export async function synthesizeDoubaoSpeech(text: string, settings: DoubaoTtsSettings): Promise<TtsAudioResult> {

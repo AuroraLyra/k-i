@@ -11,7 +11,6 @@ export type LinkNotificationKind = 'message' | 'voom' | 'call';
 export type LinkNotificationAction = 'open' | 'accepted' | 'rejected';
 
 export const LINK_NOTIFICATION_CLICK_EVENT = 'LINK_NOTIFICATION_CLICK';
-export const LINK_NOTIFICATION_SHOW_EVENT = 'LINK_NOTIFICATION_SHOW';
 
 export interface LinkNotificationPayload {
   kind: LinkNotificationKind;
@@ -61,20 +60,6 @@ function dispatchLinkNotificationEvent(type: string, payload: LinkNotificationPa
 
 export function dispatchLinkNotificationClick(payload: LinkNotificationPayload) {
   dispatchLinkNotificationEvent(LINK_NOTIFICATION_CLICK_EVENT, payload);
-}
-
-function dispatchLinkNotificationShow(payload: LinkNotificationPayload) {
-  dispatchLinkNotificationEvent(LINK_NOTIFICATION_SHOW_EVENT, payload);
-}
-
-export function subscribeLinkNotificationShows(listener: (payload: LinkNotificationEventPayload) => void) {
-  if (typeof window === 'undefined') return () => undefined;
-  const handleWindowEvent = (event: Event) => {
-    const payload = normalizeLinkNotificationEventPayload((event as CustomEvent).detail);
-    if (payload) listener(payload);
-  };
-  window.addEventListener(LINK_NOTIFICATION_SHOW_EVENT, handleWindowEvent);
-  return () => window.removeEventListener(LINK_NOTIFICATION_SHOW_EVENT, handleWindowEvent);
 }
 
 export function subscribeLinkNotificationClicks(listener: (payload: LinkNotificationEventPayload) => void) {
@@ -648,10 +633,6 @@ async function showWebLinkNotification(payload: LinkNotificationPayload) {
 }
 
 export async function showLinkNotification(settings: Partial<AppKeepAliveSettings> | null | undefined, payload: LinkNotificationPayload) {
-  if (typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus()) {
-    dispatchLinkNotificationShow(payload);
-    return true;
-  }
   const keepAliveSettings = normalizeKeepAliveSettings(settings);
   if (!keepAliveSettings.enabled || !keepAliveSettings.notifications) return false;
   if (isIosNativeNotificationAvailable()) {

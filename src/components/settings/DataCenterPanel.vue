@@ -23,7 +23,7 @@
       <p v-if="localFeedback" class="feedback" :class="localFeedbackKind">{{ localFeedback }}</p>
     </section>
 
-    <CloudBackupPanel v-else-if="activeSection === 'cloud'" :settings="settings" />
+    <CloudBackupPanel v-else-if="activeSection === 'cloud'" :settings="settings" @open-github="emit('change-section', 'github')" />
 
     <section v-else class="backup-card github-card">
       <header class="card-head">
@@ -153,13 +153,14 @@ import CloudBackupPanel from '@/components/settings/CloudBackupPanel.vue';
 import { buildGitHubLoginUrl, ensureGitHubBackupRepository, fetchGitHubViewer, findGitHubBackupRepository, formatGitHubBackupError, getGitHubOAuthWorkerOrigin } from '@/services/githubBackup';
 import { useAppStore } from '@/stores/appStore';
 import type { AppSettings, GitHubBackupHistoryRecord, GitHubBackupSettings } from '@/types/domain';
-import { createBackupArchiveFilename, downloadLinkBackupArchive, parseLinkBackupBlob } from '@/utils/backup';
+import { canPrepareBackupDestination, createBackupArchiveFilename, downloadLinkBackupArchive, parseLinkBackupBlob, prepareBackupDestination, type PreparedBackupDestination } from '@/utils/backup';
 
 const props = defineProps<{
   userId: string;
   settings: AppSettings;
   activeSection: 'local' | 'cloud' | 'github';
 }>();
+const emit = defineEmits<{ 'change-section': [section: 'local' | 'cloud' | 'github'] }>();
 
 const store = useAppStore();
 const localBusy = ref('');
@@ -334,13 +335,30 @@ async function exportBackup() {
   localFeedback.value = '';
 
   try {
+    const fileName = createBackupArchiveFilename(props.userId);
+    let destination: PreparedBackupDestination | null = null;
+    if (canPrepareBackupDestination()) {
+      try {
+        destination = await prepareBackupDestination(fileName);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          setLocalFeedback('已取消导出。');
+          return;
+        }
+        throw error;
+      }
+    }
     const backup = await store.createBackupFile((label, percent) => {
       setLocalFeedback(`${label} ${Math.round(percent)}%`);
     });
-    await downloadLinkBackupArchive(backup, createBackupArchiveFilename(props.userId));
-    setLocalFeedback(backup.omittedLocalMedia
-      ? `压缩备份已导出，已跳过 ${backup.omittedLocalMedia} 个此前丢失的本地媒体文件。`
-      : '压缩备份已导出。');
+    const saved = await downloadLinkBackupArchive(backup, fileName, {
+      destination,
+      onProgress: (label, percent) => setLocalFeedback(`${label} ${Math.round(percent)}%`)
+    });
+    const omittedHint = backup.omittedLocalMedia ? ` 已跳过 ${backup.omittedLocalMedia} 个此前丢失的本地媒体文件。` : '';
+    setLocalFeedback(saved.method === 'browser-download'
+      ? `已创建浏览器下载任务，请到“${saved.location}”确认文件。${omittedHint}`
+      : `备份已写入“${saved.location}”。${omittedHint}`);
   } catch (error) {
     setLocalFeedback(error instanceof Error ? error.message : '导出失败。', 'error');
   } finally {

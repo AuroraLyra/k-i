@@ -16,6 +16,7 @@ import type {
   MemoryStateSnapshot,
   MemoryTheme,
 } from '@/types/memory';
+import { normalizeChatMemorySetting } from '@/utils/memorySettings';
 import { normalizeNarrativeText } from '@/utils/structuredText';
 
 const DAY_MS = 86_400_000;
@@ -61,7 +62,6 @@ export interface MemoryGraphUpserts {
 export interface RecallCharacterMemoryInput extends MemoryGraphCollections {
   brainId: string;
   query: string;
-  limit?: number;
   maxTokens?: number;
   now?: number;
   embeddings?: MemoryEmbeddingCache[];
@@ -182,6 +182,28 @@ export function createMemorySourceHash(messages: ChatMessage[]): string {
   return hashMemoryText(messages.map((message) => JSON.stringify(memoryMessageSourceSnapshot(message))).join('\n'));
 }
 
+export function isMemorySourceSnapshotCurrent(sourceMessages: ChatMessage[], currentMessages: ChatMessage[]): boolean {
+  const currentById = new Map(currentMessages.map((message) => [message.id, message]));
+  const currentSourceMessages = sourceMessages.flatMap((message) => {
+    const current = currentById.get(message.id);
+    return current ? [current] : [];
+  });
+  return currentSourceMessages.length === sourceMessages.length
+    && createMemorySourceHash(currentSourceMessages) === createMemorySourceHash(sourceMessages);
+}
+
+export function resolveMemoryEpisodeForgottenReason(
+  episode: MemoryEpisode,
+  availableMessageIds: ReadonlySet<string>
+): MemoryEpisode['forgottenReason'] | undefined {
+  if (episode.status !== 'forgotten') return undefined;
+  if (episode.forgottenReason) return episode.forgottenReason;
+  if (!episode.sourceMessageIds.length) return 'user-request';
+  return episode.sourceMessageIds.every((messageId) => availableMessageIds.has(messageId))
+    ? 'user-request'
+    : 'source-invalidated';
+}
+
 export function estimateMemoryTokens(value: string): number {
   const text = String(value ?? '');
   const cjkCount = (text.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu) ?? []).length;
@@ -265,14 +287,22 @@ export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput)
   const validEvidenceIds = new Set(sourceMessageIds);
   const currentAssertions = input.assertions.filter((assertion) => assertion.brainId === input.brainId && (assertion.status === 'current' || assertion.status === 'open' || assertion.status === 'disputed'));
   const assertionById = new Map(input.assertions.filter((item) => item.brainId === input.brainId).map((item) => [item.id, item]));
+  const sourceInvalidatedEpisodeIds = new Set(input.episodes
+    .filter((item) => item.brainId === input.brainId
+      && item.status === 'forgotten'
+      && item.forgottenReason === 'source-invalidated')
+    .map((item) => item.id));
+  const isEffectiveForgottenAssertion = (assertion: MemoryAssertion) => assertion.brainId === input.brainId
+    && assertion.status === 'forgotten'
+    && (!assertion.sourceEpisodeIds.length
+      || assertion.sourceEpisodeIds.some((episodeId) => !sourceInvalidatedEpisodeIds.has(episodeId)));
   const themeByName = new Map(
     input.themes
       .filter((theme) => theme.brainId === input.brainId)
       .map((theme) => [normalizeMemoryName(theme.name), theme]),
   );
   const touchedThemes = new Map<string, MemoryTheme>();
-  let suppressedByForgottenAssertion = input.assertions.some((assertion) => assertion.brainId === input.brainId
-    && assertion.status === 'forgotten'
+  let suppressedByForgottenAssertion = input.assertions.some((assertion) => isEffectiveForgottenAssertion(assertion)
     && assertion.sourceEpisodeIds.includes(episode.id));
 
   for (const draft of input.extraction.assertions ?? []) {
@@ -290,8 +320,7 @@ export function integrateMemoryExtraction(input: IntegrateMemoryExtractionInput)
       .map((theme) => theme.id);
     const objectValue = objectEntity?.id || objectText;
     const dedupeKey = assertionDedupeKey(subject.id, predicate, objectValue, draft.kind);
-    const forgotten = input.assertions.find((item) => item.brainId === input.brainId
-      && item.status === 'forgotten'
+    const forgotten = input.assertions.find((item) => isEffectiveForgottenAssertion(item)
       && (item.forgottenDedupeKey || assertionDedupeKey(item.subjectEntityId, item.predicate, item.objectEntityId || item.objectText, item.kind)) === dedupeKey);
     if (forgotten) {
       suppressedByForgottenAssertion = true;
@@ -587,12 +616,13 @@ function stateLearningRate(kind: MemoryStateKind): number {
 export function recallCharacterMemory(input: RecallCharacterMemoryInput): MemoryRecallResult {
   const now = input.now ?? Date.now();
   const timeAwarenessEnabled = input.timeAwarenessEnabled ?? true;
-  const limit = Math.min(24, Math.max(4, input.limit ?? 12));
-  const budgetTokens = Math.min(2_400, Math.max(300, Math.round(input.maxTokens ?? 900)));
+  const budgetTokens = normalizeChatMemorySetting('recallTokenBudget', input.maxTokens);
   const query = cleanText(input.query, 1_000);
   const forgottenEpisodeIds = new Set(
     input.episodes
-      .filter((episode) => episode.brainId === input.brainId && episode.status === 'forgotten')
+      .filter((episode) => episode.brainId === input.brainId
+        && episode.status === 'forgotten'
+        && episode.forgottenReason !== 'source-invalidated')
       .map((episode) => episode.id),
   );
   const scopedAssertions = input.assertions.filter(
@@ -660,16 +690,7 @@ export function recallCharacterMemory(input: RecallCharacterMemoryInput): Memory
   const sorted = items
     .filter((item) => item.score > (query ? 0.08 : 0.16) || item.assertion.pinned)
     .sort((left, right) => right.score - left.score);
-  const selected: MemoryRecallItem[] = [];
-  const themeCounts = new Map<string, number>();
-  for (const item of sorted) {
-    const primaryTheme = item.assertion.themeIds[0] ?? 'unthemed';
-    const count = themeCounts.get(primaryTheme) ?? 0;
-    if (count >= 4 && selected.length >= Math.ceil(limit / 2)) continue;
-    selected.push(item);
-    themeCounts.set(primaryTheme, count + 1);
-    if (selected.length >= limit) break;
-  }
+  const selected = sorted;
 
   const selectedEpisodeIds = unique(selected.flatMap((item) => item.assertion.sourceEpisodeIds));
   const forgottenSourceEpisodeIds = new Set(input.assertions
@@ -680,8 +701,7 @@ export function recallCharacterMemory(input: RecallCharacterMemoryInput): Memory
       && selectedEpisodeIds.includes(episode.id)
       && episode.status === 'active'
       && !forgottenSourceEpisodeIds.has(episode.id))
-    .sort((left, right) => right.occurredAt - left.occurredAt)
-    .slice(0, 5);
+    .sort((left, right) => right.occurredAt - left.occurredAt);
   const latestStates = latestMemoryStates(input.stateSnapshots.filter((item) => item.brainId === input.brainId))
     .filter((state) => isMemoryStateFresh(state, now, timeAwarenessEnabled));
   const activeThemeIds = unique(selected.flatMap((item) => item.assertion.themeIds));
@@ -693,8 +713,7 @@ export function recallCharacterMemory(input: RecallCharacterMemoryInput): Memory
         ? { ...theme, report: '', reportAssertionCount: activeAssertionCount }
         : theme;
     })
-    .sort((left, right) => right.updatedAt - left.updatedAt)
-    .slice(0, 6);
+    .sort((left, right) => right.updatedAt - left.updatedAt);
   const formatted = formatMemoryContext(selected, selectedEpisodes, selectedThemes, latestStates, entityById, now, budgetTokens, timeAwarenessEnabled);
   const includedItemIds = new Set(formatted.itemIds);
   const includedEpisodeIds = new Set(formatted.episodeIds);
@@ -794,31 +813,6 @@ function formatMemoryContext(
   }
   const intro = '这是我从已归档旧楼层中召回的角色主观记忆。它可能过时或有争议；推测不能当成事实。';
   const closing = '使用规则：只让记忆自然影响当前回应，不逐条复述；新证据优先，冲突时修正认知；不要补写没有证据的内容。';
-  let contextText = intro;
-  const itemIds: string[] = [];
-  const episodeIds: string[] = [];
-  const themeIds: string[] = [];
-  const stateIds: string[] = [];
-  const reservedTokens = estimateMemoryTokens(`\n\n${closing}`);
-
-  const appendSection = (
-    title: string,
-    entries: Array<{ id: string; text: string }>,
-    includedIds: string[],
-  ) => {
-    let section = '';
-    for (const entry of entries) {
-      const prefix = section ? '\n' : `\n\n【${title}】\n`;
-      const availableTokens = maxTokens - reservedTokens - estimateMemoryTokens(contextText + section + prefix);
-      if (availableTokens < 18) break;
-      const line = truncateToMemoryTokenBudget(`- ${entry.text}`, availableTokens);
-      if (!line || estimateMemoryTokens(line) > availableTokens) continue;
-      section += `${prefix}${line}`;
-      includedIds.push(entry.id);
-    }
-    contextText += section;
-  };
-
   const statePriority: Record<MemoryStateKind, number> = {
     relationship: 0,
     'user-impression': 1,
@@ -826,36 +820,29 @@ function formatMemoryContext(
     'current-context': 3,
     mood: 4,
   };
-  appendSection(
-    '此刻的关系与状态',
-    states
-      .filter((state) => state.summary)
-      .sort((left, right) => statePriority[left.kind] - statePriority[right.kind])
-      .map((state) => ({ id: state.id, text: `${stateKindLabel(state.kind)}：${cleanText(state.summary, 180)}` })),
-    stateIds,
-  );
-
-  appendSection(
-    '长期记忆家族',
-    themes
-      .filter((theme) => theme.report && (Number(theme.reportAssertionCount) || 0) >= 5)
-      .slice(0, 3)
-      .map((theme) => ({ id: theme.id, text: `${cleanText(theme.name, 80)}：${cleanText(theme.report, 320)}` })),
-    themeIds,
-  );
-
-  const includedConsolidatedThemeIds = new Set(themeIds);
-  const assertionsCoveredByThemes = items.filter(({ assertion }) =>
-    !assertion.pinned
-    && assertion.status !== 'open'
-    && assertion.status !== 'disputed'
-    && assertion.themeIds.some((themeId) => includedConsolidatedThemeIds.has(themeId))
-  );
-  itemIds.push(...assertionsCoveredByThemes.map(({ assertion }) => assertion.id));
-  const directItems = items.filter(({ assertion }) => !assertionsCoveredByThemes.some((item) => item.assertion.id === assertion.id));
-  appendSection(
-    '与当前话题有关的认知',
-    directItems.map(({ assertion }) => {
+  const sections: MemoryContextSection[] = [
+    {
+      key: 'states',
+      title: '此刻的关系与状态',
+      weight: 0.1,
+      entries: states
+        .filter((state) => state.summary)
+        .sort((left, right) => statePriority[left.kind] - statePriority[right.kind])
+        .map((state) => ({ id: state.id, text: `${stateKindLabel(state.kind)}：${cleanText(state.summary, 180)}` })),
+    },
+    {
+      key: 'themes',
+      title: '长期记忆家族',
+      weight: 0.2,
+      entries: themes
+        .filter((theme) => theme.report && (Number(theme.reportAssertionCount) || 0) >= 5)
+        .map((theme) => ({ id: theme.id, text: `${cleanText(theme.name, 80)}：${cleanText(theme.report, 320)}` })),
+    },
+    {
+      key: 'items',
+      title: '与当前话题有关的认知',
+      weight: 0.5,
+      entries: items.map(({ assertion }) => {
       const subject = entityById.get(assertion.subjectEntityId)?.name || '这件事';
       const certainty = assertion.epistemicKind === 'inferred'
         ? '推测'
@@ -871,31 +858,98 @@ function formatMemoryContext(
         id: assertion.id,
         text: `${cleanText(assertion.perspectiveText, 220)}（${subject}；${certainty}${timeAwarenessEnabled ? `；${relativeTime(assertion.validFrom, now)}` : ''}${disputed}；确信${Math.round(assertion.confidence * 100)}%）`,
       };
-    }),
-    itemIds,
-  );
-
-  const includedRecallText = [
-    ...themes.filter((theme) => themeIds.includes(theme.id)).map((theme) => theme.report),
-    ...directItems.filter((item) => itemIds.includes(item.assertion.id)).map((item) => item.assertion.perspectiveText),
-  ].join('；');
-  appendSection(
-    '相关日记片段',
-    episodes
-      .filter((episode) => !includedRecallText || episode.salience >= 0.85 || tokenOverlap(episode.narrative, includedRecallText) < 0.68)
-      .slice(0, 2)
-      .map((episode) => ({
+      }),
+    },
+    {
+      key: 'episodes',
+      title: '相关日记片段',
+      weight: 0.2,
+      entries: episodes.map((episode) => ({
         id: episode.id,
         text: `${timeAwarenessEnabled ? `${relativeTime(episode.occurredAt, now)}，` : ''}${cleanText(episode.title, 80)}：${cleanText(episode.narrative, 320)}`,
       })),
-    episodeIds,
-  );
-
-  const closingPrefix = '\n\n';
-  const closingBudget = maxTokens - estimateMemoryTokens(contextText + closingPrefix);
-  if (closingBudget > 0) contextText += `${closingPrefix}${truncateToMemoryTokenBudget(closing, closingBudget)}`;
+    },
+  ];
+  const reservedTokens = estimateMemoryTokens(`${intro}\n\n${closing}`);
+  const sectionBudgets = allocateMemorySectionBudgets(sections, Math.max(0, maxTokens - reservedTokens));
+  const formattedSections = sections.map((section) => formatMemoryContextSection(section, sectionBudgets.get(section.key) ?? 0));
+  const includedIds = new Map(formattedSections.map((section) => [section.key, section.ids]));
+  let contextText = `${intro}${formattedSections.map((section) => section.text).join('')}\n\n${closing}`;
   contextText = truncateToMemoryTokenBudget(contextText, maxTokens);
-  return { contextText, itemIds, episodeIds, themeIds, stateIds };
+  return {
+    contextText,
+    itemIds: includedIds.get('items') ?? [],
+    episodeIds: includedIds.get('episodes') ?? [],
+    themeIds: includedIds.get('themes') ?? [],
+    stateIds: includedIds.get('states') ?? [],
+  };
+}
+
+type MemoryContextSectionKey = 'states' | 'themes' | 'items' | 'episodes';
+
+interface MemoryContextSection {
+  key: MemoryContextSectionKey;
+  title: string;
+  weight: number;
+  entries: Array<{ id: string; text: string }>;
+}
+
+function allocateMemorySectionBudgets(sections: MemoryContextSection[], totalTokens: number) {
+  const totalBudget = Math.max(0, Math.floor(totalTokens));
+  const demands = new Map(sections.map((section) => [section.key, memoryContextSectionDemand(section)]));
+  const budgets = new Map<MemoryContextSectionKey, number>(sections.map((section) => [section.key, 0]));
+  let remaining = totalBudget;
+
+  for (const section of sections) {
+    const demand = demands.get(section.key) ?? 0;
+    const grant = Math.min(demand, Math.floor(totalBudget * section.weight));
+    budgets.set(section.key, grant);
+    remaining -= grant;
+  }
+
+  while (remaining > 0) {
+    const activeSections = sections.filter((section) => (budgets.get(section.key) ?? 0) < (demands.get(section.key) ?? 0));
+    if (!activeSections.length) break;
+    const activeWeight = activeSections.reduce((sum, section) => sum + section.weight, 0);
+    const available = remaining;
+    let distributed = 0;
+    for (const section of activeSections) {
+      const current = budgets.get(section.key) ?? 0;
+      const demand = demands.get(section.key) ?? 0;
+      const weightedShare = Math.max(1, Math.floor(available * section.weight / activeWeight));
+      const grant = Math.min(demand - current, weightedShare, remaining);
+      budgets.set(section.key, current + grant);
+      remaining -= grant;
+      distributed += grant;
+      if (!remaining) break;
+    }
+    if (!distributed) break;
+  }
+
+  return budgets;
+}
+
+function memoryContextSectionDemand(section: MemoryContextSection) {
+  if (!section.entries.length) return 0;
+  return estimateMemoryTokens(`\n\n【${section.title}】\n${section.entries.map((entry) => `- ${entry.text}`).join('\n')}`);
+}
+
+function formatMemoryContextSection(section: MemoryContextSection, maxTokens: number) {
+  if (!section.entries.length || maxTokens <= 0) return { key: section.key, text: '', ids: [] as string[] };
+  const heading = `\n\n【${section.title}】\n`;
+  if (estimateMemoryTokens(heading) >= maxTokens) return { key: section.key, text: '', ids: [] as string[] };
+  let text = heading;
+  const ids: string[] = [];
+  for (const entry of section.entries) {
+    const prefix = ids.length ? '\n' : '';
+    const availableTokens = maxTokens - estimateMemoryTokens(text + prefix);
+    if (availableTokens <= 0) break;
+    const line = truncateToMemoryTokenBudget(`- ${entry.text}`, availableTokens);
+    if (!line || estimateMemoryTokens(line) > availableTokens) continue;
+    text += `${prefix}${line}`;
+    ids.push(entry.id);
+  }
+  return { key: section.key, text: ids.length ? text : '', ids };
 }
 
 function truncateToMemoryTokenBudget(value: string, maxTokens: number): string {

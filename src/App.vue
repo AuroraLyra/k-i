@@ -1,6 +1,7 @@
 <template>
   <MobileShell />
-  <GlobalLinkNotification />
+  <GlobalVoomNotice />
+  <GlobalSmallTheaterNotice />
   <FirstRunDisclaimer v-if="showDisclaimer" :model-value="showDisclaimer" @complete="handleDisclaimerComplete" />
   <AppModal :model-value="store.configAlert.open" :title="store.configAlert.title" @update:model-value="setConfigAlertOpen">
     <section class="config-alert">
@@ -44,10 +45,12 @@ import { useRoute, useRouter } from 'vue-router';
 import MobileShell from '@/components/layout/MobileShell.vue';
 import AppModal from '@/components/common/AppModal.vue';
 import FirstRunDisclaimer from '@/components/common/FirstRunDisclaimer.vue';
-import GlobalLinkNotification from '@/components/common/GlobalLinkNotification.vue';
+import GlobalSmallTheaterNotice from '@/components/common/GlobalSmallTheaterNotice.vue';
+import GlobalVoomNotice from '@/components/common/GlobalVoomNotice.vue';
 import { startAccessHeartbeat } from '@/services/access';
 import { syncKeepAlive } from '@/services/keepAlive';
 import { setFullscreenEnabled } from '@/services/systemBars';
+import { cacheThemeFontEntry, getThemeFontCss, getThemeFontFileUrl, hasPersistedThemeFontCache, isThemeFontStylesheetEntry } from '@/services/themeFontCache';
 import { useAppStore } from '@/stores/appStore';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import type { ThemeFontEntry, ThemeStylePreset, ThemeStyleScopeSettings } from '@/types/domain';
@@ -89,6 +92,7 @@ const legacyGlobalScaleVariableNames = [
   '--top-icon-gap',
   '--tab-height'
 ];
+const cachingThemeFontIds = new Set<string>();
 
 const showDisclaimer = computed(() => store.ready && !store.settings?.disclaimerAccepted);
 const githubBackupScheduleKey = computed(() => {
@@ -224,11 +228,6 @@ function getThemeFontFamilyStack(entry: ThemeFontEntry | null) {
   return family.includes(',') ? family : `"${escapeCssString(family)}", ${systemFontStack}`;
 }
 
-function isStylesheetFontUrl(url: string) {
-  const normalizedUrl = url.trim().toLowerCase();
-  return normalizedUrl.endsWith('.css') || normalizedUrl.includes('fonts.googleapis.com/css') || normalizedUrl.includes('fontsapi.zeoseven.com');
-}
-
 function getThemeFontStyleElement() {
   let styleElement = document.getElementById(themeFontStyleId) as HTMLStyleElement | null;
   if (!styleElement) {
@@ -294,24 +293,56 @@ function applyThemeFonts() {
   const enabledFontEntries = themeFontSettings.value.entries.filter((entry) => entry.enabled && entry.family.trim());
   const activeFontEntry = enabledFontEntries.find((entry) => entry.id === themeFontSettings.value.activeFontId) ?? null;
   const stylesheetImports: string[] = [];
+  const cachedStylesheets: string[] = [];
   const fontFaces: string[] = [];
 
   enabledFontEntries
     .filter((entry) => entry.source !== 'family' && entry.url.trim())
     .forEach((entry) => {
-      const escapedUrl = escapeCssString(entry.url.trim());
-      if (entry.source === 'url' && isStylesheetFontUrl(entry.url)) {
-        stylesheetImports.push(`@import url("${escapedUrl}");`);
+      if (entry.source === 'url' && isThemeFontStylesheetEntry(entry)) {
+        const cachedCss = getThemeFontCss(entry);
+        if (cachedCss) cachedStylesheets.push(cachedCss);
+        else stylesheetImports.push(`@import url("${escapeCssString(entry.url.trim())}");`);
         return;
       }
 
+      const escapedUrl = escapeCssString(getThemeFontFileUrl(entry));
       fontFaces.push(`@font-face { font-family: "${escapeCssString(sanitizeCssText(entry.family))}"; src: url("${escapedUrl}"); font-weight: 100 900; font-style: normal; font-display: swap; }`);
     });
 
-  getThemeFontStyleElement().textContent = [...stylesheetImports, ...fontFaces].join('\n');
+  getThemeFontStyleElement().textContent = [...stylesheetImports, ...cachedStylesheets, ...fontFaces].join('\n');
 
   const fontFamilyStack = getThemeFontFamilyStack(activeFontEntry);
   setAppFontFamily(fontFamilyStack);
+}
+
+async function cacheActiveThemeFontForStartup() {
+  const settings = store.settings;
+  const activeFontId = settings?.themeSettings.fonts.activeFontId ?? '';
+  const entry = settings?.themeSettings.fonts.entries.find((font) => font.id === activeFontId);
+  if (!settings || !entry || hasPersistedThemeFontCache(entry) || cachingThemeFontIds.has(entry.id)) return;
+
+  cachingThemeFontIds.add(entry.id);
+  try {
+    const cachedEntry = await cacheThemeFontEntry(entry);
+    const latestSettings = store.settings;
+    const latestEntry = latestSettings?.themeSettings.fonts.entries.find((font) => font.id === entry.id);
+    if (!latestSettings || !latestEntry || latestEntry.url !== entry.url || hasPersistedThemeFontCache(latestEntry)) return;
+    await store.saveSettings({
+      ...latestSettings,
+      themeSettings: {
+        ...latestSettings.themeSettings,
+        fonts: {
+          ...latestSettings.themeSettings.fonts,
+          entries: latestSettings.themeSettings.fonts.entries.map((font) => font.id === entry.id ? cachedEntry : font)
+        }
+      }
+    });
+  } catch (error) {
+    console.warn('Theme font could not be cached for startup.', error);
+  } finally {
+    cachingThemeFontIds.delete(entry.id);
+  }
 }
 
 function resolveThemePresetCss(settings: ThemeStyleScopeSettings, defaultPresetId: string, defaultCss: string, localPresetId = '') {
@@ -424,7 +455,10 @@ watch(
   { immediate: true }
 );
 
-watch(themeFontSettings, applyThemeFonts, { immediate: true, deep: true });
+watch(themeFontSettings, () => {
+  applyThemeFonts();
+  void cacheActiveThemeFontForStartup();
+}, { immediate: true, deep: true });
 watch(globalThemeSettings, applyGlobalThemeScale, { immediate: true, deep: true });
 watch(
   () => store.ready ? globalThemeSettings.value.fullscreen : null,

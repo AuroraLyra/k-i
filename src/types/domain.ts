@@ -457,6 +457,7 @@ export type OfflinePerspective = 'omniscient-third' | 'character-third' | 'chara
 export type OfflineInterruptionMode = 'advance' | 'strict';
 export type OfflineRetellMode = 'retell' | 'direct';
 export type OfflineTonePreset = 'daily' | 'push-pull' | 'ambiguous' | 'romance' | 'bittersweet' | 'custom';
+export type OfflineStructureKind = 'paragraph' | 'perspective' | 'interruption' | 'retell';
 
 export interface OfflinePromptPreset {
   id: string;
@@ -464,16 +465,27 @@ export interface OfflinePromptPreset {
   content: string;
 }
 
+export type OfflineStructurePresets = Record<OfflineStructureKind, OfflinePromptPreset[]>;
+export type OfflineStructurePresetIds = Record<OfflineStructureKind, string>;
+
 export interface ConversationOfflineSettings {
   enhanceAppearance: boolean;
   enhanceOutfit: boolean;
   expandLength: boolean;
   characterPsychology: boolean;
+  emotionalGuidance: boolean;
+  desireRestraint: boolean;
+  antiToxicMasculinity: boolean;
+  antiClicheRomance: boolean;
+  dynamicWorldNarrative: boolean;
   paragraphMode: OfflineParagraphMode;
   perspective: OfflinePerspective;
   interruptionMode: OfflineInterruptionMode;
   retellMode: OfflineRetellMode;
+  customStructurePresets: OfflineStructurePresets;
+  activeCustomStructurePresetIds: OfflineStructurePresetIds;
   wordCount: string;
+  writingStylePresetVersion: number;
   writingStylePresetId: string;
   writingStylePresets: OfflinePromptPreset[];
   writingStyle: string;
@@ -1471,6 +1483,9 @@ export interface ThemeFontEntry {
   family: string;
   source: ThemeFontSource;
   url: string;
+  cachedUrl?: string;
+  cachedCss?: string;
+  cachedAssets?: string[];
   mimeType: string;
   size: number;
   enabled: boolean;

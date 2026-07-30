@@ -592,7 +592,11 @@ export function getR2WorkerDeployUrl() {
 }
 
 export function isCloudBackupConnected(settings: CloudBackupSettings) {
-  if (!settings.provider || !settings.recoveryKey) return false;
+  return Boolean(settings.recoveryKey && isCloudBackupAccountConnected(settings));
+}
+
+export function isCloudBackupAccountConnected(settings: CloudBackupSettings) {
+  if (!settings.provider) return false;
   if (settings.provider === 'r2-worker') return Boolean(settings.workerUrl && settings.workerToken);
   return Boolean(settings.accessToken || settings.refreshToken);
 }
