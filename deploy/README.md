@@ -116,7 +116,7 @@ curl -X POST https://babylink.top/api/admin/napcat/sync -H "Authorization: Beare
 - `PUT /api/admin/groups/:groupId`：新增、改名或停用授权群。
 - `PUT /api/admin/users/:qq/status`：将用户设为 `active` 或 `banned`。
 - `POST /api/admin/napcat/sync`：立即全量同步群成员。
-- `PUT /api/admin/releases/upload`：上传 APK/IPA 并发布版本。
+- `PUT /api/admin/releases/upload`：上传 APK、IPA、macOS DMG 或 Windows NSIS EXE 并发布版本。
 
 管理员 Token 只在受控终端使用，不放入网页、客户端、截图或群文件。
 
@@ -208,7 +208,20 @@ ADMIN_TOKEN='<admin-token>' node scripts/publish-release.mjs ios path/to/BabyLin
 
 iOS 仍不能在 BabyLink 内静默自更新。安装、签名和续签由 Apple ID、AltStore、SideStore、Sideloadly 或其他合法外部工具完成；免费 Apple ID 的签名有效期也由 Apple 决定。1.0.3 起，Themes 的全站、线上、线下样式及主页主题 PNG 使用 iOS 系统文件选择器导入，并通过系统分享面板导出。
 
-## 9. 更新与回滚
+## 9. 桌面助手发布
+
+桌面助手必须在对应系统构建。macOS 使用 `npm run bridge:desktop:dist` 生成 DMG，Windows 使用同一命令生成 NSIS EXE；正式发布前应分别配置 Apple Developer ID、公证凭据和 Windows 代码签名证书。
+
+生成安装包后，通过现有受保护发布接口上传。`versionCode` 必须按平台递增，`versionName` 应与根 `package.json` 版本一致：
+
+```bash
+ADMIN_TOKEN='<admin-token>' node scripts/publish-release.mjs desktop-macos bridge-dist/BabyLink-Bridge-0.1.0-mac-arm64.dmg 1 0.1.0 1 '电脑助手首个 macOS 版本'
+ADMIN_TOKEN='<admin-token>' node scripts/publish-release.mjs desktop-windows bridge-dist/BabyLink-Bridge-0.1.0-win-x64.exe 1 0.1.0 1 '电脑助手首个 Windows 版本'
+```
+
+发布成功后，登录用户会在 BabyLink 设置 → MCP → 电脑助手中看到版本号、文件大小和下载按钮。下载 URL 使用与 APK/IPA 相同的五分钟签名票据；未发布的平台只显示“暂未发布”，不会生成假链接。
+
+## 10. 更新与回滚
 
 更新代码：
 

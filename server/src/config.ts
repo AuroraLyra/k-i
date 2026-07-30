@@ -59,7 +59,7 @@ export const config = {
   accessPagePath: resolve(process.env.ACCESS_PAGE_PATH ?? 'server/public/access.html'),
   allowInsecureUpstreams: readBoolean('ALLOW_INSECURE_UPSTREAMS', !production),
   proxyBodyLimitBytes: readInteger('PROXY_BODY_LIMIT_MB', 24, 1, 128) * 1024 * 1024,
-  uploadBodyLimitBytes: readInteger('UPLOAD_BODY_LIMIT_MB', 128, 1, 1024) * 1024 * 1024,
+  uploadBodyLimitBytes: readInteger('UPLOAD_BODY_LIMIT_MB', 256, 1, 1024) * 1024 * 1024,
   upstreamTimeoutMs: readInteger('UPSTREAM_TIMEOUT_MS', 45_000, 2_000, 180_000),
   modelRequestTimeoutMs: readInteger('MODEL_REQUEST_TIMEOUT_MS', 600_000, 4_000, 1_200_000),
   groupSyncMinutes: readInteger('GROUP_SYNC_MINUTES', 360, 10, 1440),

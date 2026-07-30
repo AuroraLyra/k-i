@@ -149,7 +149,7 @@
     </main>
 
     <footer class="offline-dock">
-      <div class="offline-toolbar">
+      <div v-show="showOfflineToolbar" id="offline-toolbar" class="offline-toolbar">
         <div class="offline-primary-tools">
           <button class="tool-button" type="button" :disabled="currentConversationReplying" @click="continueOfflineChapter">
             <span>继续这一幕</span>
@@ -181,7 +181,15 @@
       </div>
 
       <form class="offline-composer" @submit.prevent="send">
-        <span class="offline-composer-mark" aria-hidden="true">✦</span>
+        <button
+          class="offline-composer-mark"
+          type="button"
+          :class="{ active: showOfflineToolbar }"
+          :aria-label="showOfflineToolbar ? '隐藏底部工具' : '显示底部工具'"
+          :aria-expanded="showOfflineToolbar"
+          aria-controls="offline-toolbar"
+          @click="showOfflineToolbar = !showOfflineToolbar"
+        >✦</button>
         <textarea
           ref="composerRef"
           v-model="draft"
@@ -272,6 +280,7 @@ const store = useAppStore();
 const router = useRouter();
 const route = useRoute();
 const draft = ref('');
+const showOfflineToolbar = ref(false);
 const truncateDeleteMode = ref(false);
 const showJumpDialog = ref(false);
 const showRegeneratePromptDialog = ref(false);
@@ -1920,5 +1929,5 @@ async function exitOffline() {
 
 </style>
 
-<style scoped src="@/styles/offlineRoomCanvasKorean.css"></style>
-<style scoped src="@/styles/offlineRoomControlsKorean.css"></style>
+<style scoped src="@/styles/offlineRoomCanvasEditorial.css"></style>
+<style scoped src="@/styles/offlineRoomControlsEditorial.css"></style>

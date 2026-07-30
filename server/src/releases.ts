@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { getSessionIdentity, requireSession } from './auth.js';
@@ -10,7 +10,7 @@ import { createOpaqueToken, createSignedTicket, hashSecret, safeFileName, verify
 
 interface ReleaseRow {
   id: string;
-  platform: 'android' | 'ios';
+  platform: 'android' | 'ios' | 'desktop-macos' | 'desktop-windows';
   version_code: number;
   version_name: string;
   minimum_version_code: number;
@@ -112,7 +112,13 @@ async function sendReleaseFile(reply: FastifyReply, release: ReleaseRow) {
   } catch {
     return await reply.code(404).send({ error: 'release_file_missing' });
   }
-  reply.header('Content-Type', release.platform === 'android' ? 'application/vnd.android.package-archive' : 'application/octet-stream');
+  const contentTypes: Record<ReleaseRow['platform'], string> = {
+    android: 'application/vnd.android.package-archive',
+    ios: 'application/octet-stream',
+    'desktop-macos': 'application/x-apple-diskimage',
+    'desktop-windows': 'application/vnd.microsoft.portable-executable'
+  };
+  reply.header('Content-Type', contentTypes[release.platform]);
   reply.header('Content-Disposition', `attachment; filename="${fileName}"`);
   reply.header('Content-Length', release.file_size);
   reply.header('X-Content-SHA256', release.sha256);
@@ -210,7 +216,7 @@ export async function registerReleaseRoutes(app: FastifyInstance) {
     const queryValue = request.query as { platform?: unknown; versionCode?: unknown };
     const platform = String(queryValue.platform ?? 'android');
     const currentVersionCode = Math.max(0, Number(queryValue.versionCode ?? 0) || 0);
-    if (!['android', 'ios'].includes(platform)) return await reply.code(400).send({ error: 'invalid_platform' });
+    if (!['android', 'ios', 'desktop-macos', 'desktop-windows'].includes(platform)) return await reply.code(400).send({ error: 'invalid_platform' });
     const result = await query<ReleaseRow>(`
       SELECT id, platform, version_code, version_name, minimum_version_code, file_name, sha256, file_size::text, notes, created_at
       FROM releases
@@ -251,19 +257,19 @@ export async function registerReleaseRoutes(app: FastifyInstance) {
     const notes = encodedNotes
       ? normalizeReleaseNotes(Buffer.from(encodedNotes, 'base64').toString('utf8'))
       : normalizeReleaseNotes(legacyNotes);
-    if (!['android', 'ios'].includes(platform) || !Number.isInteger(versionCode) || versionCode < 1 || !versionName) {
+    if (!['android', 'ios', 'desktop-macos', 'desktop-windows'].includes(platform) || !Number.isInteger(versionCode) || versionCode < 1 || !versionName) {
       return await reply.code(400).send({ error: 'invalid_release_metadata' });
     }
     if (!Buffer.isBuffer(request.body) || !request.body.length) return await reply.code(400).send({ error: 'release_file_required' });
 
-    const extension = platform === 'android' ? 'apk' : 'ipa';
+    const extensions: Record<string, string> = { android: 'apk', ios: 'ipa', 'desktop-macos': 'dmg', 'desktop-windows': 'exe' };
+    const extension = extensions[platform];
     const fileName = `babylink-${platform}-${versionCode}.${extension}`;
     const temporaryPath = join(config.releaseDir, `.${fileName}.${randomUUID()}.tmp`);
     const finalPath = join(config.releaseDir, fileName);
     try {
       await writeFile(temporaryPath, request.body);
-      const bytes = await readFile(temporaryPath);
-      const sha256 = createHash('sha256').update(bytes).digest('hex');
+      const sha256 = createHash('sha256').update(request.body).digest('hex');
       await rename(temporaryPath, finalPath);
       const releaseId = randomUUID();
       await query(`
@@ -278,8 +284,8 @@ export async function registerReleaseRoutes(app: FastifyInstance) {
           notes = EXCLUDED.notes,
           published = TRUE,
           created_at = NOW()
-      `, [releaseId, platform, versionCode, versionName, minimumVersionCode, fileName, sha256, bytes.byteLength, notes]);
-      return { ok: true, platform, versionCode, versionName, sha256, fileSize: bytes.byteLength };
+      `, [releaseId, platform, versionCode, versionName, minimumVersionCode, fileName, sha256, request.body.byteLength, notes]);
+      return { ok: true, platform, versionCode, versionName, sha256, fileSize: request.body.byteLength };
     } catch (error) {
       await unlink(temporaryPath).catch(() => undefined);
       return await reply.code(500).send({ error: 'release_upload_failed', message: error instanceof Error ? error.message : '安装包保存失败。' });

@@ -1,4 +1,5 @@
-import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, CloudBackupProvider, CloudBackupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, CloudBackupProvider, CloudBackupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, McpServerConfig, McpServerKind, McpSettings, McpToolDefinition, McpToolPolicy, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RealityCalendarEvent, RealityMcpSettings, RealityReminder, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
+import { createBuiltinRealityMcpServer } from '@/data/realityMcp';
 import { createId } from './id';
 import { normalizeGlobalThemeScale } from './themeScale';
 
@@ -203,6 +204,184 @@ export function createDefaultThemeSettings(): AppThemeSettings {
   };
 }
 
+export function createDefaultMcpSettings(): McpSettings {
+  return {
+    enabled: true,
+    maxToolCallsPerReply: 3,
+    servers: [createBuiltinRealityMcpServer()]
+  };
+}
+
+export function createDefaultRealityMcpSettings(): RealityMcpSettings {
+  return {
+    reminders: [],
+    calendarEvents: []
+  };
+}
+
+const reservedMcpHeaders = new Set([
+  'accept',
+  'content-length',
+  'content-type',
+  'cookie',
+  'host',
+  'mcp-protocol-version',
+  'mcp-session-id',
+  'origin'
+]);
+
+function normalizeMcpHeaders(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const headers: Record<string, string> = {};
+  for (const [rawName, rawValue] of Object.entries(value)) {
+    const name = rawName.trim();
+    if (!name || reservedMcpHeaders.has(name.toLowerCase())) continue;
+    const headerValue = String(rawValue ?? '').trim();
+    if (headerValue) headers[name] = headerValue;
+  }
+  return headers;
+}
+
+function normalizeMcpApiKeyHeader(value: unknown) {
+  const header = String(value ?? '').trim() || 'Authorization';
+  return reservedMcpHeaders.has(header.toLowerCase()) && header.toLowerCase() !== 'authorization'
+    ? 'Authorization'
+    : header;
+}
+
+function normalizeMcpServerKind(value: unknown): McpServerKind {
+  return value === 'xiaohongshu' || value === 'qq' || value === 'reality' ? value : 'custom';
+}
+
+function normalizeMcpToolPolicy(value: unknown): McpToolPolicy {
+  return value === 'disabled' || value === 'all' ? value : 'read-only';
+}
+
+function normalizeMcpTool(value: unknown): McpToolDefinition | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as Partial<McpToolDefinition>;
+  const name = String(source.name ?? '').trim();
+  if (!name) return null;
+  const inputSchema = source.inputSchema && typeof source.inputSchema === 'object' && !Array.isArray(source.inputSchema)
+    ? source.inputSchema
+    : { type: 'object', properties: {} };
+  return {
+    name,
+    title: String(source.title ?? '').trim(),
+    description: String(source.description ?? '').trim(),
+    inputSchema,
+    enabled: source.enabled !== false,
+    write: Boolean(source.write)
+  };
+}
+
+function normalizeMcpServer(value: unknown): McpServerConfig | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as Partial<McpServerConfig>;
+  const kind = normalizeMcpServerKind(source.kind);
+  const id = String(source.id ?? '').trim();
+  const url = kind === 'reality' ? 'builtin://reality' : String(source.url ?? '').trim();
+  if (!id || (!url && kind !== 'reality')) return null;
+  const fallback = kind === 'reality' ? createBuiltinRealityMcpServer() : null;
+  const normalizedTools = Array.isArray(source.tools)
+    ? source.tools.map(normalizeMcpTool).filter((tool): tool is McpToolDefinition => Boolean(tool))
+    : [];
+  const savedTools = new Map(normalizedTools.map((tool) => [tool.name, tool]));
+  const tools = fallback
+    ? fallback.tools.map((tool) => ({ ...tool, enabled: savedTools.get(tool.name)?.enabled ?? tool.enabled }))
+    : normalizedTools;
+  const timeoutMs = Math.round(Number(source.timeoutMs) || 45_000);
+  return {
+    id,
+    name: String(source.name ?? '').trim() || fallback?.name || 'MCP Server',
+    kind,
+    description: String(source.description ?? '').trim() || fallback?.description || '',
+    url,
+    headers: normalizeMcpHeaders(source.headers),
+    apiKey: String(source.apiKey ?? '').trim(),
+    apiKeyHeader: normalizeMcpApiKeyHeader(source.apiKeyHeader),
+    apiKeyPrefix: String(source.apiKeyPrefix ?? 'Bearer ').replace(/[\r\n]/g, ''),
+    enabled: source.enabled !== false,
+    globalEnabled: source.globalEnabled ?? fallback?.globalEnabled ?? false,
+    toolPolicy: kind === 'reality' ? 'all' : normalizeMcpToolPolicy(source.toolPolicy),
+    timeoutMs: Math.min(120_000, Math.max(3_000, timeoutMs)),
+    tools: [...new Map(tools.map((tool) => [tool.name, tool])).values()],
+    protocolVersion: String(source.protocolVersion ?? '').trim() || fallback?.protocolVersion || '',
+    serverName: String(source.serverName ?? '').trim() || fallback?.serverName || '',
+    serverVersion: String(source.serverVersion ?? '').trim() || fallback?.serverVersion || '',
+    lastStatus: kind === 'reality'
+      ? 'connected'
+      : source.lastStatus === 'connected' || source.lastStatus === 'error'
+        ? source.lastStatus
+        : 'idle',
+    lastCheckedAt: Math.max(0, Number(source.lastCheckedAt) || 0),
+    lastError: String(source.lastError ?? '').trim()
+  };
+}
+
+export function normalizeMcpSettings(settings?: Partial<McpSettings> | null): McpSettings {
+  const fallback = createDefaultMcpSettings();
+  const normalizedServers = Array.isArray(settings?.servers)
+    ? settings.servers.map(normalizeMcpServer).filter((server): server is McpServerConfig => Boolean(server))
+    : [];
+  const realityServer = normalizedServers.find((server) => server.kind === 'reality') ?? fallback.servers[0];
+  const servers = [realityServer, ...normalizedServers.filter((server) => server.id !== realityServer.id)];
+  return {
+    enabled: settings?.enabled !== false,
+    maxToolCallsPerReply: Math.min(6, Math.max(1, Math.round(Number(settings?.maxToolCallsPerReply) || fallback.maxToolCallsPerReply))),
+    servers: [...new Map(servers.map((server) => [server.id, server])).values()]
+  };
+}
+
+function normalizeRealityReminder(value: unknown): RealityReminder | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as Partial<RealityReminder>;
+  const id = String(source.id ?? '').trim();
+  const title = String(source.title ?? '').trim();
+  const at = Number(source.at);
+  if (!id || !title || !Number.isFinite(at) || at <= 0) return null;
+  return {
+    id,
+    title,
+    body: String(source.body ?? '').trim(),
+    at,
+    createdAt: Math.max(0, Number(source.createdAt) || Date.now()),
+    completed: Boolean(source.completed)
+  };
+}
+
+function normalizeRealityCalendarEvent(value: unknown): RealityCalendarEvent | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as Partial<RealityCalendarEvent>;
+  const id = String(source.id ?? '').trim();
+  const title = String(source.title ?? '').trim();
+  const startAt = Number(source.startAt);
+  if (!id || !title || !Number.isFinite(startAt) || startAt <= 0) return null;
+  const rawEndAt = Number(source.endAt);
+  return {
+    id,
+    title,
+    startAt,
+    endAt: Number.isFinite(rawEndAt) && rawEndAt > startAt ? rawEndAt : startAt + 60 * 60_000,
+    location: String(source.location ?? '').trim(),
+    notes: String(source.notes ?? '').trim(),
+    createdAt: Math.max(0, Number(source.createdAt) || Date.now())
+  };
+}
+
+function normalizeRealityMcpSettings(settings?: Partial<RealityMcpSettings> | null): RealityMcpSettings {
+  const reminders = Array.isArray(settings?.reminders)
+    ? settings.reminders.map(normalizeRealityReminder).filter((reminder): reminder is RealityReminder => Boolean(reminder))
+    : [];
+  const calendarEvents = Array.isArray(settings?.calendarEvents)
+    ? settings.calendarEvents.map(normalizeRealityCalendarEvent).filter((event): event is RealityCalendarEvent => Boolean(event))
+    : [];
+  return {
+    reminders: [...new Map(reminders.map((reminder) => [reminder.id, reminder])).values()].sort((left, right) => left.at - right.at),
+    calendarEvents: [...new Map(calendarEvents.map((event) => [event.id, event])).values()].sort((left, right) => left.startAt - right.startAt)
+  };
+}
+
 export const defaultAppSettings: AppSettings = {
   activeUserId: '',
   friendsDisplayScope: 'active-user',
@@ -341,6 +520,8 @@ export const defaultAppSettings: AppSettings = {
   keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),
   themeSettings: createDefaultThemeSettings(),
+  mcpSettings: createDefaultMcpSettings(),
+  realityMcpSettings: createDefaultRealityMcpSettings(),
   imagePrivateOnly: true,
   imageGenerationEnabled: true,
   githubBackup: {
@@ -1652,6 +1833,8 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     keepAlive: normalizeKeepAliveSettings(settings?.keepAlive),
     ringtoneSettings: normalizeRingtoneSettings(settings?.ringtoneSettings),
     themeSettings: normalizeThemeSettings(settings?.themeSettings),
+    mcpSettings: normalizeMcpSettings(settings?.mcpSettings),
+    realityMcpSettings: normalizeRealityMcpSettings(settings?.realityMcpSettings),
     githubBackup: normalizeGitHubBackupSettings(settings?.githubBackup),
     cloudBackup: normalizeCloudBackupSettings(settings?.cloudBackup)
   };

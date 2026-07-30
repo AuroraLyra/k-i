@@ -12,6 +12,7 @@ import { installStartupCachePersistence, markStartupCacheHydrated, persistStartu
 import { useAppStore } from './stores/appStore';
 import { requestPersistentStorage, setupPwaInstallPrompt } from './utils/storageProtection';
 import { installNativeSystemBars } from './services/systemBars';
+import { scheduleRealityReminders } from './services/realityMcp';
 import './styles/main.css';
 
 let activeStore: ReturnType<typeof useAppStore> | null = null;
@@ -125,6 +126,7 @@ async function bootstrap() {
 			markStartupCacheHydrated();
 			persistStartupCache(store);
 			installStartupCachePersistence(store);
+			scheduleRealityReminders(store.settings ?? undefined);
 			return requestPersistentStorage();
 		})
 		.catch((error) => console.error('Link background hydration failed.', error));

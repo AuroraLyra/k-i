@@ -1730,35 +1730,40 @@ export const defaultOfflineThemeCss = `/* LINK 线下页默认完整样式。
   小白改法：
   1. 想改整页底色，搜 .offline-room，改 background。
   2. 想改顶部栏，搜 .offline-topbar；顶部图标按钮搜 .offline-icon-button。
-  3. 想改正文卡片，搜 .chapter-entry；用户段落搜 .chapter-entry--user；角色段落搜 .chapter-entry--char。
+  3. 想改用户与角色的黑灰，改 --offline-user-accent、--offline-user-mark、--offline-character-accent、--offline-character-mark。
   4. 想改剧情选项，搜 .plot-choice-panel 和 .plot-choice-list button。
   5. 想改底部输入栏，搜 .offline-composer；输入文字框搜 .offline-composer textarea；发送按钮搜 .send-button。
   6. 常用属性：background 改背景，color 改文字，border-radius 改圆角，padding 改内边距，box-shadow 改阴影。 */
 .offline-room {
-  --offline-ink: #252226;
-  --offline-muted: #8f858c;
-  --offline-line: rgba(46, 37, 43, 0.09);
+  --offline-ink: #272727;
+  --offline-muted: #999999;
+  --offline-line: #dedede;
+  --offline-user-accent: #202020;
+  --offline-user-mark: #242424;
+  --offline-character-accent: #dfdfdd;
+  --offline-character-mark: #969694;
   color: var(--offline-ink);
-  background:
-    linear-gradient(135deg, rgba(255, 229, 237, 0.74) 0%, rgba(247, 242, 255, 0.58) 38%, rgba(237, 250, 244, 0.74) 100%),
-    #fbf8fa;
+  background: #fbfbfa;
 }
 
 .offline-room .offline-topbar {
-  display: grid;
-  grid-template-columns: 84px minmax(0, 1fr) 84px;
+  position: relative;
+  inset: auto;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: calc(10px + var(--safe-top)) calc(14px + var(--safe-right)) 10px calc(14px + var(--safe-left));
-  border-bottom: 1px solid rgba(255, 255, 255, 0.56);
-  background: rgba(255, 255, 255, 0.62);
-  backdrop-filter: blur(22px);
+  justify-content: space-between;
+  min-height: calc(56px + var(--safe-top));
+  padding: calc(10px + var(--safe-top)) calc(12px + var(--safe-right)) 10px calc(12px + var(--safe-left));
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .offline-room .offline-topbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
 }
 
 .offline-room .offline-topbar-actions--right {
@@ -1768,86 +1773,97 @@ export const defaultOfflineThemeCss = `/* LINK 线下页默认完整样式。
 .offline-room .offline-icon-button {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.7);
-  color: #2d282d;
-  box-shadow: 0 10px 24px rgba(77, 58, 71, 0.08);
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #333333;
+  box-shadow: none;
 }
 
 .offline-room .offline-title-block {
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-  min-width: 0;
-}
-
-.offline-room .offline-title-block span {
-  color: #b28b99;
-  font-size: 10px;
-  font-weight: 900;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.offline-room .offline-title-block strong {
-  max-width: 100%;
-  overflow: hidden;
-  color: #211d21;
-  font-size: 16px;
-  font-weight: 900;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: none;
 }
 
 .offline-room .offline-scroll {
-  padding: 14px calc(14px + var(--safe-right)) calc(18px + var(--keyboard-inset)) calc(14px + var(--safe-left));
-  scroll-padding-bottom: calc(112px + var(--keyboard-inset));
+  padding: 26px calc(18px + var(--safe-right)) calc(30px + var(--keyboard-inset)) calc(18px + var(--safe-left));
+  background: #fbfbfa;
+  scroll-padding-bottom: calc(138px + var(--keyboard-inset));
 }
 
 .offline-room .chapter-stream {
   display: grid;
-  gap: 12px;
-  max-width: 720px;
+  gap: 0;
+  max-width: 680px;
   margin: 0 auto;
 }
 
 .offline-room .chapter-entry {
   display: grid;
-  gap: 9px;
-  padding: 15px;
-  border: 1px solid var(--offline-line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 14px 34px rgba(96, 74, 88, 0.08);
+  position: relative;
+  gap: 14px;
+  overflow: visible;
+  margin: 34px 0;
+  padding: 8px 18px 28px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .offline-room .chapter-entry--user {
-  background: rgba(255, 250, 252, 0.82);
+  margin-right: 24px;
+  border-left: 3px solid var(--offline-user-accent);
 }
 
 .offline-room .chapter-entry--char {
-  background: rgba(255, 255, 255, 0.78);
+  border-right: 3px solid var(--offline-character-accent);
+}
+
+.offline-room .chapter-speaker-mark {
+  color: var(--offline-character-mark) !important;
+}
+
+.offline-room .chapter-entry--user .chapter-speaker-mark {
+  color: var(--offline-user-mark) !important;
 }
 
 .offline-room .chapter-entry--hidden {
-  border-style: dashed;
-  border-color: rgba(143, 133, 140, 0.24);
-  background: rgba(245, 241, 244, 0.56);
+  border-color: #bdbdbb;
+  background: linear-gradient(90deg, rgba(241, 241, 239, 0.5), transparent);
 }
 
 .offline-room .chapter-entry-meta {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  color: #a59aa1;
-  font-size: 10px;
-  font-weight: 900;
+  color: #a0a09e;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
   line-height: 1.1;
+}
+
+.offline-room .chapter-speaker-mark {
+  min-width: 27px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 23px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.08em;
+  line-height: 1;
+}
+
+.offline-room .chapter-floor-label i {
+  display: none;
+}
+
+.offline-room .chapter-floor-label b {
+  color: #777775;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 9px;
+  font-weight: 400;
 }
 
 .offline-room .chapter-entry-tools,
@@ -1863,23 +1879,32 @@ export const defaultOfflineThemeCss = `/* LINK 线下页默认完整样式。
 .offline-room .chapter-entry-tools {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   flex: 0 0 auto;
 }
 
-.offline-room .chapter-entry p {
-  margin: 0;
-  color: #282328;
-  font-size: 14px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.offline-room .chapter-entry-tools time {
+  color: #aaaaa8;
+  font-family: Georgia, 'Times New Roman', serif;
 }
 
+.offline-room .chapter-entry-tools button {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #777775;
+}
+
+.offline-room .chapter-entry p,
 .offline-room .chapter-entry-body {
   margin: 0;
-  color: #282328;
+  color: #3d3d3b;
   font-size: 14px;
-  line-height: 1.8;
+  font-weight: 400;
+  letter-spacing: 0.045em;
+  line-height: 2;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1917,82 +1942,85 @@ export const defaultOfflineThemeCss = `/* LINK 线下页默认完整样式。
   text-underline-offset: 2px;
 }
 
-.offline-room .chapter-entry--user p {
-  font-weight: 800;
-}
-
+.offline-room .chapter-entry--user p,
 .offline-room .chapter-entry--user .chapter-entry-body {
-  font-weight: 800;
+  color: #666664;
+  font-weight: 400;
 }
 
 .offline-room .inner-voice-segment {
-  padding: 0 0.28em;
-  border-radius: 6px;
-  background: linear-gradient(180deg, rgba(255, 236, 244, 0.12) 18%, rgba(214, 155, 178, 0.28) 100%);
-  color: #7e4d5f;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #8a8a88;
   font-style: italic;
-  font-weight: 800;
-  box-decoration-break: clone;
+  font-weight: 400;
+  text-decoration: underline;
+  text-decoration-color: #dadad8;
+  text-underline-offset: 0.22em;
 }
 
 .offline-room .dialogue-segment {
-  padding: 0.02em 0.38em 0.08em;
-  border-radius: 5px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 15%, rgba(171, 143, 158, 0.2) 100%);
-  color: #241f24;
-  font-weight: 850;
-  box-shadow: inset 0 -1px 0 rgba(38, 33, 38, 0.12);
-  box-decoration-break: clone;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #262626;
+  font-weight: 600;
+  box-shadow: inset 0 -0.42em 0 #efefed;
 }
 
 .offline-room .plot-choice-panel,
 .offline-room .floor-edit-panel,
 .offline-room .typing-card {
-  border: 1px solid rgba(182, 154, 166, 0.16);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid #d8d8d6;
+  border-radius: 0;
+  background: transparent;
 }
 
 .offline-room .plot-choice-panel,
 .offline-room .floor-edit-panel {
   display: grid;
-  gap: 7px;
-  padding: 6px;
+  gap: 0;
+  padding: 0;
 }
 
 .offline-room .plot-choice-toggle,
 .offline-room .plot-choice-list button,
 .offline-room .floor-edit-actions button {
-  min-height: 28px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.64);
-  color: #4d454c;
+  min-height: 40px;
+  border-radius: 0;
+  background: transparent;
+  color: #6f6f6d;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 400;
 }
 
 .offline-room .floor-edit-panel textarea,
 .offline-room .regenerate-prompt-sheet textarea,
 .offline-room .floor-jump-sheet input {
-  border: 1px solid rgba(182, 154, 166, 0.22);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #262126;
+  border: 0;
+  border-top: 1px solid #d5d5d3;
+  border-bottom: 1px solid #d5d5d3;
+  border-radius: 0;
+  background: transparent;
+  color: #333331;
 }
 
 .offline-room .offline-empty {
   display: grid;
   place-items: center;
-  gap: 8px;
-  min-height: 38vh;
-  padding: 28px 18px;
-  color: #a09299;
+  gap: 13px;
+  min-height: 46vh;
+  padding: 60px 20px;
+  border-bottom: 1px solid #dededc;
+  color: #999997;
   text-align: center;
 }
 
 .offline-room .offline-empty strong {
-  color: #383139;
+  color: #3d3d3b;
   font-size: 16px;
+  font-weight: 500;
 }
 
 .offline-room .offline-empty span {
@@ -2003,27 +2031,46 @@ export const defaultOfflineThemeCss = `/* LINK 线下页默认完整样式。
 .offline-room .typing-card {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
-  min-height: 54px;
-  padding: 13px 15px;
-  color: #695d65;
-  box-shadow: 0 14px 34px rgba(96, 74, 88, 0.08);
+  min-height: 76px;
+  padding: 16px;
+  border-right: 0;
+  border-left: 0;
+  color: #797977;
+  box-shadow: none;
 }
 
 .offline-room .offline-dock {
   display: grid;
-  gap: 8px;
-  padding: 10px calc(12px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(12px + var(--safe-left));
-  border-top: 1px solid rgba(255, 255, 255, 0.62);
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(22px);
+  gap: 7px;
+  padding: 8px calc(12px + var(--safe-right)) calc(9px + var(--safe-bottom)) calc(12px + var(--safe-left));
+  border-top: 0;
+  background: rgba(251, 251, 250, 0.96);
+  backdrop-filter: blur(14px);
   transform: translate3d(0, calc(0px - var(--keyboard-inset)), 0);
 }
 
 .offline-room .offline-toolbar {
   display: grid;
-  grid-template-columns: repeat(3, minmax(40px, 1.15fr)) repeat(5, minmax(29px, 0.85fr));
-  gap: 4px;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.offline-room .offline-primary-tools,
+.offline-room .offline-floor-tools {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  border: 1px solid #d9d9d7;
+}
+
+.offline-room .offline-primary-tools {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.offline-room .offline-floor-tools {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .offline-room .tool-button,
@@ -2032,56 +2079,79 @@ export const defaultOfflineThemeCss = `/* LINK 线下页默认完整样式。
   align-items: center;
   justify-content: center;
   min-width: 0;
-  min-height: 32px;
-  padding: 0 4px;
-  border: 1px solid rgba(182, 154, 166, 0.26);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #685b63;
-  font-size: 10px;
-  font-weight: 900;
+  min-height: 36px;
+  padding: 0 3px;
+  border: 0;
+  border-right: 1px solid #dfdfdd;
+  border-radius: 0;
+  background: transparent;
+  color: #686866;
+  font-size: 9px;
+  font-weight: 400;
   white-space: nowrap;
 }
 
 .offline-room .tool-button.active,
 .offline-room .icon-tool-button.active {
-  border-color: #262126;
-  background: #262126;
+  border-color: #292929;
+  background: #292929;
   color: #ffffff;
 }
 
 .offline-room .tool-button--danger.active {
-  border-color: #a64d5b;
-  background: #a64d5b;
+  border-color: #292929;
+  background: #292929;
 }
 
 .offline-room .tool-button:disabled,
 .offline-room .icon-tool-button:disabled {
-  opacity: 0.42;
+  opacity: 0.28;
 }
 
 .offline-room .offline-composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
+  grid-template-columns: 32px minmax(0, 1fr) 42px;
   align-items: end;
-  gap: 8px;
+  gap: 0;
+  padding: 0;
+  border: 1px solid #d8d8d6;
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.offline-room .offline-composer-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid #e1e1df;
+  border-radius: 0;
+  background: transparent;
+  color: #b1b1af;
+}
+
+.offline-room .offline-composer-mark.active {
+  background: #292929;
+  color: #ffffff;
 }
 
 .offline-room .offline-composer textarea {
   min-height: 42px;
-  max-height: 118px;
+  max-height: 120px;
   resize: none;
-  padding: 11px 12px;
-  border: 1px solid rgba(182, 154, 166, 0.22);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.78);
-  color: #262126;
+  padding: 11px 12px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #383836;
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .offline-room .offline-composer textarea::placeholder {
-  color: #aaa0a7;
+  color: #aaa9a7;
 }
 
 .offline-room .send-button {
@@ -2089,26 +2159,41 @@ export const defaultOfflineThemeCss = `/* LINK 线下页默认完整样式。
   place-items: center;
   width: 42px;
   height: 42px;
-  border-radius: 8px;
-  background: #222026;
+  border: 0;
+  border-radius: 0;
+  background: #292929;
   color: #ffffff;
-  box-shadow: 0 14px 28px rgba(34, 32, 38, 0.18);
+  box-shadow: none;
 }
 
 .offline-room .send-button:disabled {
-  background: rgba(34, 32, 38, 0.24);
+  background: #f0f0ee;
   box-shadow: none;
 }
 
 .offline-room .floor-jump-sheet,
 .offline-room .regenerate-prompt-sheet,
 .offline-room .delete-confirm-sheet {
-  width: min(100%, 360px);
-  padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 22px 52px rgba(79, 58, 72, 0.2);
+  width: min(100%, 520px);
+  padding: 30px calc(22px + var(--safe-right)) calc(22px + var(--safe-bottom)) calc(22px + var(--safe-left));
+  border: 0;
+  border-top: 1px solid #cfcfcd;
+  border-radius: 0;
+  background: #fbfbfa;
+  box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 520px) {
+  .offline-room .offline-toolbar {
+    grid-template-columns: repeat(3, minmax(50px, 1.35fr)) repeat(5, minmax(26px, 1fr));
+    gap: 0;
+    border: 1px solid #d9d9d7;
+  }
+
+  .offline-room .offline-primary-tools,
+  .offline-room .offline-floor-tools {
+    display: contents;
+  }
 }
 `;
 
@@ -2230,9 +2315,9 @@ function drawPosterBackground(
 
   const background = context.createLinearGradient(0, 0, width, height);
   if (scope === 'offline') {
-    background.addColorStop(0, '#f7f0f6');
-    background.addColorStop(0.45, '#edf5ff');
-    background.addColorStop(1, '#f6fbf9');
+    background.addColorStop(0, '#fbfbfa');
+    background.addColorStop(0.45, '#eeeeec');
+    background.addColorStop(1, '#d7d7d4');
   } else if (scope === 'global') {
     background.addColorStop(0, '#f8eff2');
     background.addColorStop(0.45, '#eff8f3');
@@ -2245,12 +2330,12 @@ function drawPosterBackground(
   context.fillStyle = background;
   context.fillRect(0, 0, width, height);
 
-  context.fillStyle = scope === 'offline' ? 'rgba(215, 161, 186, 0.18)' : scope === 'global' ? 'rgba(221, 168, 190, 0.17)' : 'rgba(108, 219, 146, 0.2)';
+  context.fillStyle = scope === 'offline' ? 'rgba(32, 32, 32, 0.12)' : scope === 'global' ? 'rgba(221, 168, 190, 0.17)' : 'rgba(108, 219, 146, 0.2)';
   context.beginPath();
   context.arc(width * 0.18, height * 0.14, width * 0.22, 0, Math.PI * 2);
   context.fill();
 
-  context.fillStyle = scope === 'offline' ? 'rgba(178, 208, 255, 0.16)' : scope === 'global' ? 'rgba(164, 222, 195, 0.2)' : 'rgba(191, 242, 214, 0.22)';
+  context.fillStyle = scope === 'offline' ? 'rgba(255, 255, 255, 0.3)' : scope === 'global' ? 'rgba(164, 222, 195, 0.2)' : 'rgba(191, 242, 214, 0.22)';
   context.beginPath();
   context.arc(width * 0.84, height * 0.1, width * 0.18, 0, Math.PI * 2);
   context.fill();
@@ -2276,7 +2361,7 @@ function drawPosterText(
   context.lineWidth = 2;
   context.stroke();
 
-  const accent = scope === 'offline' ? '#9b5d78' : scope === 'global' ? '#7c5b75' : '#0a8a44';
+  const accent = scope === 'offline' ? '#292929' : scope === 'global' ? '#7c5b75' : '#0a8a44';
   const secondary = hasCoverImage ? 'rgba(255, 255, 255, 0.82)' : '#5f6771';
   const primary = hasCoverImage ? '#ffffff' : '#111111';
   const body = hasCoverImage ? 'rgba(255, 255, 255, 0.92)' : '#2a3139';

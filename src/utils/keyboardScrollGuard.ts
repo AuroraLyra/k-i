@@ -9,18 +9,25 @@ type ScrollSnapshot = {
 
 const NEAR_BOTTOM_OFFSET = 36;
 const KEYBOARD_TRANSITION_MS = 900;
-const VIEWPORT_RESTORE_MS = 320;
-const RESTORE_DELAYS = [40, 120, 260, 520, 820];
+const VIEWPORT_SETTLE_MS = 240;
 
 export function useKeyboardScrollGuard(scrollTarget: Ref<HTMLElement | null>) {
   let frameId = 0;
   let focused = false;
+  let releaseTimerId = 0;
+  let settleTimerId = 0;
   let snapshot: ScrollSnapshot | null = null;
-  const timerIds = new Set<number>();
 
-  function clearRestoreTimeouts() {
-    for (const timerId of timerIds) window.clearTimeout(timerId);
-    timerIds.clear();
+  function clearRestoreTimeout() {
+    if (!settleTimerId) return;
+    window.clearTimeout(settleTimerId);
+    settleTimerId = 0;
+  }
+
+  function clearReleaseTimer() {
+    if (!releaseTimerId) return;
+    window.clearTimeout(releaseTimerId);
+    releaseTimerId = 0;
   }
 
   function clearRestoreTimers() {
@@ -28,7 +35,8 @@ export function useKeyboardScrollGuard(scrollTarget: Ref<HTMLElement | null>) {
       window.cancelAnimationFrame(frameId);
       frameId = 0;
     }
-    clearRestoreTimeouts();
+    clearRestoreTimeout();
+    clearReleaseTimer();
   }
 
   function captureKeyboardScrollAnchor() {
@@ -55,8 +63,8 @@ export function useKeyboardScrollGuard(scrollTarget: Ref<HTMLElement | null>) {
     if (Math.abs(element.scrollTop - nextScrollTop) > 1) element.scrollTop = nextScrollTop;
   }
 
-  function queueKeyboardScrollRestore(duration = KEYBOARD_TRANSITION_MS) {
-    clearRestoreTimeouts();
+  function queueKeyboardScrollRestore() {
+    clearRestoreTimeout();
 
     const restoreAfterRender = () => {
       frameId = 0;
@@ -66,18 +74,14 @@ export function useKeyboardScrollGuard(scrollTarget: Ref<HTMLElement | null>) {
     };
 
     if (frameId === 0) frameId = window.requestAnimationFrame(restoreAfterRender);
-
-    for (const delay of RESTORE_DELAYS) {
-      if (delay > duration) continue;
-      const timerId = window.setTimeout(() => {
-        timerIds.delete(timerId);
-        restoreKeyboardScrollAnchor();
-      }, delay);
-      timerIds.add(timerId);
-    }
+    settleTimerId = window.setTimeout(() => {
+      settleTimerId = 0;
+      restoreKeyboardScrollAnchor();
+    }, VIEWPORT_SETTLE_MS);
   }
 
   function startKeyboardScrollGuard() {
+    clearReleaseTimer();
     focused = true;
     if (!snapshot) captureKeyboardScrollAnchor();
     queueKeyboardScrollRestore();
@@ -85,11 +89,11 @@ export function useKeyboardScrollGuard(scrollTarget: Ref<HTMLElement | null>) {
 
   function stopKeyboardScrollGuard() {
     focused = false;
-    const timerId = window.setTimeout(() => {
-      timerIds.delete(timerId);
+    clearReleaseTimer();
+    releaseTimerId = window.setTimeout(() => {
+      releaseTimerId = 0;
       if (!focused) snapshot = null;
-    }, VIEWPORT_RESTORE_MS);
-    timerIds.add(timerId);
+    }, KEYBOARD_TRANSITION_MS);
   }
 
   function releaseKeyboardScrollGuard() {
@@ -103,7 +107,7 @@ export function useKeyboardScrollGuard(scrollTarget: Ref<HTMLElement | null>) {
 
     if (focused && detail.keyboardOpen) {
       if (!snapshot) captureKeyboardScrollAnchor();
-      queueKeyboardScrollRestore(VIEWPORT_RESTORE_MS);
+      queueKeyboardScrollRestore();
       return;
     }
 

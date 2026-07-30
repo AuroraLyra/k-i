@@ -1193,7 +1193,8 @@ export const useAppStore = defineStore('app', () => {
         })),
         userMessage: userMessageText,
         settings: settings.value ?? undefined,
-        modelOverride
+        modelOverride,
+        persistSettings: saveSettings
       }
     };
   }

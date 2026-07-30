@@ -331,6 +331,11 @@ export interface FriendRelationship {
   requestedAt?: number;
 }
 
+export interface CharacterMcpBinding {
+  overrideGlobal: boolean;
+  serverIds: string[];
+}
+
 export interface CharacterProfile {
   id: string;
   nickname: string;
@@ -352,6 +357,7 @@ export interface CharacterProfile {
   modelOverrides?: ChatModelOverrides;
   minimaxVoiceId?: string;
   themeStyleBindings?: CharacterThemeStyleBindings;
+  mcpBinding?: CharacterMcpBinding;
   imageProfile?: CharacterImageProfile;
   coupleSpace?: CoupleSpaceState;
   relationship?: FriendRelationship;
@@ -1527,6 +1533,74 @@ export interface AppThemeSettings {
   offline: ThemeStyleScopeSettings;
 }
 
+export type McpServerKind = 'custom' | 'xiaohongshu' | 'qq' | 'reality';
+
+export type McpToolPolicy = 'disabled' | 'read-only' | 'all';
+
+export type McpServerStatus = 'idle' | 'connected' | 'error';
+
+export interface McpToolDefinition {
+  name: string;
+  title: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  enabled: boolean;
+  write: boolean;
+}
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  kind: McpServerKind;
+  description: string;
+  url: string;
+  headers: Record<string, string>;
+  apiKey: string;
+  apiKeyHeader: string;
+  apiKeyPrefix: string;
+  enabled: boolean;
+  globalEnabled: boolean;
+  toolPolicy: McpToolPolicy;
+  timeoutMs: number;
+  tools: McpToolDefinition[];
+  protocolVersion: string;
+  serverName: string;
+  serverVersion: string;
+  lastStatus: McpServerStatus;
+  lastCheckedAt: number;
+  lastError: string;
+}
+
+export interface McpSettings {
+  enabled: boolean;
+  maxToolCallsPerReply: number;
+  servers: McpServerConfig[];
+}
+
+export interface RealityReminder {
+  id: string;
+  title: string;
+  body: string;
+  at: number;
+  createdAt: number;
+  completed: boolean;
+}
+
+export interface RealityCalendarEvent {
+  id: string;
+  title: string;
+  startAt: number;
+  endAt: number;
+  location: string;
+  notes: string;
+  createdAt: number;
+}
+
+export interface RealityMcpSettings {
+  reminders: RealityReminder[];
+  calendarEvents: RealityCalendarEvent[];
+}
+
 export type FriendsDisplayScope = 'active-user' | 'all-users';
 
 export interface AppSettings {
@@ -1566,6 +1640,8 @@ export interface AppSettings {
   keepAlive: AppKeepAliveSettings;
   ringtoneSettings: AppRingtoneSettings;
   themeSettings: AppThemeSettings;
+  mcpSettings: McpSettings;
+  realityMcpSettings: RealityMcpSettings;
   imagePrivateOnly: boolean;
   imageGenerationEnabled: boolean;
   githubBackup: GitHubBackupSettings;
@@ -1643,4 +1719,5 @@ export interface GenerateReplyInput extends PromptContext {
   userMessage: string;
   settings?: AppSettings;
   modelOverride?: string;
+  persistSettings?: (settings: AppSettings) => Promise<void>;
 }

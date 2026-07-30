@@ -1,4 +1,4 @@
-import type { CharacterImageProfile, CharacterInitialProfile, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, CharacterThemeStyleBindings, FriendRelationship, FriendRelationshipStatus, VisualProfile } from '@/types/domain';
+import type { CharacterImageProfile, CharacterInitialProfile, CharacterMcpBinding, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, CharacterThemeStyleBindings, FriendRelationship, FriendRelationshipStatus, VisualProfile } from '@/types/domain';
 import { normalizeCharacterPhotoRecords, normalizeHiddenSourcePhotoKeys } from '@/utils/characterPhotos';
 import { normalizeVisualProfile, removeVisualProfileAvatar, toCharacterVisualProfile } from '@/utils/profile';
 import { normalizeChatModelOverrides } from '@/utils/settings';
@@ -107,6 +107,15 @@ function normalizeCharacterThemeStyleBindings(bindings: Partial<CharacterThemeSt
   };
 }
 
+function normalizeCharacterMcpBinding(binding: Partial<CharacterMcpBinding> | null | undefined): CharacterMcpBinding {
+  return {
+    overrideGlobal: Boolean(binding?.overrideGlobal),
+    serverIds: Array.isArray(binding?.serverIds)
+      ? [...new Set(binding.serverIds.map((id) => String(id).trim()).filter(Boolean))]
+      : []
+  };
+}
+
 function normalizeCharacterImageProfile(profile: Partial<CharacterImageProfile> | null | undefined): CharacterImageProfile | undefined {
   const photos = normalizeCharacterPhotoRecords(profile?.photos);
   const hiddenSourcePhotoKeys = normalizeHiddenSourcePhotoKeys(profile?.hiddenSourcePhotoKeys);
@@ -175,6 +184,7 @@ export function normalizeCharacterProfile(character: CharacterProfile, fallbackU
     modelOverrides: normalizeChatModelOverrides(character.modelOverrides),
     minimaxVoiceId: String(character.minimaxVoiceId ?? '').trim() || undefined,
     themeStyleBindings: normalizeCharacterThemeStyleBindings(character.themeStyleBindings),
+    mcpBinding: normalizeCharacterMcpBinding(character.mcpBinding),
     imageProfile: normalizeCharacterImageProfile(character.imageProfile),
     profile,
     ...(boundUserProfile ? { boundUserProfile } : {}),

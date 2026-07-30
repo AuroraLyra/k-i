@@ -65,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Camera, Image as ImageIcon, Mic, Plus, Smile, X } from 'lucide-vue-next';
 import type { ChatMessageQuote, Sticker } from '@/types/domain';
 import { getStickerDisplayImageUrl } from '@/utils/stickers';
@@ -103,6 +103,10 @@ const inputFocused = ref(false);
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const cameraInputRef = ref<HTMLInputElement | null>(null);
 let blurTimer: number | undefined;
+let draftTimer: number | undefined;
+let resizeFrameId = 0;
+let pendingDraftText: string | undefined;
+const draftDebounceMs = 220;
 const effectiveInputDisabled = computed(() => props.inputDisabled ?? props.disabled ?? false);
 const textMode = computed(() => Boolean(props.online && inputFocused.value));
 const visibleStickerSuggestions = computed(() => text.value.trim() ? props.stickerSuggestions?.slice(0, 6) ?? [] : []);
@@ -120,6 +124,26 @@ function clearBlurTimer() {
   if (blurTimer === undefined) return;
   window.clearTimeout(blurTimer);
   blurTimer = undefined;
+}
+
+function clearDraftTimer() {
+  if (draftTimer === undefined) return;
+  window.clearTimeout(draftTimer);
+  draftTimer = undefined;
+}
+
+function flushDraftText() {
+  if (pendingDraftText === undefined) return;
+  clearDraftTimer();
+  const value = pendingDraftText;
+  pendingDraftText = undefined;
+  emit('draft-text', value);
+}
+
+function queueDraftText(value: string) {
+  pendingDraftText = value;
+  clearDraftTimer();
+  draftTimer = window.setTimeout(flushDraftText, draftDebounceMs);
 }
 
 function keepTextMode() {
@@ -141,7 +165,7 @@ function focusInput() {
   try {
     input.setSelectionRange(cursorPosition, cursorPosition);
   } catch {}
-  resizeInput();
+  queueInputResize();
 }
 
 function resizeInput() {
@@ -150,6 +174,14 @@ function resizeInput() {
   input.style.height = '0px';
   input.style.height = `${Math.min(input.scrollHeight, 92)}px`;
   input.scrollTop = input.scrollHeight;
+}
+
+function queueInputResize() {
+  if (resizeFrameId) return;
+  resizeFrameId = window.requestAnimationFrame(() => {
+    resizeFrameId = 0;
+    resizeInput();
+  });
 }
 
 function shouldPreventNativeInputFocusScroll() {
@@ -170,6 +202,7 @@ function handleFocus() {
 }
 
 function handleBlur() {
+  flushDraftText();
   emit('blur');
   clearBlurTimer();
   blurTimer = window.setTimeout(() => {
@@ -184,6 +217,8 @@ function submit() {
   if (!content) return;
   emit('send', content);
   text.value = '';
+  queueDraftText('');
+  flushDraftText();
 }
 
 function handleEnterKey(event: KeyboardEvent) {
@@ -195,7 +230,11 @@ function handleEnterKey(event: KeyboardEvent) {
 function submitAndReply() {
   if (props.disabled) return;
   const content = text.value.trim();
-  if (content) text.value = '';
+  if (content) {
+    text.value = '';
+    queueDraftText('');
+  }
+  flushDraftText();
   emit('reply', content);
 }
 
@@ -240,11 +279,15 @@ watch(
 
 watch(text, (value) => {
   emit('update:modelValue', value);
-  emit('draft-text', value);
-  void nextTick(resizeInput);
+  queueDraftText(value);
+  queueInputResize();
 }, { immediate: true });
 
-onBeforeUnmount(clearBlurTimer);
+onBeforeUnmount(() => {
+  flushDraftText();
+  clearBlurTimer();
+  if (resizeFrameId) window.cancelAnimationFrame(resizeFrameId);
+});
 
 defineExpose({ focusInput });
 </script>

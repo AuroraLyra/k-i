@@ -20,46 +20,56 @@
       </button>
     </section>
 
-    <main ref="messageListRef" class="message-list" :style="messageListStyle" @scroll="handleMessageListScroll">
-      <div v-if="hasEarlierMessages" class="history-loader">上滑加载更早消息</div>
-      <template v-for="entry in onlineMessageEntries" :key="entry.message.id">
-        <div v-if="entry.timeLabel" class="message-time-divider">
-          <time>{{ entry.timeLabel }}</time>
+    <main ref="messageListRef" class="message-list" :style="messageListStyle" @scroll.passive="handleMessageListScroll">
+      <div class="message-virtualizer" :style="{ height: `${virtualMessageTotalSize}px` }">
+        <div
+          v-for="virtualRow in virtualMessageRows"
+          :key="String(virtualRow.key)"
+          :ref="measureVirtualMessageElement"
+          class="message-virtual-item"
+          :data-index="virtualRow.index"
+          :style="{ transform: `translateY(${virtualRow.start}px)` }"
+        >
+          <template v-if="onlineMessageEntries[virtualRow.index]">
+            <div v-if="onlineMessageEntries[virtualRow.index].timeLabel" class="message-time-divider">
+              <time>{{ onlineMessageEntries[virtualRow.index].timeLabel }}</time>
+            </div>
+            <MessageBubble
+              :message="onlineMessageEntries[virtualRow.index].message"
+              :character="character"
+              :user="conversationUser ?? undefined"
+              :appearance="chatSettings.appearance"
+              :hide-avatar="onlineMessageEntries[virtualRow.index].hideAvatar && onlineMessageEntries[virtualRow.index].message.id !== unreadMindStateMessageId"
+              :profile-alert="onlineMessageEntries[virtualRow.index].message.id === unreadMindStateMessageId"
+              :can-regenerate-image="canRegenerateChatImage"
+              :regenerating-image="regeneratingChatImageMessageIds.includes(onlineMessageEntries[virtualRow.index].message.id)"
+              :selection-mode="selectionMode"
+              :selected="isMessageSelected(onlineMessageEntries[virtualRow.index].message)"
+              :can-quote="canQuoteMessage(onlineMessageEntries[virtualRow.index].message)"
+              @apply-image="applyChatImageCandidate"
+              @accept-music-listen-invite="acceptMusicListenInvite(onlineMessageEntries[virtualRow.index].message)"
+              @accept-call="acceptCallMessage(onlineMessageEntries[virtualRow.index].message)"
+              @accept-gobang="acceptGobangInvitation(onlineMessageEntries[virtualRow.index].message)"
+              @accept-offline-invitation="acceptOfflineInvitation(onlineMessageEntries[virtualRow.index].message)"
+              @accept-transfer="respondToTransfer(onlineMessageEntries[virtualRow.index].message.id, 'accepted')"
+              @busy-action="store.showConfigAlert"
+              @long-press="openMessageActions"
+              @open-card-detail="openCardDetail"
+              @open-gobang="openGobangMessage"
+              @open-profile="openCharacterProfile"
+              @open-user-profile="openUserProfile"
+              @quote-message="quoteMessage"
+              @regenerate-image="regenerateChatImage"
+              @reject-music-listen-invite="rejectMusicListenInvite(onlineMessageEntries[virtualRow.index].message)"
+              @reject-call="rejectCallMessage(onlineMessageEntries[virtualRow.index].message)"
+              @reject-gobang="rejectGobangInvitation(onlineMessageEntries[virtualRow.index].message)"
+              @reject-offline-invitation="rejectOfflineInvitation(onlineMessageEntries[virtualRow.index].message)"
+              @reject-transfer="respondToTransfer(onlineMessageEntries[virtualRow.index].message.id, 'rejected')"
+              @toggle-select="toggleMessageSelection(onlineMessageEntries[virtualRow.index].message)"
+            />
+          </template>
         </div>
-        <MessageBubble
-          :message="entry.message"
-          :character="character"
-          :user="conversationUser ?? undefined"
-          :appearance="chatSettings.appearance"
-          :hide-avatar="entry.hideAvatar && entry.message.id !== unreadMindStateMessageId"
-          :profile-alert="entry.message.id === unreadMindStateMessageId"
-          :can-regenerate-image="canRegenerateChatImage"
-          :regenerating-image="regeneratingChatImageMessageIds.includes(entry.message.id)"
-          :selection-mode="selectionMode"
-          :selected="isMessageSelected(entry.message)"
-          :can-quote="entry.canQuote"
-          @apply-image="applyChatImageCandidate"
-          @accept-music-listen-invite="acceptMusicListenInvite(entry.message)"
-          @accept-call="acceptCallMessage(entry.message)"
-          @accept-gobang="acceptGobangInvitation(entry.message)"
-          @accept-offline-invitation="acceptOfflineInvitation(entry.message)"
-          @accept-transfer="respondToTransfer(entry.message.id, 'accepted')"
-          @busy-action="store.showConfigAlert"
-          @long-press="openMessageActions"
-          @open-card-detail="openCardDetail"
-          @open-gobang="openGobangMessage"
-          @open-profile="openCharacterProfile"
-          @open-user-profile="openUserProfile"
-          @quote-message="quoteMessage"
-          @regenerate-image="regenerateChatImage"
-          @reject-music-listen-invite="rejectMusicListenInvite(entry.message)"
-          @reject-call="rejectCallMessage(entry.message)"
-          @reject-gobang="rejectGobangInvitation(entry.message)"
-          @reject-offline-invitation="rejectOfflineInvitation(entry.message)"
-          @reject-transfer="respondToTransfer(entry.message.id, 'rejected')"
-          @toggle-select="toggleMessageSelection(entry.message)"
-        />
-      </template>
+      </div>
       <div v-if="currentConversationReplying" class="typing-indicator">
         <span></span><span></span><span></span>
       </div>
@@ -781,6 +791,7 @@
 
 <script setup lang="ts">
 import { Capacitor } from '@capacitor/core';
+import { useVirtualizer } from '@tanstack/vue-virtual';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { Mic, MicOff, Minimize, Phone, PhoneOff, RefreshCw, Video, VideoOff, Volume2, VolumeX, X } from 'lucide-vue-next';
@@ -868,7 +879,6 @@ type OnlineMessageEntry = {
   message: ChatMessage;
   messageIndex: number;
   timeLabel: string;
-  canQuote: boolean;
   hideAvatar: boolean;
 };
 
@@ -989,8 +999,7 @@ const editTransferNoteDraft = ref('');
 const editTransferStatusDraft = ref<ChatTransferStatus>('pending');
 const pendingDeleteIds = ref<string[]>([]);
 const pendingDeleteFromSelection = ref(false);
-const visibleMessageLimit = ref(60);
-const loadingEarlierMessages = ref(false);
+const shouldStickToBottom = ref(true);
 const imageSendTab = ref<'local' | 'description'>('local');
 const localImageHintDraft = ref('');
 const imageDescriptionDraft = ref('');
@@ -1105,7 +1114,8 @@ let callSpeechFlushTimer: number | undefined;
 const callReplyQueue = ref<QueuedCallReply[]>([]);
 let conversationReadTimer: number | undefined;
 let bottomRestoreQueued = false;
-let bottomRestoreTimeouts: number[] = [];
+let bottomRestoreFrameId = 0;
+let bottomRestoreTimerId = 0;
 let discardRecording = false;
 let voiceRecognitionStartText = '';
 let voiceRecognitionFinalText = '';
@@ -1122,11 +1132,8 @@ let callVadRunId = 0;
 let callVadLastVoiceAt = 0;
 let callLipSyncFrame: number | undefined;
 
-const initialMessageLimit = 60;
-const messageLoadStep = 30;
-const topLoadThreshold = 48;
 const bottomStickThreshold = 72;
-const bottomRestoreDelays = [40, 120, 260, 520];
+const bottomRestoreSettleMs = 220;
 
 const conversation = computed(() => store.conversationById(props.id));
 const character = computed(() => (conversation.value ? store.characterById(conversation.value.charId) : undefined));
@@ -1200,11 +1207,8 @@ const allOnlineMessages = computed(() => {
   const displayMessages = messages.filter((message) => !message.contextOnly && !message.gobangId && !isVoomNarrationMessage(message) && !isCallSubtitleMessage(message));
   return mergeVoomLikeMessages(displayMessages);
 });
-const visibleOnlineStartIndex = computed(() => Math.max(0, allOnlineMessages.value.length - visibleMessageLimit.value));
-const onlineMessages = computed(() => allOnlineMessages.value.slice(visibleOnlineStartIndex.value));
-const hasEarlierMessages = computed(() => visibleMessageLimit.value < allOnlineMessages.value.length);
-const onlineMessageEntries = computed<OnlineMessageEntry[]>(() => onlineMessages.value.map((message, messageIndex) => {
-  const previousMessage = allOnlineMessages.value[visibleOnlineStartIndex.value + messageIndex - 1];
+const onlineMessageEntries = computed<OnlineMessageEntry[]>(() => allOnlineMessages.value.map((message, messageIndex) => {
+  const previousMessage = allOnlineMessages.value[messageIndex - 1];
   const timeLabel = shouldShowChatTimeDivider(message.createdAt, previousMessage?.createdAt)
     ? formatChatTimeDivider(message.createdAt)
     : '';
@@ -1212,15 +1216,30 @@ const onlineMessageEntries = computed<OnlineMessageEntry[]>(() => onlineMessages
     message,
     messageIndex,
     timeLabel,
-    canQuote: canQuoteMessage(message),
     hideAvatar: shouldHideAvatar(messageIndex)
   };
 }));
+const messageVirtualizer = useVirtualizer(computed(() => ({
+  count: onlineMessageEntries.value.length,
+  getScrollElement: () => messageListRef.value,
+  estimateSize: () => 84,
+  getItemKey: (index: number) => onlineMessageEntries.value[index]?.message.id ?? index,
+  overscan: 8,
+  anchorTo: 'end' as const,
+  followOnAppend: 'auto' as const,
+  scrollEndThreshold: bottomStickThreshold,
+  useAnimationFrameWithResizeObserver: true
+})));
+const virtualMessageRows = computed(() => messageVirtualizer.value.getVirtualItems());
+const virtualMessageTotalSize = computed(() => messageVirtualizer.value.getTotalSize());
+function measureVirtualMessageElement(element: unknown) {
+  if (element instanceof Element) messageVirtualizer.value.measureElement(element);
+}
 const selectedMessageIdSet = computed(() => new Set(selectedMessageIds.value));
 function shouldHideAvatar(index: number) {
   if (!chatSettings.value.appearance.showOnlyFirstAvatarInReply) return false;
-  const message = onlineMessages.value[index];
-  const previousMessage = onlineMessages.value[index - 1];
+  const message = allOnlineMessages.value[index];
+  const previousMessage = allOnlineMessages.value[index - 1];
   const sender = message ? getMessageVisualSender(message) : 'system';
   const previousSender = previousMessage ? getMessageVisualSender(previousMessage) : 'system';
   return Boolean(message && previousMessage && sender !== 'system' && sender === previousSender);
@@ -1676,19 +1695,32 @@ function isMessageListNearBottom() {
 function scrollMessagesToBottomNow() {
   const messageList = messageListRef.value;
   if (!messageList) return;
+  messageVirtualizer.value.scrollToEnd({ behavior: 'auto' });
   messageList.scrollTop = messageList.scrollHeight;
+  shouldStickToBottom.value = true;
 }
 
 function clearQueuedBottomRestores() {
-  bottomRestoreTimeouts.forEach((timerId) => window.clearTimeout(timerId));
-  bottomRestoreTimeouts = [];
+  if (bottomRestoreFrameId) {
+    window.cancelAnimationFrame(bottomRestoreFrameId);
+    bottomRestoreFrameId = 0;
+  }
+  if (bottomRestoreTimerId) {
+    window.clearTimeout(bottomRestoreTimerId);
+    bottomRestoreTimerId = 0;
+  }
 }
 
 function restoreMessagesToBottomAfterLayout() {
   clearQueuedBottomRestores();
-  scrollMessagesToBottomNow();
-  window.requestAnimationFrame(scrollMessagesToBottomNow);
-  bottomRestoreTimeouts = bottomRestoreDelays.map((delay) => window.setTimeout(scrollMessagesToBottomNow, delay));
+  bottomRestoreFrameId = window.requestAnimationFrame(() => {
+    bottomRestoreFrameId = 0;
+    scrollMessagesToBottomNow();
+  });
+  bottomRestoreTimerId = window.setTimeout(() => {
+    bottomRestoreTimerId = 0;
+    scrollMessagesToBottomNow();
+  }, bottomRestoreSettleMs);
 }
 
 function focusComposerInput() {
@@ -1757,11 +1789,12 @@ function focusedMessageId() {
 async function scrollToOnlineMessage(messageId: string) {
   const targetIndex = allOnlineMessages.value.findIndex((message) => message.id === messageId);
   if (targetIndex < 0) return false;
-  visibleMessageLimit.value = Math.max(visibleMessageLimit.value, allOnlineMessages.value.length - targetIndex);
+  shouldStickToBottom.value = false;
+  messageVirtualizer.value.scrollToIndex(targetIndex, { align: 'center', behavior: 'auto' });
   await nextTick();
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
   const target = messageListRef.value?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
   if (!target) return false;
-  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
   target.classList.add('message-focus-pulse');
   window.setTimeout(() => target.classList.remove('message-focus-pulse'), 1400);
   return true;
@@ -1780,10 +1813,8 @@ function handleComposerBlur() {
 }
 
 function handleComposerDraftText(content: string) {
-  const shouldStickToBottom = composerFocused || isMessageListNearBottom();
   composerText.value = content;
   writeComposerDraft(props.id, content);
-  if (shouldStickToBottom) queueMessagesToBottomAfterLayout();
 }
 
 function blurActiveKeyboardInput() {
@@ -1808,25 +1839,8 @@ function handleStickerPanelHeightChange(height: number) {
   if (shouldStickToBottom) queueMessagesToBottomAfterLayout();
 }
 
-function resetMessageWindow() {
-  visibleMessageLimit.value = initialMessageLimit;
-}
-
-async function loadEarlierMessages() {
-  const messageList = messageListRef.value;
-  if (!messageList || !hasEarlierMessages.value || loadingEarlierMessages.value) return;
-  loadingEarlierMessages.value = true;
-  const previousScrollHeight = messageList.scrollHeight;
-  const previousScrollTop = messageList.scrollTop;
-  visibleMessageLimit.value = Math.min(allOnlineMessages.value.length, visibleMessageLimit.value + messageLoadStep);
-  await nextTick();
-  messageList.scrollTop = messageList.scrollHeight - previousScrollHeight + previousScrollTop;
-  loadingEarlierMessages.value = false;
-}
-
 function handleMessageListScroll() {
-  if ((messageListRef.value?.scrollTop ?? 0) > topLoadThreshold) return;
-  void loadEarlierMessages();
+  shouldStickToBottom.value = isMessageListNearBottom();
 }
 
 function resumeActiveCallFromStore() {
@@ -1852,7 +1866,7 @@ onMounted(async () => {
   await syncConversationState(props.id);
   scheduleConversationRead();
   resumeActiveCallFromStore();
-  resetMessageWindow();
+  shouldStickToBottom.value = true;
   const focusId = focusedMessageId();
   if (focusId) {
     await scrollToOnlineMessage(focusId);
@@ -1865,7 +1879,7 @@ watch(() => props.id, (id) => {
   void (async () => {
     store.setActiveConversation(id);
     composerText.value = readComposerDraft(id);
-    resetMessageWindow();
+    shouldStickToBottom.value = true;
     await syncConversationState(id);
     scheduleConversationRead();
     const focusId = focusedMessageId();
@@ -1889,7 +1903,7 @@ watch(() => route.query.focus, (value) => {
 
 watch(() => [allOnlineMessages.value.length, currentConversationReplying.value], () => {
   if (focusedMessageId()) return;
-  void scrollMessagesToBottom();
+  if (shouldStickToBottom.value) void scrollMessagesToBottom();
 }, {
   flush: 'post'
 });
@@ -3502,12 +3516,22 @@ function messageActionText(message: ChatMessage) {
 }
 
 function canQuoteMessage(message: ChatMessage) {
-  return message.sender !== 'system' && !message.id.includes('__') && Boolean(store.createMessageQuoteSnapshot(message));
+  if (message.sender === 'system' || message.id.includes('__')) return false;
+  try {
+    return Boolean(store.createMessageQuoteSnapshot(message));
+  } catch {
+    return false;
+  }
 }
 
 function quoteMessage(message: ChatMessage) {
   if (message.sender === 'system' || message.id.includes('__')) return;
-  const quote = store.createMessageQuoteSnapshot(message);
+  let quote: ChatMessageQuote | null = null;
+  try {
+    quote = store.createMessageQuoteSnapshot(message);
+  } catch {
+    return;
+  }
   if (!quote) return;
   quoteTarget.value = quote;
   focusComposerInput();
@@ -4089,6 +4113,19 @@ onBeforeUnmount(() => {
   -webkit-overflow-scrolling: touch;
   overflow-anchor: none;
   scroll-padding-bottom: calc(8px + var(--keyboard-inset));
+}
+
+.message-virtualizer {
+  position: relative;
+  width: 100%;
+}
+
+.message-virtual-item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flow-root;
+  width: 100%;
 }
 
 .call-screen {
@@ -4758,18 +4795,6 @@ onBeforeUnmount(() => {
   35% {
     box-shadow: 0 0 0 4px rgba(104, 113, 122, 0.18);
   }
-}
-
-.history-loader {
-  margin: 3px auto 9px;
-  width: fit-content;
-  max-width: 100%;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: rgba(245, 246, 248, 0.92);
-  color: #7b828a;
-  font-size: 12px;
-  line-height: 1.2;
 }
 
 .message-time-divider {

@@ -1,6 +1,8 @@
 node_modules/
 dist/
 server-dist/
+bridge-dist/
+local-installers/
 releases/
 *.tsbuildinfo
 .DS_Store
@@ -13,3 +15,4 @@ deploy/private/
 *.key
 *.p12
 *.pfx
+bridge/.babylink-bridge-token

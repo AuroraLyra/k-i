@@ -977,4 +977,4 @@ function goBack() {
 }
 </style>
 
-<style scoped src="@/styles/offlineSettingsKorean.css"></style>
+<style scoped src="@/styles/offlineSettingsEditorial.css"></style>

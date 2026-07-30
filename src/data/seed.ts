@@ -1,6 +1,6 @@
 import type { AppSettings, CharacterProfile, ChatMessage, Conversation, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VoomPost, WorldBookEntry } from '@/types/domain';
 import { createUserVisualProfile, defaultProfileAvatar } from '@/utils/profile';
-import { createDefaultKeepAliveSettings, createDefaultRingtoneSettings, createDefaultThemeSettings } from '@/utils/settings';
+import { createDefaultKeepAliveSettings, createDefaultMcpSettings, createDefaultRealityMcpSettings, createDefaultRingtoneSettings, createDefaultThemeSettings } from '@/utils/settings';
 import { createTabooWorldBook } from '@/utils/worldBook';
 
 export const defaultUsers: UserProfile[] = [
@@ -204,6 +204,8 @@ export const defaultSettings: AppSettings = {
   keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),
   themeSettings: createDefaultThemeSettings(),
+  mcpSettings: createDefaultMcpSettings(),
+  realityMcpSettings: createDefaultRealityMcpSettings(),
   imagePrivateOnly: true,
   imageGenerationEnabled: true,
   githubBackup: {

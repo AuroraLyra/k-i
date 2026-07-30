@@ -15,31 +15,39 @@
       :group-name="conversation.title"
     />
 
-    <main ref="messageList" class="message-list" @scroll="handleMessageListScroll">
-      <button v-if="hasEarlierMessages" class="history-loader" type="button" :disabled="loadingEarlierMessages" @click="loadEarlierMessages">
-        {{ loadingEarlierMessages ? '正在加载' : '上滑加载更早消息' }}
-      </button>
-      <template v-for="entry in messageEntries" :key="entry.message.id">
-        <div v-if="entry.timeLabel && entry.message.sender !== 'system'" class="message-time-divider"><time>{{ entry.timeLabel }}</time></div>
-        <MessageBubble
-          :message="entry.message"
-          :character="characterForMessage(entry.message)"
-          :user="conversationUser"
-          :appearance="chatSettings.appearance"
-          :author-avatar="avatarForMessage(entry.message)"
-          :author-name="entry.message.authorName || '群成员'"
-          :show-author-name="entry.message.sender === 'char'"
-          :hide-avatar="shouldHideAvatar(entry.messageIndex)"
-          :hide-message-time="entry.message.sender === 'system'"
-          :selection-mode="selectionMode"
-          :selected="isMessageSelected(entry.message)"
-          :can-quote="canQuoteMessage(entry.message)"
-          @avatar-long-press="mentionMessageAuthor"
-          @long-press="openMessageMenu"
-          @quote-message="quoteMessage"
-          @toggle-select="toggleMessageSelection(entry.message)"
-        />
-      </template>
+    <main ref="messageList" class="message-list" @scroll.passive="handleMessageListScroll">
+      <div class="message-virtualizer" :style="{ height: `${virtualMessageTotalSize}px` }">
+        <div
+          v-for="virtualRow in virtualMessageRows"
+          :key="String(virtualRow.key)"
+          :ref="measureVirtualMessageElement"
+          class="message-virtual-item"
+          :data-index="virtualRow.index"
+          :style="{ transform: `translateY(${virtualRow.start}px)` }"
+        >
+          <template v-if="messageEntries[virtualRow.index]">
+            <div v-if="messageEntries[virtualRow.index].timeLabel && messageEntries[virtualRow.index].message.sender !== 'system'" class="message-time-divider"><time>{{ messageEntries[virtualRow.index].timeLabel }}</time></div>
+            <MessageBubble
+              :message="messageEntries[virtualRow.index].message"
+              :character="characterForMessage(messageEntries[virtualRow.index].message)"
+              :user="conversationUser"
+              :appearance="chatSettings.appearance"
+              :author-avatar="avatarForMessage(messageEntries[virtualRow.index].message)"
+              :author-name="messageEntries[virtualRow.index].message.authorName || '群成员'"
+              :show-author-name="messageEntries[virtualRow.index].message.sender === 'char'"
+              :hide-avatar="shouldHideAvatar(virtualRow.index)"
+              :hide-message-time="messageEntries[virtualRow.index].message.sender === 'system'"
+              :selection-mode="selectionMode"
+              :selected="isMessageSelected(messageEntries[virtualRow.index].message)"
+              :can-quote="canQuoteMessage(messageEntries[virtualRow.index].message)"
+              @avatar-long-press="mentionMessageAuthor"
+              @long-press="openMessageMenu"
+              @quote-message="quoteMessage"
+              @toggle-select="toggleMessageSelection(messageEntries[virtualRow.index].message)"
+            />
+          </template>
+        </div>
+      </div>
       <div v-if="replying" class="typing-indicator"><span></span><span></span><span></span></div>
       </main>
 
@@ -207,6 +215,7 @@
 </template>
 
 <script setup lang="ts">
+import { useVirtualizer } from '@tanstack/vue-virtual';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { X } from 'lucide-vue-next';
@@ -227,9 +236,6 @@ const props = defineProps<{ id: string }>();
 const store = useAppStore();
 const router = useRouter();
 const messageList = ref<HTMLElement | null>(null);
-const groupMessagePageSize = 80;
-const visibleMessageLimit = ref(groupMessagePageSize);
-const loadingEarlierMessages = ref(false);
 const shouldStickToBottom = ref(true);
 const showDetails = ref(false);
 const showActionMenu = ref(false);
@@ -279,9 +285,6 @@ const { captureKeyboardScrollAnchor, startKeyboardScrollGuard, stopKeyboardScrol
 
 const conversation = computed(() => { const value = store.conversationById(props.id); return value?.kind === 'group' ? value : null; });
 const allVisibleMessages = computed(() => store.messagesForConversation(props.id).filter((message) => !message.contextOnly && message.mode === 'online'));
-const visibleMessageStartIndex = computed(() => Math.max(0, allVisibleMessages.value.length - visibleMessageLimit.value));
-const visibleMessages = computed(() => allVisibleMessages.value.slice(visibleMessageStartIndex.value));
-const hasEarlierMessages = computed(() => visibleMessageStartIndex.value > 0);
 const selectedMessageCount = computed(() => selectedMessageIds.value.length);
 const activeMessageIsSynthetic = computed(() => Boolean(activeMessage.value?.id.includes('__')));
 const canRecallActiveMessage = computed(() => Boolean(activeMessage.value && activeMessage.value.sender !== 'system' && !activeMessageIsSynthetic.value));
@@ -300,10 +303,24 @@ const chatSurfaceStyle = computed(() => ({
   backgroundColor: chatSettings.value.appearance.backgroundColor,
   backgroundImage: chatSettings.value.appearance.backgroundImage ? `url(${chatSettings.value.appearance.backgroundImage})` : 'none'
 }));
-const messageEntries = computed(() => visibleMessages.value.map((message, messageIndex) => {
-  const previousMessage = allVisibleMessages.value[visibleMessageStartIndex.value + messageIndex - 1];
+const messageEntries = computed(() => allVisibleMessages.value.map((message, messageIndex) => {
+  const previousMessage = allVisibleMessages.value[messageIndex - 1];
   return { message, messageIndex, timeLabel: shouldShowChatTimeDivider(message.createdAt, previousMessage?.createdAt) ? formatChatTimeDivider(message.createdAt) : '' };
 }));
+const messageVirtualizer = useVirtualizer(computed(() => ({
+  count: messageEntries.value.length,
+  getScrollElement: () => messageList.value,
+  estimateSize: () => 88,
+  getItemKey: (index: number) => messageEntries.value[index]?.message.id ?? index,
+  overscan: 8,
+  anchorTo: 'end' as const,
+  followOnAppend: 'auto' as const,
+  scrollEndThreshold: 80,
+  useAnimationFrameWithResizeObserver: true
+})));
+const virtualMessageRows = computed(() => messageVirtualizer.value.getVirtualItems());
+const virtualMessageTotalSize = computed(() => messageVirtualizer.value.getTotalSize());
+function measureVirtualMessageElement(element: unknown) { if (element instanceof Element) messageVirtualizer.value.measureElement(element); }
 const currentUserMember = computed(() => conversation.value?.groupMembers?.find((member) => member.identityType === 'user' && member.identityId === conversation.value?.userId) ?? null);
 const membershipStatus = computed(() => currentUserMember.value?.membershipStatus ?? 'active');
 const isJoined = computed(() => membershipStatus.value === 'active');
@@ -314,11 +331,10 @@ const fallbackAvatar = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns
 
 function avatarForMessage(message: ChatMessage) { return conversation.value?.groupMembers?.find((item) => item.identityId === message.authorId || item.id === message.authorId)?.avatar || fallbackAvatar; }
 function characterForMessage(message: ChatMessage): CharacterProfile { return (message.authorId ? store.characterById(message.authorId) : undefined) ?? primaryCharacter.value!; }
-function shouldHideAvatar(index: number) { const globalIndex = visibleMessageStartIndex.value + index; const current = allVisibleMessages.value[globalIndex]; const previous = allVisibleMessages.value[globalIndex - 1]; return Boolean(chatSettings.value.appearance.showOnlyFirstAvatarInReply && current && previous && current.sender !== 'system' && current.sender === previous.sender && current.authorId === previous.authorId); }
+function shouldHideAvatar(index: number) { const current = allVisibleMessages.value[index]; const previous = allVisibleMessages.value[index - 1]; return Boolean(chatSettings.value.appearance.showOnlyFirstAvatarInReply && current && previous && current.sender !== 'system' && current.sender === previous.sender && current.authorId === previous.authorId); }
 function messageText(message: ChatMessage) { if (message.sticker) return `[Sticker] ${message.sticker.description}`; if (message.image) return `[图片] ${message.image.description}`; if (message.voice) return `[语音] ${message.voice.transcript}`; return message.content; }
-async function scrollToBottom() { await nextTick(); if (messageList.value) { messageList.value.scrollLeft = 0; messageList.value.scrollTop = messageList.value.scrollHeight; } }
-async function loadEarlierMessages() { const list = messageList.value; if (!list || !hasEarlierMessages.value || loadingEarlierMessages.value) return; loadingEarlierMessages.value = true; const previousHeight = list.scrollHeight; const previousTop = list.scrollTop; visibleMessageLimit.value += groupMessagePageSize; await nextTick(); list.scrollTop = previousTop + Math.max(0, list.scrollHeight - previousHeight); loadingEarlierMessages.value = false; }
-function handleMessageListScroll() { const list = messageList.value; if (!list) return; shouldStickToBottom.value = list.scrollHeight - list.clientHeight - list.scrollTop <= 80; if (list.scrollTop <= 72) void loadEarlierMessages(); }
+async function scrollToBottom() { await nextTick(); if (messageList.value) { messageVirtualizer.value.scrollToEnd({ behavior: 'auto' }); messageList.value.scrollLeft = 0; messageList.value.scrollTop = messageList.value.scrollHeight; shouldStickToBottom.value = true; } }
+function handleMessageListScroll() { const list = messageList.value; if (!list) return; shouldStickToBottom.value = list.scrollHeight - list.clientHeight - list.scrollTop <= 80; }
 function handleComposerFocus() { const keepBottom = shouldStickToBottom.value; startKeyboardScrollGuard(); if (keepBottom) void scrollToBottom(); }
 function handleComposerBlur() { stopKeyboardScrollGuard(); }
 
@@ -327,8 +343,9 @@ async function sendAndReply(content: string) { if (content.trim()) await store.a
 
 function insertMention(name: string) { composerText.value = `${composerText.value}${composerText.value && !composerText.value.endsWith(' ') ? ' ' : ''}@${name} `; showDetails.value = false; }
 function mentionMessageAuthor(message: ChatMessage) { if (message.sender !== 'system' && message.authorType !== 'user' && message.authorName) insertMention(message.authorName); }
-function canQuoteMessage(message: ChatMessage) { return message.sender !== 'system' && !message.id.includes('__') && Boolean(store.createMessageQuoteSnapshot(message)); }
-function quoteMessage(message: ChatMessage) { if (!canQuoteMessage(message)) return; quoteTarget.value = store.createMessageQuoteSnapshot(message); }
+function createQuoteSnapshot(message: ChatMessage) { if (message.sender === 'system' || message.id.includes('__')) return null; try { return store.createMessageQuoteSnapshot(message); } catch { return null; } }
+function canQuoteMessage(message: ChatMessage) { return Boolean(createQuoteSnapshot(message)); }
+function quoteMessage(message: ChatMessage) { const quote = createQuoteSnapshot(message); if (quote) quoteTarget.value = quote; }
 function openStickerPanel() { const keepBottom = shouldStickToBottom.value; showStickers.value = true; if (keepBottom) void scrollToBottom(); }
 function handleStickerPanelHeightChange(height: number) { const keepBottom = shouldStickToBottom.value; stickerPanelHeight.value = Math.max(0, height); if (keepBottom) void scrollToBottom(); }
 function openChatSearch() { void router.push({ name: 'chat-search', params: { id: props.id } }); }
@@ -390,9 +407,8 @@ watch(() => allVisibleMessages.value.length, (nextLength, previousLength) => {
   const addedCount = Math.max(0, nextLength - previousLength);
   if (!addedCount) return;
   if (shouldStickToBottom.value) void scrollToBottom();
-  else visibleMessageLimit.value += addedCount;
 });
-watch(() => props.id, () => { visibleMessageLimit.value = groupMessagePageSize; shouldStickToBottom.value = true; });
+watch(() => props.id, () => { shouldStickToBottom.value = true; void scrollToBottom(); });
 watch(conversation, (value) => { groupTitleDraft.value = value?.title ?? ''; groupAnnouncementDraft.value = value?.groupAnnouncement ?? ''; }, { immediate: true });
 onMounted(async () => { store.setActiveConversation(props.id); await store.markConversationRead(props.id); await scrollToBottom(); });
 onBeforeUnmount(() => { cleanupRecording(); store.setActiveConversation(null); });
@@ -402,6 +418,8 @@ onBeforeUnmount(() => { cleanupRecording(); store.setActiveConversation(null); }
 .group-chat-page :deep(.chat-header),
 .group-chat-page :deep(.composer) { background:transparent;backdrop-filter:none }
 .message-list { flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:8px 10px calc(8px + var(--keyboard-inset));-webkit-overflow-scrolling:touch;overflow-anchor:none;scroll-padding-bottom:calc(8px + var(--keyboard-inset)) }
+.message-virtualizer { position:relative;width:100% }
+.message-virtual-item { position:absolute;top:0;left:0;display:flow-root;width:100% }
 .group-chat-page :deep(.composer) { transform:translate3d(0,calc(0px - var(--keyboard-inset)),0) }
 .message-time-divider { display:flex;justify-content:center;margin:12px 0 8px;pointer-events:none }
 .message-time-divider time { max-width:calc(100% - 32px);padding:3px 8px;border-radius:999px;background:rgba(245,246,248,.82);color:#7b828a;font-size:11px;font-weight:680;line-height:1.2;box-shadow:0 1px 6px rgba(17,20,24,.06);backdrop-filter:blur(12px) }
@@ -444,22 +462,6 @@ onBeforeUnmount(() => { cleanupRecording(); store.setActiveConversation(null); }
 .message-list {
   min-width: 0;
   overflow-x: clip;
-}
-
-.history-loader {
-  display: block;
-  min-height: 34px;
-  margin: 2px auto 10px;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
-  color: #737a77;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.history-loader:disabled {
-  opacity: 0.55;
 }
 
 .group-chat-page :deep(.composer) {

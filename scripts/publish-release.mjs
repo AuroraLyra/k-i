@@ -8,8 +8,8 @@ const baseUrl = String(process.env.BABYLINK_BASE_URL ?? 'https://babylink.top').
 const adminToken = String(process.env.ADMIN_TOKEN ?? '');
 const releaseNotes = noteParts.join(' ') || `${basename(inputPath ?? '')} release`;
 
-if (!['android', 'ios'].includes(platform) || !inputPath || !Number.isInteger(versionCode) || versionCode < 1 || !versionName || !Number.isInteger(minimumVersionCode) || minimumVersionCode < 1) {
-  console.error('Usage: ADMIN_TOKEN=... node scripts/publish-release.mjs <android|ios> <file> <versionCode> <versionName> [minimumVersionCode] [notes]');
+if (!['android', 'ios', 'desktop-macos', 'desktop-windows'].includes(platform) || !inputPath || !Number.isInteger(versionCode) || versionCode < 1 || !versionName || !Number.isInteger(minimumVersionCode) || minimumVersionCode < 1) {
+  console.error('Usage: ADMIN_TOKEN=... node scripts/publish-release.mjs <android|ios|desktop-macos|desktop-windows> <file> <versionCode> <versionName> [minimumVersionCode] [notes]');
   process.exit(1);
 }
 if (!adminToken) {
@@ -19,11 +19,17 @@ if (!adminToken) {
 
 const filePath = resolve(inputPath);
 const bytes = await readFile(filePath);
+const contentTypes = {
+  android: 'application/vnd.android.package-archive',
+  ios: 'application/octet-stream',
+  'desktop-macos': 'application/x-apple-diskimage',
+  'desktop-windows': 'application/vnd.microsoft.portable-executable'
+};
 const response = await fetch(`${baseUrl}/api/admin/releases/upload`, {
   method: 'PUT',
   headers: {
     Authorization: `Bearer ${adminToken}`,
-    'Content-Type': platform === 'android' ? 'application/vnd.android.package-archive' : 'application/octet-stream',
+    'Content-Type': contentTypes[platform],
     'X-Link-Platform': platform,
     'X-Link-Version-Code': String(versionCode),
     'X-Link-Version-Name': versionName,

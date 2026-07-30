@@ -94,7 +94,7 @@ export async function migrateDatabase() {
 
     CREATE TABLE IF NOT EXISTS releases (
       id UUID PRIMARY KEY,
-      platform TEXT NOT NULL CHECK (platform IN ('android', 'ios')),
+      platform TEXT NOT NULL CHECK (platform IN ('android', 'ios', 'desktop-macos', 'desktop-windows')),
       version_code INTEGER NOT NULL,
       version_name TEXT NOT NULL,
       minimum_version_code INTEGER NOT NULL DEFAULT 1,
@@ -130,6 +130,23 @@ export async function migrateDatabase() {
     CREATE INDEX IF NOT EXISTS challenges_expiry_idx ON login_challenges (expires_at);
     CREATE INDEX IF NOT EXISTS releases_latest_idx ON releases (platform, published, version_code DESC);
     CREATE INDEX IF NOT EXISTS release_source_tokens_user_idx ON release_source_tokens (qq, expires_at DESC) WHERE revoked_at IS NULL;
+  `);
+
+  await query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'releases'::regclass
+          AND conname = 'releases_platform_check'
+          AND pg_get_constraintdef(oid) LIKE '%desktop-macos%'
+      ) THEN
+        ALTER TABLE releases DROP CONSTRAINT IF EXISTS releases_platform_check;
+        ALTER TABLE releases ADD CONSTRAINT releases_platform_check
+          CHECK (platform IN ('android', 'ios', 'desktop-macos', 'desktop-windows'));
+      END IF;
+    END $$;
   `);
 
   for (const groupId of config.allowedGroupIds) {

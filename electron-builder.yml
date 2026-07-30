@@ -1,0 +1,36 @@
+appId: top.babylink.bridge
+productName: BabyLink Bridge
+copyright: Copyright © BabyLink contributors
+artifactName: BabyLink-Bridge-${version}-${os}-${arch}.${ext}
+directories:
+  output: bridge-dist
+toolsets:
+  nsis: 1.2.1
+files:
+  - package.json
+  - bridge/**/*
+  - public/link-icon.png
+asar: true
+mac:
+  icon: public/link-icon.png
+  category: public.app-category.social-networking
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  target:
+    - dmg
+    - zip
+win:
+  icon: public/link-icon.png
+  target:
+    - nsis
+linux:
+  icon: public/link-icon.png
+  category: Network
+  target:
+    - AppImage
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: BabyLink 电脑助手

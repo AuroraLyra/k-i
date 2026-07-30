@@ -351,6 +351,42 @@
       </section>
 
       <section v-else class="panel-section other-panel">
+        <section class="settings-block character-mcp-block">
+          <header class="section-header">
+            <div>
+              <span>MCP tools</span>
+              <strong>角色外部工具</strong>
+            </div>
+            <em class="character-mcp-count">{{ appliedCharacterMcpServerCount }} 个连接</em>
+          </header>
+          <label class="switch-card wide">
+            <input :checked="characterMcpBinding.overrideGlobal" type="checkbox" @change="updateCharacterMcpOverride" />
+            <span class="switch-track"></span>
+            <div>
+              <strong>角色局部优先</strong>
+              <span>开启后不再继承全局应用，只使用下方单独勾选的 MCP。</span>
+            </div>
+          </label>
+          <p class="character-mcp-note">
+            {{ characterMcpBinding.overrideGlobal ? '当前为角色独立配置；未勾选时该角色不会使用任何 MCP。' : '当前跟随 Settings > MCP 中已开启的全局应用。' }}
+          </p>
+          <div v-if="configuredMcpServers.length" class="character-mcp-list">
+            <label v-for="server in configuredMcpServers" :key="server.id" class="character-mcp-row" :class="{ unavailable: !server.enabled }">
+              <span>
+                <strong>{{ server.name }}</strong>
+                <small>{{ server.enabled ? characterMcpServerStatus(server) : '连接已在全局 MCP 页面停用' }}</small>
+              </span>
+              <input
+                :checked="isMcpServerAppliedToCharacter(server)"
+                :disabled="!characterMcpBinding.overrideGlobal || !server.enabled"
+                type="checkbox"
+                @change="toggleCharacterMcpServer(server, $event)"
+              />
+            </label>
+          </div>
+          <p v-else class="character-mcp-note empty-character-mcp-note">请先到 Settings &gt; MCP 导入或添加远程连接。</p>
+          <p v-if="!mcpMasterEnabled" class="character-mcp-warning">全局 MCP 总开关当前关闭，角色绑定会保留但不会调用。</p>
+        </section>
         <section class="settings-block">
           <header class="section-header">
             <div>
@@ -571,7 +607,7 @@ import CharacterMemoryGraphPanel from '@/components/chat/CharacterMemoryGraphPan
 import AvatarCropperModal from '@/components/image/AvatarCropperModal.vue';
 import { callAudioAccept, createCallAudioAsset } from '@/services/callExperience';
 import { useAppStore } from '@/stores/appStore';
-import type { CharacterImageProfile, CharacterPhotoRecord, CharacterProfile, ChatAppearanceSettings, ConversationSettings, ThemeStylePreset, VoomImageMode } from '@/types/domain';
+import type { CharacterImageProfile, CharacterPhotoRecord, CharacterProfile, ChatAppearanceSettings, ConversationSettings, McpServerConfig, ThemeStylePreset, VoomImageMode } from '@/types/domain';
 import { collectCharacterPhotoItems, createCharacterPhotoRecord, normalizeCharacterPhotoRecords, normalizeHiddenSourcePhotoKeys, type CharacterPhotoItem } from '@/utils/characterPhotos';
 import { downloadImageUrl } from '@/utils/download';
 import { readImageFileFromInput } from '@/utils/imageFile';
@@ -642,6 +678,17 @@ const characterLocalWorldBookSummary = computed(() => {
 });
 const onlineThemeStyleOptions = computed(() => createThemeStyleOptions('online', store.settings?.themeSettings.online.presets ?? []));
 const offlineThemeStyleOptions = computed(() => createThemeStyleOptions('offline', store.settings?.themeSettings.offline.presets ?? []));
+const configuredMcpServers = computed(() => store.settings?.mcpSettings.servers ?? []);
+const mcpMasterEnabled = computed(() => Boolean(store.settings?.mcpSettings.enabled));
+const characterMcpBinding = computed(() => ({
+  overrideGlobal: Boolean(characterDraft.mcpBinding?.overrideGlobal),
+  serverIds: characterDraft.mcpBinding?.serverIds ?? []
+}));
+const inheritedMcpServerIds = computed(() => configuredMcpServers.value
+  .filter((server) => server.enabled && server.globalEnabled)
+  .map((server) => server.id));
+const appliedCharacterMcpServerCount = computed(() => configuredMcpServers.value
+  .filter((server) => isMcpServerAppliedToCharacter(server)).length);
 const bubblePreviewStyle = computed(() => ({
   backgroundColor: draft.appearance.backgroundColor,
   backgroundImage: draft.appearance.backgroundImage ? `url(${draft.appearance.backgroundImage})` : 'none'
@@ -774,6 +821,10 @@ function cloneCharacterForDraft(character: CharacterProfile): CharacterDraft {
     themeStyleBindings: {
       onlinePresetId: String(character.themeStyleBindings?.onlinePresetId ?? '').trim(),
       offlinePresetId: String(character.themeStyleBindings?.offlinePresetId ?? '').trim()
+    },
+    mcpBinding: {
+      overrideGlobal: Boolean(character.mcpBinding?.overrideGlobal),
+      serverIds: [...(character.mcpBinding?.serverIds ?? [])]
     }
   };
 }
@@ -940,8 +991,48 @@ function saveCharacterDraft() {
     themeStyleBindings: {
       onlinePresetId: String(characterDraft.themeStyleBindings?.onlinePresetId ?? '').trim(),
       offlinePresetId: String(characterDraft.themeStyleBindings?.offlinePresetId ?? '').trim()
+    },
+    mcpBinding: {
+      overrideGlobal: Boolean(characterDraft.mcpBinding?.overrideGlobal),
+      serverIds: [...new Set(characterDraft.mcpBinding?.serverIds ?? [])]
     }
   });
+}
+
+function isMcpServerAppliedToCharacter(server: McpServerConfig) {
+  if (!server.enabled) return false;
+  return characterMcpBinding.value.overrideGlobal
+    ? characterMcpBinding.value.serverIds.includes(server.id)
+    : server.globalEnabled;
+}
+
+function characterMcpServerStatus(server: McpServerConfig) {
+  if (characterMcpBinding.value.overrideGlobal) {
+    return characterMcpBinding.value.serverIds.includes(server.id) ? '该角色单独启用' : '该角色未启用';
+  }
+  return server.globalEnabled ? '继承全局应用' : '全局未应用';
+}
+
+function updateCharacterMcpOverride(event: Event) {
+  const overrideGlobal = (event.target as HTMLInputElement).checked;
+  const currentIds = characterMcpBinding.value.serverIds.filter((serverId) => configuredMcpServers.value.some((server) => server.id === serverId));
+  characterDraft.mcpBinding = {
+    overrideGlobal,
+    serverIds: currentIds.length ? currentIds : [...inheritedMcpServerIds.value]
+  };
+  saveCharacterDraft();
+}
+
+function toggleCharacterMcpServer(server: McpServerConfig, event: Event) {
+  if (!characterMcpBinding.value.overrideGlobal || !server.enabled) return;
+  const serverIds = new Set(characterMcpBinding.value.serverIds);
+  if ((event.target as HTMLInputElement).checked) serverIds.add(server.id);
+  else serverIds.delete(server.id);
+  characterDraft.mcpBinding = {
+    overrideGlobal: true,
+    serverIds: configuredMcpServers.value.map((entry) => entry.id).filter((serverId) => serverIds.has(serverId))
+  };
+  saveCharacterDraft();
 }
 
 function updateCharacterThemeStyleBinding(scope: ThemeStyleBindingScope, event: Event) {
@@ -4971,6 +5062,98 @@ function applyEditedAvatar(value: string) {
 .call-volume-field input[type='range'] {
   width: 100%;
   accent-color: #06c755;
+}
+
+.character-mcp-block {
+  gap: 10px;
+}
+
+.character-mcp-count {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #237345;
+  background: #eaf8ef;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.character-mcp-note,
+.character-mcp-warning {
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 12px;
+  color: #68736c;
+  background: #f2f5f3;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.character-mcp-warning {
+  color: #8a5d22;
+  background: #fff7df;
+}
+
+.character-mcp-list {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid rgba(20, 24, 22, 0.06);
+  border-radius: 16px;
+  background: #f8faf9;
+}
+
+.character-mcp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 11px 12px;
+  border-bottom: 1px solid rgba(20, 24, 22, 0.06);
+}
+
+.character-mcp-row:last-child {
+  border-bottom: 0;
+}
+
+.character-mcp-row > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.character-mcp-row strong,
+.character-mcp-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.character-mcp-row strong {
+  color: #171717;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.character-mcp-row small {
+  color: #7e8982;
+  font-size: 10px;
+}
+
+.character-mcp-row input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  accent-color: #179b50;
+}
+
+.character-mcp-row.unavailable {
+  opacity: 0.56;
+}
+
+.empty-character-mcp-note {
+  text-align: center;
 }
 
 @media (max-width: 420px) {

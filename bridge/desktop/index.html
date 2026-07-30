@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src http://127.0.0.1:*">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BabyLink 电脑助手</title>
+  <link rel="stylesheet" href="./desktop.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p>BABYLINK DESKTOP</p>
+        <h1>让手机安全连接这台电脑</h1>
+        <span>自动隧道 · 二维码配对 · 平台体检 · 本地审计</span>
+      </div>
+      <div id="state-pill" class="state-pill stopped"><i></i><strong>尚未启动</strong></div>
+    </header>
+
+    <section class="layout">
+      <form id="bridge-form" class="card form-card">
+        <div class="section-title"><span>01</span><div><strong>选择电脑服务</strong><small>账号只保留在当前电脑</small></div></div>
+        <div class="platform-grid">
+          <label><input type="radio" name="platform" value="qq" checked><span><b>QQ</b><small>NapCat / OneBot</small></span></label>
+          <label><input type="radio" name="platform" value="xiaohongshu"><span><b>小红书</b><small>非官方适配器</small></span></label>
+          <label><input type="radio" name="platform" value="both"><span><b>同时连接</b><small>QQ + 小红书</small></span></label>
+        </div>
+        <label class="field"><span>QQ OneBot 本机地址</span><input id="qq-url" type="url" value="http://127.0.0.1:3000"></label>
+        <label class="field"><span>小红书适配器本机地址</span><input id="xhs-url" type="url" value="http://127.0.0.1:8790"></label>
+
+        <div class="section-title"><span>02</span><div><strong>选择手机连接方式</strong><small>推荐自动加密隧道</small></div></div>
+        <div class="tunnel-grid">
+          <label><input type="radio" name="tunnelMode" value="quick" checked><span><b>自动连接</b><small>无需域名，启动后扫码</small></span></label>
+          <label><input type="radio" name="tunnelMode" value="custom"><span><b>固定地址</b><small>适合自有域名或隧道</small></span></label>
+        </div>
+        <label id="public-url-field" class="field hidden"><span>固定 HTTPS 地址</span><input id="public-url" type="url" placeholder="https://bridge.example.com"></label>
+
+        <details>
+          <summary>安全与权限设置</summary>
+          <div class="advanced">
+            <label class="field"><span>允许私聊的 QQ 号</span><input id="allowed-users" placeholder="留空表示不限制，多个用英文逗号"></label>
+            <label class="field"><span>允许发送的 QQ 群</span><input id="allowed-groups" placeholder="留空表示不限制，多个用英文逗号"></label>
+            <label class="field"><span>允许的写入工具</span><input id="allowed-tools" placeholder="留空表示允许全部已启用工具"></label>
+            <div class="rate-grid">
+              <label class="field"><span>每分钟读取上限</span><input id="read-limit" type="number" min="1" max="1000" value="120"></label>
+              <label class="field"><span>每分钟操作上限</span><input id="write-limit" type="number" min="1" max="300" value="30"></label>
+            </div>
+          </div>
+        </details>
+
+        <p id="message" class="message">首次自动连接会下载 Cloudflare 官方隧道组件。</p>
+        <div class="primary-actions">
+          <button id="stop-button" class="secondary" type="button" disabled>停止</button>
+          <button id="start-button" class="primary" type="submit">启动电脑助手</button>
+        </div>
+      </form>
+
+      <aside class="side-column">
+        <section class="card status-card">
+          <div class="section-title"><span>03</span><div><strong>扫码并检查</strong><small>启动后完成手机配对</small></div></div>
+          <div class="status-orb"><i></i><strong id="status-title">等待启动</strong><span id="status-copy">选择平台后点击启动</span></div>
+          <button id="dashboard-button" class="dark-button" type="button" disabled>打开配对二维码</button>
+          <button id="diagnostic-button" class="soft-button" type="button" disabled>重新运行一键体检</button>
+          <div id="diagnostics" class="diagnostics"></div>
+        </section>
+
+        <section class="card audit-card">
+          <div class="audit-title"><div><strong>本地操作记录</strong><small>仅保存在这台电脑</small></div><button id="audit-button" type="button">刷新</button></div>
+          <div id="audit-list" class="audit-list"><p>启动后显示最近操作。</p></div>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <script type="module" src="./renderer.mjs"></script>
+</body>
+</html>
