@@ -873,7 +873,7 @@ export const useAppStore = defineStore('app', () => {
     );
     const recallableMessages = activeMessages.filter((message) => !forgottenMessageIds.has(message.id));
     if (!memorySettings.enabled || !memorySettings.compressionEnabled) {
-      return getRecentCompleteFloorMessages(recallableMessages, memorySettings.recentMessageLimit);
+      return getRecentCompleteFloorMessages(recallableMessages, memorySettings.recentFloorLimit);
     }
     const archivedMessageIds = new Set(
       conversationEpisodes
@@ -882,7 +882,7 @@ export const useAppStore = defineStore('app', () => {
     );
     if (!archivedMessageIds.size && !forgottenMessageIds.size) return recallableMessages;
     const recentMessageIds = new Set(
-      getRecentCompleteFloorMessages(recallableMessages, memorySettings.recentMessageLimit).map((message) => message.id)
+      getRecentCompleteFloorMessages(recallableMessages, memorySettings.recentFloorLimit).map((message) => message.id)
     );
     return recallableMessages.filter((message) => !forgottenMessageIds.has(message.id)
       && (!archivedMessageIds.has(message.id) || recentMessageIds.has(message.id)));

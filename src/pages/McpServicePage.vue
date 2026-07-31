@@ -152,7 +152,7 @@ function navigate(target: McpStudioView, id?: string) {
     return;
   }
   const tab = tabs.find((entry) => entry.id === target);
-  if (tab) void router.push({ name: tab.route });
+  if (tab) void router.replace({ name: tab.route });
 }
 
 function addCustomServer(kind: McpServerKind) {
@@ -257,7 +257,12 @@ function setRealityToolEnabled(toolName: string, enabled: boolean) {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+}
+
+.mcp-service-main::-webkit-scrollbar {
+  display: none;
 }
 
 .mcp-service-tabs {

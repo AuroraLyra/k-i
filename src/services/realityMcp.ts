@@ -15,7 +15,8 @@ import { createActiveTimeout, isFetchInterruptedError, waitForActiveNetworkWindo
 import { createId } from '@/utils/id';
 import { normalizeAppSettings } from '@/utils/settings';
 import { synthesizeSpeech } from '@/services/tts';
-import { androidRealityAvailable, getAndroidAppUsage, getAndroidAppUsageAccess, openAndroidAppSettings, openAndroidAppUsageSettings, openAndroidSystemWeather, setAndroidSystemAlarm } from '@/services/nativeReality';
+import { androidNotificationInboxAvailable, androidRealityAvailable, clearAndroidNotificationInbox, getAndroidAppUsage, getAndroidAppUsageAccess, getAndroidNotificationInbox, getAndroidNotificationInboxAccess, openAndroidAppSettings, openAndroidAppUsageSettings, openAndroidNotificationInboxSettings, openAndroidSystemWeather, setAndroidSystemAlarm } from '@/services/nativeReality';
+import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 
 export interface RealityMcpExecutionRequest {
   server: McpServerConfig;
@@ -166,7 +167,64 @@ async function getPermissionState() {
   } else {
     result.appUsage = 'unsupported';
   }
+  if (androidNotificationInboxAvailable()) {
+    try {
+      result.notificationInbox = (await getAndroidNotificationInboxAccess()).granted ? 'granted' : 'denied';
+    } catch {
+      result.notificationInbox = 'unknown';
+    }
+  } else {
+    result.notificationInbox = 'unsupported';
+  }
   return result;
+}
+
+function appUsageCategory(packageName: string, appName: string) {
+  const source = `${packageName} ${appName}`.toLowerCase();
+  if (/(wechat|weixin|qq|telegram|whatsapp|discord|messages|短信|微信)/.test(source)) return 'communication';
+  if (/(bilibili|douyin|tiktok|youtube|netflix|music|video|网易云|抖音|哔哩)/.test(source)) return 'entertainment';
+  if (/(reader|kindle|duolingo|dictionary|notion|office|docs|学习|阅读)/.test(source)) return 'learning-productivity';
+  if (/(taobao|tmall|jd|pinduoduo|shopping|淘宝|京东|拼多多)/.test(source)) return 'shopping';
+  if (/(map|amap|maps|travel|高德|地图)/.test(source)) return 'travel';
+  return 'other';
+}
+
+function clipboardAnalysis(value: string) {
+  const text = value.trim();
+  const urls = [...text.matchAll(/https?:\/\/[^\s<>"']+/gi)].map((match) => match[0].replace(/[),，。]+$/g, '')).slice(0, 10);
+  const bvid = text.match(/\b(BV[0-9A-Za-z]{8,})\b/)?.[1] ?? '';
+  const taoCode = text.match(/(?:￥|¥)[^￥¥\n]{4,80}(?:￥|¥)/)?.[0] ?? '';
+  const addressLike = /(?:省|市|区|县|镇|街道|路|街|巷|号|大厦|广场|小区)/.test(text) && text.length <= 300;
+  const platform = urls.some((url) => /bilibili\.com|b23\.tv/i.test(url)) || bvid
+    ? 'bilibili'
+    : urls.some((url) => /xiaohongshu\.com|xhslink\.com/i.test(url))
+      ? 'xiaohongshu'
+      : urls.some((url) => /douyin\.com|iesdouyin\.com/i.test(url))
+        ? 'douyin'
+        : urls.some((url) => /taobao\.com|tmall\.com|tb\.cn/i.test(url)) || taoCode
+          ? 'taobao'
+          : '';
+  const kind = taoCode ? 'tao-code' : bvid ? 'video' : urls.length ? 'link' : addressLike ? 'address' : 'text';
+  const suggestedTools = kind === 'address'
+    ? ['search_nearby_places', 'open_map_route']
+    : platform === 'bilibili'
+      ? ['search_bilibili', 'get_bilibili_video']
+      : platform === 'xiaohongshu'
+        ? ['xhs__search_feeds']
+        : platform === 'douyin'
+          ? ['douyin-search MCP']
+          : platform === 'taobao'
+            ? ['taobao-search MCP', 'add_price_track']
+            : urls.length ? ['read_web_page'] : [];
+  return { kind, platform, urls, bvid, taoCode, addressLike, suggestedTools };
+}
+
+async function compositeRealitySource(request: RealityMcpExecutionRequest, toolName: string, args: Record<string, unknown>) {
+  try {
+    return { ok: true, data: JSON.parse(await executeRealityTool({ ...request, toolName, args })) as unknown };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : '能力暂不可用。' };
+  }
 }
 
 async function showBrowserNotification(title: string, body: string) {
@@ -568,6 +626,162 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
         lastUsedAt: app.lastUsedAt ? new Date(app.lastUsedAt).toISOString() : ''
       }))
     });
+  }
+
+  if (toolName === 'get_app_usage_report') {
+    const days = Math.min(31, Math.max(1, Math.round(numberArg(args, 'days') ?? 7)));
+    const to = Date.now();
+    const from = to - days * 24 * 60 * 60_000;
+    const result = await getAndroidAppUsage({ from, to, limit: 200 });
+    const focusThresholdMinutes = Math.min(1440, Math.max(15, Math.round(numberArg(args, 'focusThresholdMinutes') ?? 120)));
+    const categories = new Map<string, number>();
+    for (const app of result.apps) {
+      const category = appUsageCategory(app.packageName, app.appName);
+      categories.set(category, (categories.get(category) ?? 0) + app.foregroundMs);
+    }
+    return JSON.stringify({
+      ...result,
+      days,
+      totalMinutes: Math.round(result.totalForegroundMs / 60_000),
+      dailyAverageMinutes: Math.round(result.totalForegroundMs / 60_000 / days),
+      categories: [...categories.entries()].map(([category, foregroundMs]) => ({ category, minutes: Math.round(foregroundMs / 60_000) })).sort((left, right) => right.minutes - left.minutes),
+      topApps: result.apps.slice(0, 10).map((app) => ({ ...app, foregroundMinutes: Math.round(app.foregroundMs / 60_000) })),
+      focusAlerts: result.apps.filter((app) => app.foregroundMs >= focusThresholdMinutes * 60_000).map((app) => ({ appName: app.appName, packageName: app.packageName, minutes: Math.round(app.foregroundMs / 60_000), thresholdMinutes: focusThresholdMinutes })),
+      permissionActionRequired: !result.permissionGranted
+    });
+  }
+
+  if (toolName === 'get_notification_inbox_access') {
+    const access = await getAndroidNotificationInboxAccess();
+    return JSON.stringify({ ...access, supported: access.platform === 'android', actionRequired: access.platform === 'android' && !access.granted });
+  }
+
+  if (toolName === 'request_notification_inbox_access') {
+    const result = await openAndroidNotificationInboxSettings();
+    return JSON.stringify({ ...result, systemSettings: 'notification-listener', note: '请在系统页面亲自允许 BabyLink，返回后再次读取。' });
+  }
+
+  if (toolName === 'get_notification_inbox') {
+    const days = Math.min(7, Math.max(1, Math.round(numberArg(args, 'days') ?? 1)));
+    const category = textArg(args, 'category');
+    const result = await getAndroidNotificationInbox({
+      from: Date.now() - days * 24 * 60 * 60_000,
+      limit: Math.min(200, Math.max(1, Math.round(numberArg(args, 'limit') ?? 50))),
+      category
+    });
+    return JSON.stringify({
+      ...result,
+      days,
+      actionRequired: !result.granted,
+      entries: result.entries.map((entry) => ({ ...entry, postedAtText: formatDate(entry.postedAt) }))
+    });
+  }
+
+  if (toolName === 'clear_notification_inbox') {
+    if (!confirmRealityAction('是否清空 BabyLink 保存在本机的全部通知摘要？此操作不可撤销。')) return JSON.stringify({ approved: false, cleared: false });
+    return JSON.stringify({ approved: true, ...(await clearAndroidNotificationInbox()) });
+  }
+
+  if (toolName === 'prepare_date_plan' || toolName === 'prepare_watch_together') {
+    const from = Number.isFinite(Date.parse(textArg(args, 'from'))) ? Date.parse(textArg(args, 'from')) : Date.now();
+    const to = Number.isFinite(Date.parse(textArg(args, 'to'))) ? Date.parse(textArg(args, 'to')) : from + 7 * 24 * 60 * 60_000;
+    const durationMinutes = Math.min(toolName === 'prepare_watch_together' ? 480 : 1440, Math.max(15, Math.round(numberArg(args, 'durationMinutes') ?? (toolName === 'prepare_watch_together' ? 90 : 120))));
+    const [weather, location, freeTime] = await Promise.all([
+      compositeRealitySource(request, 'get_weather', { hourlyLimit: 24 }),
+      compositeRealitySource(request, 'get_current_location', {}),
+      compositeRealitySource(request, 'find_calendar_free_time', { from: new Date(from).toISOString(), to: new Date(to).toISOString(), durationMinutes, limit: 8 })
+    ]);
+    return JSON.stringify({ workflow: toolName === 'prepare_watch_together' ? 'watch-together' : 'date-plan', from, to, durationMinutes, weather, location, freeTime, nextTools: toolName === 'prepare_watch_together' ? ['search_bilibili', 'search_web', 'create_calendar_event'] : ['search_places', 'get_route', 'create_calendar_event'] });
+  }
+
+  if (toolName === 'prepare_trip_plan') {
+    const from = Number.isFinite(Date.parse(textArg(args, 'from'))) ? Date.parse(textArg(args, 'from')) : Date.now();
+    const to = Number.isFinite(Date.parse(textArg(args, 'to'))) ? Date.parse(textArg(args, 'to')) : from + 3 * 24 * 60 * 60_000;
+    const [weather, location, calendar] = await Promise.all([
+      compositeRealitySource(request, 'get_weather', { hourlyLimit: 72 }),
+      compositeRealitySource(request, 'get_current_location', {}),
+      compositeRealitySource(request, 'get_calendar_events', { from: new Date(from).toISOString(), to: new Date(to).toISOString() })
+    ]);
+    return JSON.stringify({ workflow: 'trip-plan', from, to, weather, location, calendar, nextTools: ['search_places', 'get_route', 'set_reminder', 'create_calendar_event'] });
+  }
+
+  if (toolName === 'prepare_shopping_plan') {
+    const query = textArg(args, 'query');
+    if (!query) throw new Error('购物关键词不能为空。');
+    const clipboard = await compositeRealitySource(request, 'analyze_clipboard', {});
+    return JSON.stringify({
+      workflow: 'shopping-plan',
+      query,
+      budget: numberArg(args, 'budget') ?? null,
+      targetPrice: numberArg(args, 'targetPrice') ?? null,
+      clipboard,
+      nextTools: ['search_taobao_products', 'recommend_taobao_products', 'xhs__search_feeds', 'search_web', 'add_price_track'],
+      safety: '只搜索、比较和追踪价格，不会自动下单或支付。'
+    });
+  }
+
+  if (toolName === 'prepare_study_session') {
+    const days = Math.min(31, Math.max(1, Math.round(numberArg(args, 'days') ?? 7)));
+    const [usage, reminders] = await Promise.all([
+      compositeRealitySource(request, 'get_app_usage_report', { days }),
+      compositeRealitySource(request, 'list_reminders', { includeExpired: false, includeCompleted: false })
+    ]);
+    return JSON.stringify({ workflow: 'study-session', usage, reminders, nextTools: ['search_music', 'add_music_to_queue', 'set_reminder', 'notify_user'] });
+  }
+
+  if (toolName === 'get_nightly_brief') {
+    const now = Date.now();
+    const tomorrow = now + 36 * 60 * 60_000;
+    const [weather, calendar, reminders, notifications, usage] = await Promise.all([
+      compositeRealitySource(request, 'get_weather', { hourlyLimit: 36 }),
+      compositeRealitySource(request, 'get_calendar_events', { from: new Date(now).toISOString(), to: new Date(tomorrow).toISOString() }),
+      compositeRealitySource(request, 'list_reminders', { from: new Date(now).toISOString(), to: new Date(tomorrow).toISOString(), includeExpired: false }),
+      compositeRealitySource(request, 'get_notification_inbox', { days: 1, limit: 80 }),
+      compositeRealitySource(request, 'get_app_usage_report', { days: 1 })
+    ]);
+    return JSON.stringify({ workflow: 'nightly-brief', generatedAt: now, weather, calendar, reminders, notifications, usage, nextTools: ['list_price_tracks', 'track_delivery'], privacy: '仅包含系统已授权且保存在当前设备的数据。' });
+  }
+
+  if (toolName === 'set_cooking_timer') {
+    const label = textArg(args, 'label');
+    const minutes = Math.min(1440, Math.max(1, Math.round(numberArg(args, 'minutes') ?? 0)));
+    if (!label || !numberArg(args, 'minutes')) throw new Error('烹饪步骤和计时分钟数不能为空。');
+    return await executeRealityTool({ ...request, toolName: 'set_reminder', args: { title: `烹饪计时：${label}`, body: `${label} 已计时 ${minutes} 分钟。`, delayMinutes: minutes } });
+  }
+
+  if (toolName === 'add_music_to_queue') {
+    const id = textArg(args, 'id');
+    const name = textArg(args, 'name');
+    let audioUrl: URL;
+    try {
+      audioUrl = new URL(textArg(args, 'audioUrl'));
+    } catch {
+      throw new Error('歌曲试听地址无效。');
+    }
+    if (!id || !name || audioUrl.protocol !== 'https:') throw new Error('歌曲 ID、名称和 HTTPS 试听地址不能为空。');
+    const coverUrl = textArg(args, 'coverUrl');
+    if (coverUrl) {
+      const parsedCover = new URL(coverUrl);
+      if (parsedCover.protocol !== 'https:') throw new Error('歌曲封面必须使用 HTTPS。');
+    }
+    const track = {
+      id: `${textArg(args, 'source', 'mcp')}:${id}`,
+      platformId: id,
+      source: textArg(args, 'source', 'mcp'),
+      name,
+      artists: textArg(args, 'artist') ? [textArg(args, 'artist')] : [],
+      album: textArg(args, 'album'),
+      picId: coverUrl,
+      lyricId: id,
+      coverUrl,
+      audioUrl: audioUrl.href,
+      duration: Math.max(0, numberArg(args, 'durationMs') ?? 0),
+      addedAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    const player = useMusicPlayerStore();
+    player.setPlaybackQueue([...player.playbackQueue, track]);
+    return JSON.stringify({ queued: true, track, queueLength: player.playbackQueue.length, note: '已加入 BabyLink 队列，未修改外部平台歌单。' });
   }
 
   if (toolName === 'notify_user') {
@@ -1065,6 +1279,16 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
     const textLike = !result.type || result.type.startsWith('text/') || /^(?:https?:\/\/|mailto:|tel:)/i.test(value);
     if (!textLike) throw new Error('剪贴板中不是文本或链接。');
     return JSON.stringify({ approved: true, read: true, type: result.type, value: value.slice(0, 100_000), truncated: value.length > 100_000 });
+  }
+
+  if (toolName === 'analyze_clipboard') {
+    const reason = textArg(args, 'reason', '识别链接、地址或平台分享文本并建议下一步');
+    const approved = confirmRealityAction(`BabyLink 请求读取并识别剪贴板。\n\n用途：${reason}\n\n是否允许本次读取？`);
+    if (!approved) return JSON.stringify({ approved: false, read: false });
+    const result = await Clipboard.read();
+    const value = String(result.value ?? '').slice(0, 100_000);
+    if (!value.trim()) return JSON.stringify({ approved: true, read: true, empty: true });
+    return JSON.stringify({ approved: true, read: true, preview: value.slice(0, 500), ...clipboardAnalysis(value) });
   }
 
   if (toolName === 'write_clipboard_text') {

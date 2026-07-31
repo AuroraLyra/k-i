@@ -123,6 +123,7 @@ export function useMcpStudioController(navigate: McpStudioContext['navigate']): 
         { title: '复制配对信息', detail: '电脑助手会生成一段配对信息，复制后粘贴到下方。' }
       ]);
   const composerKindHelper = computed(() => {
+    if (composer.kind === 'termux') return 'Android App 会通过受限原生中继连接同机 127.0.0.1；API Key 填 Termux 配置中的随机 Token。';
     if (composer.kind === 'taobao-search') return '接入真实淘宝联盟物料搜索；PID、Session 与第三方配置凭据必须保存在自托管服务端。';
     if (composer.kind === 'douyin-search') return '接入真实抖音视频搜索；参考实现默认是 stdio，需先包装为 Streamable HTTP。';
     if (composer.kind === 'xiaohongshu-search') return '接入真实小红书 search_feeds；同机可用回环 HTTP，跨设备须用带鉴权的 HTTPS。';
@@ -442,6 +443,7 @@ export function useMcpStudioController(navigate: McpStudioContext['navigate']): 
 
 export function serverKindLabel(server: McpServerConfig) {
   if (server.kind === 'reality') return 'Reality MCP · 手机能力';
+  if (server.kind === 'termux') return 'Termux · Android 本机网关';
   if (server.kind === 'qq') return 'QQ / NapCat MCP';
   if (server.kind === 'xiaohongshu') return '小红书电脑 Bridge';
   if (server.kind === 'taobao-search') return '淘宝商品搜索 MCP';
@@ -452,6 +454,7 @@ export function serverKindLabel(server: McpServerConfig) {
 
 export function serverKindShortLabel(server: McpServerConfig) {
   if (server.kind === 'reality') return 'PHONE';
+  if (server.kind === 'termux') return 'TERMUX';
   if (server.kind === 'qq') return 'QQ';
   if (server.kind === 'xiaohongshu') return 'RED';
   if (server.kind === 'taobao-search') return 'TAOBAO';

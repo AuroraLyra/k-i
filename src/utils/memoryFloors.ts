@@ -42,16 +42,10 @@ export function getConversationFloorCount(messages: ChatMessage[]) {
   return getConversationFloors(messages).length;
 }
 
-export function getRecentCompleteFloorMessages(messages: ChatMessage[], messageLimit: number) {
+export function getRecentCompleteFloorMessages(messages: ChatMessage[], floorLimit: number) {
   const floors = getConversationFloors(messages);
-  const selectedFloors: ChatMessage[][] = [];
-  let selectedMessageCount = 0;
-  const normalizedLimit = Math.max(1, Math.round(Number(messageLimit) || 1));
-  for (let index = floors.length - 1; index >= 0 && selectedMessageCount < normalizedLimit; index -= 1) {
-    selectedFloors.unshift(floors[index]);
-    selectedMessageCount += floors[index].length;
-  }
-  return selectedFloors.flat();
+  const normalizedLimit = Math.max(1, Math.round(Number(floorLimit) || 1));
+  return floors.slice(-normalizedLimit).flat();
 }
 
 export function resolveMemoryEpisodeFloorRange(

@@ -253,6 +253,7 @@ function normalizeMcpServerKind(value: unknown): McpServerKind {
   return value === 'xiaohongshu'
     || value === 'qq'
     || value === 'reality'
+    || value === 'termux'
     || value === 'taobao-search'
     || value === 'douyin-search'
     || value === 'xiaohongshu-search'

@@ -1,5 +1,6 @@
 import type { AppSettings, CharacterProfile, ChatMcpResultAttachment, McpServerConfig, McpServerKind, McpToolDefinition } from '@/types/domain';
 import { createBuiltinRealityMcpServer, realityMcpTools } from '@/data/realityMcp';
+import { fetchNativeMcpLocal, nativeMcpLocalAvailable } from '@/services/nativeMcpLocal';
 import { executeRealityMcpTool } from '@/services/realityMcp';
 import { createActiveTimeout, isFetchInterruptedError, waitForActiveNetworkWindow } from '@/utils/activeTimeout';
 import { createId } from '@/utils/id';
@@ -56,6 +57,7 @@ interface McpToolCallResultPayload {
 interface McpTransport {
   url: string;
   proxied: boolean;
+  nativeLocal: boolean;
   jobUrl: string;
   jobStatusBaseUrl: string;
 }
@@ -150,11 +152,18 @@ function createMcpTransportUrl(rawUrl: string): McpTransport {
     return {
       url: `${mcpProxyPath}?url=${encodedUrl}`,
       proxied: true,
+      nativeLocal: false,
       jobUrl: `${mcpProxyPath}/jobs?url=${encodedUrl}`,
       jobStatusBaseUrl: `${mcpProxyPath}/jobs/`
     };
   }
-  return { url: normalizedUrl, proxied: false, jobUrl: '', jobStatusBaseUrl: '' };
+  return {
+    url: normalizedUrl,
+    proxied: false,
+    nativeLocal: isLoopbackHostname(hostname) && nativeMcpLocalAvailable(),
+    jobUrl: '',
+    jobStatusBaseUrl: ''
+  };
 }
 
 function decodeBase64Bytes(value: string) {
@@ -348,7 +357,9 @@ class McpHttpSession {
       };
       const response = this.transport.proxied
         ? await fetchMcpProxyJob(this.transport, requestInit, timeout.signal)
-        : await fetch(this.transport.url, requestInit);
+        : this.transport.nativeLocal
+          ? await fetchNativeMcpLocal(this.transport.url, requestInit, this.server.timeoutMs)
+          : await fetch(this.transport.url, requestInit);
       const responseSessionId = response.headers.get('mcp-session-id')?.trim();
       if (responseSessionId) this.sessionId = responseSessionId;
       if (!response.ok) {
@@ -435,14 +446,16 @@ class McpHttpSession {
     const controller = new AbortController();
     const timer = globalThis.setTimeout(() => controller.abort(), Math.min(5_000, this.server.timeoutMs));
     try {
-      await fetch(this.transport.url, {
+      const requestInit: RequestInit = {
         method: 'DELETE',
         headers: createRequestHeaders(this.server, this.protocolVersion, this.sessionId),
         signal: controller.signal,
         credentials: this.transport.proxied ? 'same-origin' : 'omit',
         cache: 'no-store',
         keepalive: true
-      });
+      };
+      if (this.transport.nativeLocal) await fetchNativeMcpLocal(this.transport.url, requestInit, Math.min(5_000, this.server.timeoutMs));
+      else await fetch(this.transport.url, requestInit);
     } catch {
       return;
     } finally {
@@ -655,6 +668,7 @@ export function resolveMcpTools(settings: AppSettings | undefined, character: Ch
 
 function inferServerKind(name: string, url: string): McpServerKind {
   const source = `${name} ${url}`.toLowerCase();
+  if (/termux|babylink android|安卓本机/.test(source)) return 'termux';
   if (/napcat|onebot|\bqq\b/.test(source)) return 'qq';
   if (/taobao|taoke|淘宝|天猫|tmall/.test(source)) return 'taobao-search';
   if (/douyin|抖音/.test(source)) return 'douyin-search';
@@ -664,7 +678,12 @@ function inferServerKind(name: string, url: string): McpServerKind {
 
 export function createMcpServerTemplate(kind: McpServerKind = 'custom'): McpServerConfig {
   if (kind === 'reality') return createBuiltinRealityMcpServer();
-  const metadata = kind === 'xiaohongshu'
+  const metadata = kind === 'termux'
+    ? {
+        name: 'BabyLink Termux 本机网关',
+        description: '在当前 Android 手机的 Termux 中运行，聚合 B 站、豆瓣、音乐、地图、快递、菜谱、价格追踪、通知和可配置 MCP 上游。'
+      }
+    : kind === 'xiaohongshu'
     ? {
         name: '小红书 MCP',
         description: '在用户电脑运行非官方小红书 MCP，通过反向代理或隧道提供远程 HTTPS Streamable HTTP 地址。'
@@ -699,15 +718,15 @@ export function createMcpServerTemplate(kind: McpServerKind = 'custom'): McpServ
     name: metadata.name,
     kind,
     description: metadata.description,
-    url: '',
+    url: kind === 'termux' ? 'http://127.0.0.1:8765/mcp' : '',
     headers: {},
     apiKey: '',
     apiKeyHeader: 'Authorization',
     apiKeyPrefix: 'Bearer ',
     enabled: true,
     globalEnabled: true,
-    toolPolicy: 'read-only',
-    timeoutMs: platformSearch ? 120_000 : 45_000,
+    toolPolicy: kind === 'termux' ? 'all' : 'read-only',
+    timeoutMs: platformSearch || kind === 'termux' ? 120_000 : 45_000,
     tools: [],
     protocolVersion: '',
     serverName: '',
@@ -756,6 +775,7 @@ export function importMcpServers(payload: string) {
     const name = String(entry.name ?? fallbackName).trim() || 'MCP Server';
     const importedKind = entry.kind === 'qq'
       || entry.kind === 'xiaohongshu'
+      || entry.kind === 'termux'
       || entry.kind === 'taobao-search'
       || entry.kind === 'douyin-search'
       || entry.kind === 'xiaohongshu-search'

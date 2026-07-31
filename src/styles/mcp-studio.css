@@ -185,7 +185,7 @@
 .mcp-service-page .mcp-story-card p { margin: 0; color: #847b80; font-size: 9px; font-weight: 700; line-height: 1.45; }
 .mcp-service-page .mcp-story-check { color: #58af78; }
 
-.mcp-service-page .mcp-connection-peek, .mcp-service-page .mcp-pairing-card, .mcp-service-page .mcp-platform-search-card, .mcp-service-page .mcp-detail-card {
+.mcp-service-page .mcp-connection-peek, .mcp-service-page .mcp-pairing-card, .mcp-service-page .mcp-termux-card, .mcp-service-page .mcp-platform-search-card, .mcp-service-page .mcp-detail-card {
   display: grid;
   gap: 12px;
   padding: 15px;
@@ -202,6 +202,7 @@
 
 .mcp-service-page .mcp-kind-avatar { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 16px; color: #635978; background: var(--mcp-lilac); }
 .mcp-service-page .mcp-kind-avatar.kind-reality { color: #43745a; background: var(--mcp-mint); }
+.mcp-service-page .mcp-kind-avatar.kind-termux { color: #397052; background: #e4f6eb; }
 .mcp-service-page .mcp-kind-avatar.kind-qq { color: #426c91; background: var(--mcp-blue); }
 .mcp-service-page .mcp-kind-avatar.kind-xiaohongshu { color: #b34c69; background: var(--mcp-pink); }
 .mcp-service-page .mcp-kind-avatar.kind-taobao-search { color: #bf602d; background: #fff0e5; }
@@ -254,12 +255,19 @@
 .mcp-service-page .mcp-permission-chip.read { color: #557465; background: #edf6f1; }
 .mcp-service-page .mcp-permission-chip.action { color: #a34a64; background: #fff0f4; }
 .mcp-service-page .mcp-permission-chip.off { color: #8c8388; background: #efedef; }
-.mcp-service-page .phone-tool-switch { position: relative; display: block; width: 40px; height: 24px; }
-.mcp-service-page .phone-tool-switch input { position: absolute; opacity: 0; }
-.mcp-service-page .phone-tool-switch i { display: block; width: 40px; height: 24px; border-radius: 999px; background: #ded9dc; }
-.mcp-service-page .phone-tool-switch i::after { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 3px 7px rgba(44, 37, 41, 0.19); content: ''; transition: transform 0.18s; }
+.mcp-service-page .phone-tool-switch { position: relative; display: block; width: 40px; height: 24px; cursor: pointer; }
+.mcp-service-page .phone-tool-switch input { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.mcp-service-page .phone-tool-switch i { position: relative; display: block; width: 40px; height: 24px; border-radius: 999px; background: #ded9dc; transition: background 0.18s; }
+.mcp-service-page .phone-tool-switch i::after { position: absolute; top: 3px; left: 3px; display: block; width: 18px; height: 18px; margin: 0; border-radius: 50%; background: #fff; box-shadow: 0 3px 7px rgba(44, 37, 41, 0.19); content: ''; transition: transform 0.18s; }
 .mcp-service-page .phone-tool-switch input:checked + i { background: linear-gradient(135deg, #78d39a, #56bc7d); }
 .mcp-service-page .phone-tool-switch input:checked + i::after { transform: translateX(16px); }
+.mcp-service-page .phone-tool-switch input:focus-visible + i { outline: 2px solid rgba(70, 132, 95, 0.42); outline-offset: 2px; }
+
+@media (max-width: 370px) {
+  .mcp-service-page .mcp-phone-view .mcp-capability-row { grid-template-columns: 40px minmax(0, 1fr) 40px; }
+  .mcp-service-page .mcp-phone-view .mcp-permission-chip { display: none; }
+}
+
 .mcp-service-page .mcp-safety-note { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: start; gap: 10px; padding: 13px; border-radius: 21px; color: #506c5c; background: linear-gradient(145deg, rgba(231, 247, 237, 0.88), rgba(255, 245, 249, 0.82)); }
 .mcp-service-page .mcp-safety-note > span { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 15px; background: rgba(255, 255, 255, 0.7); }
 .mcp-service-page .mcp-safety-note div { display: grid; gap: 3px; }
@@ -287,6 +295,21 @@
 .mcp-service-page .mcp-pair-icon.qq { color: #4e7598; background: var(--mcp-blue); }
 .mcp-service-page .mcp-pair-icon.xhs { color: #b8506d; background: var(--mcp-pink); }
 .mcp-service-page .mcp-inline-privacy { display: flex; align-items: center; gap: 7px; margin: 0; padding: 9px 10px; border-radius: 14px; color: #61766a; background: #edf6f1; font-size: 9px; font-weight: 750; line-height: 1.45; }
+
+.mcp-service-page .mcp-termux-card { background: radial-gradient(circle at 100% 0, rgba(203, 239, 221, 0.72), transparent 44%), rgba(255, 255, 255, 0.72); }
+.mcp-service-page .mcp-termux-summary { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.mcp-service-page .mcp-termux-summary > span { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 17px; color: #3e7657; background: #e5f6eb; }
+.mcp-service-page .mcp-termux-summary > div { display: grid; gap: 3px; }
+.mcp-service-page .mcp-termux-summary strong { font-size: 12px; font-weight: 950; }
+.mcp-service-page .mcp-termux-summary small { color: #80787c; font-size: 9px; font-weight: 700; line-height: 1.4; }
+.mcp-service-page .mcp-termux-summary > button { display: inline-flex; align-items: center; gap: 3px; min-height: 34px; padding: 0 9px; border-radius: 12px; color: #3e7657; background: rgba(255, 255, 255, 0.8); font-size: 9px; font-weight: 900; }
+.mcp-service-page .mcp-termux-capabilities { display: flex; flex-wrap: wrap; gap: 5px; }
+.mcp-service-page .mcp-termux-capabilities span { padding: 5px 8px; border-radius: 999px; color: #5b7164; background: rgba(255, 255, 255, 0.74); font-size: 8px; font-weight: 850; }
+.mcp-service-page .mcp-termux-install-command { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 9px; width: 100%; padding: 9px 10px; border: 1px solid rgba(62, 118, 87, 0.14); border-radius: 15px; color: #355f48; text-align: left; background: rgba(255, 255, 255, 0.78); }
+.mcp-service-page .mcp-termux-install-command > span:first-child { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 12px; background: #e5f6eb; }
+.mcp-service-page .mcp-termux-install-command > span:last-child { min-width: 0; display: grid; gap: 3px; }
+.mcp-service-page .mcp-termux-install-command strong { font-size: 10px; font-weight: 950; }
+.mcp-service-page .mcp-termux-install-command small { overflow: hidden; color: #6d7c73; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 7px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 
 .mcp-service-page .mcp-platform-search-card { display: grid; gap: 11px; padding: 15px; border-radius: 25px; background: radial-gradient(circle at 100% 0, rgba(226, 218, 248, 0.58), transparent 42%), rgba(255, 255, 255, 0.72); box-shadow: var(--mcp-shadow); backdrop-filter: blur(12px); }
 .mcp-service-page .mcp-platform-search-intro { margin: 0; color: #7d7479; font-size: 9px; font-weight: 700; line-height: 1.55; }
@@ -349,6 +372,7 @@
 /* Server detail */
 .mcp-service-page .mcp-server-detail-hero { grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 14px; min-height: 166px; padding: 18px; }
 .mcp-service-page .mcp-server-detail-hero.kind-reality { background: radial-gradient(circle at 100% 0, rgba(202, 239, 219, 0.84), transparent 44%), linear-gradient(145deg, #fffafd, #f0f7f3); }
+.mcp-service-page .mcp-server-detail-hero.kind-termux { background: radial-gradient(circle at 100% 0, rgba(202, 239, 219, 0.84), transparent 44%), linear-gradient(145deg, #fffafd, #edf7f2); }
 .mcp-service-page .mcp-server-detail-hero.kind-qq { background: radial-gradient(circle at 100% 0, rgba(205, 229, 250, 0.86), transparent 44%), linear-gradient(145deg, #fffafd, #eef4fa); }
 .mcp-service-page .mcp-server-detail-hero.kind-xiaohongshu { background: radial-gradient(circle at 100% 0, rgba(250, 206, 220, 0.84), transparent 44%), linear-gradient(145deg, #fffafd, #f8eff2); }
 .mcp-service-page .mcp-server-detail-hero.kind-taobao-search { background: radial-gradient(circle at 100% 0, rgba(255, 206, 174, 0.86), transparent 44%), linear-gradient(145deg, #fffafd, #fff1e8); }

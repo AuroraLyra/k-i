@@ -1,6 +1,6 @@
 export const chatMemorySettingLimits = {
   captureEvery: { minimum: 2, maximum: 120, step: 1, defaultValue: 25 },
-  recentMessageLimit: { minimum: 6, maximum: 120, step: 1, defaultValue: 50 },
+  recentFloorLimit: { minimum: 6, maximum: 120, step: 1, defaultValue: 20 },
   recallTokenBudget: { minimum: 300, maximum: 8_000, step: 100, defaultValue: 5_000 }
 } as const;
 

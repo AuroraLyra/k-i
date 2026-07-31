@@ -33,7 +33,7 @@
       </div>
       <div class="compression-numbers">
         <span><b>{{ stats.archivedFloors }}</b><small>已归档楼层</small></span>
-        <span><b>{{ stats.promptMessages }}</b><small>本轮原文</small></span>
+        <span><b>{{ stats.promptFloors }}</b><small>本轮原文楼层</small></span>
         <span><b>{{ stats.memoryTokens }}/{{ stats.memoryBudgetTokens }}</b><small>记忆 tokens</small></span>
       </div>
     </section>
@@ -48,7 +48,7 @@
         <label class="setting-line"><span><strong>压缩旧楼层</strong><small>超出最近原文范围的已归档内容不再重复发送给模型。</small></span><input v-model="memoryDraft.compressionEnabled" type="checkbox" @change="saveMemorySettings" /></label>
         <label class="setting-line"><span><strong>自动写日记</strong><small>每积累几个完整楼层，就编码一次角色主观记忆。</small></span><input v-model="memoryDraft.autoCapture" type="checkbox" @change="saveMemorySettings" /></label>
         <label class="number-line"><span><strong>每批楼层</strong><small>范围 2–120，建议 12–30；这是自动目标，模式切换、手动或尾批可更少。</small></span><input v-model.number="memoryDraft.captureEvery" type="number" :min="chatMemorySettingLimits.captureEvery.minimum" :max="chatMemorySettingLimits.captureEvery.maximum" :step="chatMemorySettingLimits.captureEvery.step" @change="saveMemorySettings" /></label>
-        <label class="number-line"><span><strong>保留最近原文</strong><small>按消息条数计算（不是楼层）；即使已写入日记也会保留，且不会拆开完整楼层。</small></span><input v-model.number="memoryDraft.recentMessageLimit" type="number" :min="chatMemorySettingLimits.recentMessageLimit.minimum" :max="chatMemorySettingLimits.recentMessageLimit.maximum" :step="chatMemorySettingLimits.recentMessageLimit.step" @change="saveMemorySettings" /></label>
+        <label class="number-line"><span><strong>保留最近原文</strong><small>按楼层计算；即使已写入日记也会保留最近的完整楼层。</small></span><input v-model.number="memoryDraft.recentFloorLimit" type="number" :min="chatMemorySettingLimits.recentFloorLimit.minimum" :max="chatMemorySettingLimits.recentFloorLimit.maximum" :step="chatMemorySettingLimits.recentFloorLimit.step" @change="saveMemorySettings" /></label>
         <label class="number-line"><span><strong>记忆召回预算</strong><small>范围 300–8000 tokens，默认 5000；条数不限，各类记忆按预算动态分配。</small></span><input v-model.number="memoryDraft.recallTokenBudget" type="number" :min="chatMemorySettingLimits.recallTokenBudget.minimum" :max="chatMemorySettingLimits.recallTokenBudget.maximum" :step="chatMemorySettingLimits.recallTokenBudget.step" @change="saveMemorySettings" /></label>
         <label class="setting-line"><span><strong>允许缓慢成长</strong><small>关系与印象只依据重复证据逐步变化。</small></span><input v-model="memoryDraft.growthEnabled" type="checkbox" @change="saveMemorySettings" /></label>
       </div>
@@ -218,7 +218,7 @@ watch(() => props.conversationId, () => {
 
 async function saveMemorySettings() {
   memoryDraft.captureEvery = normalizeChatMemorySetting('captureEvery', memoryDraft.captureEvery);
-  memoryDraft.recentMessageLimit = normalizeChatMemorySetting('recentMessageLimit', memoryDraft.recentMessageLimit);
+  memoryDraft.recentFloorLimit = normalizeChatMemorySetting('recentFloorLimit', memoryDraft.recentFloorLimit);
   memoryDraft.recallTokenBudget = normalizeChatMemorySetting('recallTokenBudget', memoryDraft.recallTokenBudget);
   await store.saveConversationSettings({ ...currentSettings.value, conversationId: props.conversationId, memory: { ...memoryDraft } });
 }

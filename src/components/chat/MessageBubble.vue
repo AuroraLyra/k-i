@@ -617,9 +617,13 @@ const linkPreviewCaption = computed(() => props.message.linkPreview
   ? props.message.content.replace(/https?:\/\/[^\s<>"']+/i, '').replace(/^[\s，。！？；：、…]+|[\s，。！？；：、…]+$/g, '').trim()
   : '');
 const linkPreviewPlatformLabel = computed(() => {
-  if (props.message.linkPreview?.platform === 'xiaohongshu') return '小红书 · 分享链接';
-  if (props.message.linkPreview?.platform === 'douyin') return '抖音 · 分享链接';
-  if (props.message.linkPreview?.platform === 'taobao') return '淘宝 · 商品链接';
+  const platform = props.message.linkPreview?.platform;
+  const labels: Partial<Record<NonNullable<typeof platform>, string>> = {
+    xiaohongshu: '小红书 · 笔记分享', douyin: '抖音 · 视频分享', taobao: '淘宝 · 商品链接', pinduoduo: '拼多多 · 商品链接', jd: '京东 · 商品链接',
+    xianyu: '闲鱼 · 商品链接', bilibili: '哔哩哔哩 · 视频分享', weibo: '微博 · 内容分享', zhihu: '知乎 · 内容分享', kuaishou: '快手 · 视频分享',
+    wechat: '微信 · 文章分享', meituan: '美团 · 服务分享', dianping: '大众点评 · 门店分享', ctrip: '携程 · 旅行分享', eleme: '饿了么 · 商家分享', dewu: '得物 · 商品链接'
+  };
+  if (platform && labels[platform]) return labels[platform];
   return props.message.linkPreview?.siteName || '网站链接';
 });
 const linkPreviewHostname = computed(() => {

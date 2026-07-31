@@ -433,7 +433,7 @@ export interface ChatMemorySettings {
   compressionEnabled: boolean;
   autoCapture: boolean;
   captureEvery: number;
-  recentMessageLimit: number;
+  recentFloorLimit: number;
   recallTokenBudget: number;
   growthEnabled: boolean;
   naturalForgettingEnabled: boolean;
@@ -684,6 +684,7 @@ export interface ChatMcpResultItem {
   description?: string;
   url?: string;
   imageUrl?: string;
+  imageUrls?: string[];
   price?: string;
   source?: string;
   address?: string;
@@ -758,7 +759,14 @@ export interface ChatSmallTheaterLinkAttachment {
   content: string;
 }
 
-export type ChatLinkPreviewPlatform = 'website' | 'xiaohongshu' | 'douyin' | 'taobao';
+export type ChatLinkPreviewPlatform = 'website' | 'xiaohongshu' | 'douyin' | 'taobao' | 'pinduoduo' | 'jd' | 'xianyu' | 'bilibili' | 'weibo' | 'zhihu' | 'kuaishou' | 'wechat' | 'meituan' | 'dianping' | 'ctrip' | 'eleme' | 'dewu';
+
+export interface ChatLinkPreviewComment {
+  author?: string;
+  message: string;
+  createdAt?: string;
+  rating?: number;
+}
 
 export interface ChatLinkPreviewAttachment {
   platform: ChatLinkPreviewPlatform;
@@ -766,6 +774,11 @@ export interface ChatLinkPreviewAttachment {
   title: string;
   description: string;
   imageUrl?: string;
+  imageUrls?: string[];
+  content?: string;
+  comments?: ChatLinkPreviewComment[];
+  readStatus?: 'complete' | 'platform-limited' | 'metadata-only';
+  httpStatus?: number;
   siteName: string;
   fetchedAt: number;
 }
@@ -1603,7 +1616,7 @@ export interface AppThemeSettings {
   offline: ThemeStyleScopeSettings;
 }
 
-export type McpServerKind = 'custom' | 'xiaohongshu' | 'qq' | 'reality' | 'taobao-search' | 'douyin-search' | 'xiaohongshu-search';
+export type McpServerKind = 'custom' | 'xiaohongshu' | 'qq' | 'reality' | 'termux' | 'taobao-search' | 'douyin-search' | 'xiaohongshu-search';
 
 export type McpToolPolicy = 'disabled' | 'read-only' | 'all';
 

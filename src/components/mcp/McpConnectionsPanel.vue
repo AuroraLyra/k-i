@@ -60,12 +60,33 @@
       <p class="mcp-inline-privacy"><ShieldCheck :size="15" /> 账号只登录在电脑，平台流量不会经过 BabyLink 云端。</p>
     </section>
 
+    <section class="mcp-termux-card">
+      <header class="mcp-section-title compact">
+        <div><span>ANDROID LOCAL HUB</span><h2>不用电脑的本机能力</h2></div>
+        <small>TERMUX</small>
+      </header>
+      <div class="mcp-termux-summary">
+        <span><TerminalSquare :size="22" /></span>
+        <div><strong>BabyLink Termux 网关</strong><small>通过 Android 原生回环中继连接，不开放全局明文网络。</small></div>
+        <button type="button" @click="emit('add', 'termux')">添加<ChevronRight :size="15" /></button>
+      </div>
+      <div class="mcp-termux-capabilities" aria-label="Termux 网关能力">
+        <span v-for="capability in termuxCapabilities" :key="capability">{{ capability }}</span>
+      </div>
+      <button class="mcp-termux-install-command" type="button" @click="copyTermuxInstallCommand">
+        <span><Copy :size="15" /></span>
+        <span><strong>{{ termuxCopyLabel }}</strong><small>{{ termuxInstallCommand }}</small></span>
+      </button>
+      <p class="mcp-platform-search-intro">在已有 Termux 中粘贴一次即可安装、后台启动并输出配对 JSON；运行 babylink-mcp setup 可配置淘宝、抖音实验适配器和 xiaohongshu-mcp 社区上游。QQ 仍使用电脑助手。</p>
+      <p class="mcp-inline-privacy"><ShieldCheck :size="15" /> 默认仅监听手机 127.0.0.1；跨设备时才启用带 Bearer Token 的 HTTPS 隧道。</p>
+    </section>
+
     <section class="mcp-platform-search-card">
       <header class="mcp-section-title compact">
         <div><span>AI PLATFORM SEARCH</span><h2>真实平台联网搜索</h2></div>
         <small>SELF HOSTED</small>
       </header>
-      <p class="mcp-platform-search-intro">AI 直接调用搜索型 MCP，原始链接、图片、价格与作者会显示成可点击卡片；这不是电脑 Bridge，也不会用打开 App 冒充搜索。</p>
+      <p class="mcp-platform-search-intro">AI 直接调用真实平台 MCP/开放平台：淘宝为用户自己的 TOP/TBK 授权，小红书和抖音为社区适配器。分享链接还会自动深读正文、多图和公开评论；不会用打开 App 或 Bing 冒充平台搜索。</p>
       <div class="mcp-platform-search-actions">
         <button type="button" @click="emit('add', 'taobao-search')">
           <span class="taobao"><ShoppingBag :size="19" /></span>
@@ -80,7 +101,7 @@
           <strong>小红书笔记</strong><small>search_feeds</small><ChevronRight :size="16" />
         </button>
       </div>
-      <p class="mcp-inline-privacy"><ShieldCheck :size="15" /> Cookie、Session 与平台凭据只保存在你的 MCP 服务端；BabyLink 仅保存远程地址和访问 Key。</p>
+      <p class="mcp-inline-privacy"><ShieldCheck :size="15" /> Cookie、Session 与平台凭据只保存在 Termux/上游服务；小红书和抖音适配器并非平台官方，Android ARM64 上的抖音能力属于实验支持。</p>
     </section>
 
     <header class="mcp-section-title">
@@ -122,8 +143,8 @@
 </template>
 
 <script setup lang="ts">
-import { AlertTriangle, Apple, Cable, ChevronRight, Clapperboard, Download, Heart, LoaderCircle, MessageCircle, Monitor, Network, Plus, RefreshCw, Search, ShieldCheck, ShoppingBag, Smartphone, Upload } from 'lucide-vue-next';
-import { computed, onMounted, reactive, type Component } from 'vue';
+import { AlertTriangle, Apple, Cable, ChevronRight, Clapperboard, Copy, Download, Heart, LoaderCircle, MessageCircle, Monitor, Network, Plus, RefreshCw, Search, ShieldCheck, ShoppingBag, Smartphone, TerminalSquare, Upload } from 'lucide-vue-next';
+import { computed, onMounted, reactive, ref, type Component } from 'vue';
 import { downloadDesktopBridgeRelease, fetchDesktopBridgeRelease, type DesktopBridgePlatform, type DesktopBridgeRelease } from '@/services/desktopBridgeRelease';
 import type { McpServerConfig, McpServerKind, McpToolPolicy } from '@/types/domain';
 
@@ -153,6 +174,10 @@ const desktopReleaseItems = computed(() => [
 ]);
 const releaseLoading = computed(() => desktopReleaseItems.value.some((item) => item.phase === 'loading'));
 const desktopReleaseError = computed(() => desktopReleaseItems.value.find((item) => item.error)?.error ?? '');
+const termuxCapabilities = ['淘宝/TBK', '抖音实验版', '小红书上游', '分享链接深读', 'B 站', '地图', '快递', '价格追踪'];
+const termuxInstallCommand = 'curl -fsSL https://raw.githubusercontent.com/KizunaRP/LINK/main/termux/bootstrap.sh | sh';
+const termuxCopyLabel = ref('复制一键安装命令');
+let termuxCopyResetTimer = 0;
 
 onMounted(loadDesktopReleases);
 
@@ -191,6 +216,19 @@ async function downloadDesktopRelease(platform: DesktopBridgePlatform) {
   }
 }
 
+async function copyTermuxInstallCommand() {
+  try {
+    await navigator.clipboard.writeText(termuxInstallCommand);
+    termuxCopyLabel.value = '已复制，去 Termux 粘贴';
+  } catch {
+    termuxCopyLabel.value = '长按下方命令复制';
+  }
+  window.clearTimeout(termuxCopyResetTimer);
+  termuxCopyResetTimer = window.setTimeout(() => {
+    termuxCopyLabel.value = '复制一键安装命令';
+  }, 2_500);
+}
+
 function formatFileSize(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '';
   return `${(bytes / 1024 / 1024).toFixed(bytes >= 100 * 1024 * 1024 ? 0 : 1)} MB`;
@@ -205,6 +243,7 @@ function releaseDescription(item: typeof desktopReleaseItems.value[number]) {
 
 function serverIcon(kind: McpServerKind): Component {
   if (kind === 'reality') return Smartphone;
+  if (kind === 'termux') return TerminalSquare;
   if (kind === 'qq') return MessageCircle;
   if (kind === 'xiaohongshu' || kind === 'xiaohongshu-search') return Heart;
   if (kind === 'taobao-search') return ShoppingBag;
@@ -214,6 +253,7 @@ function serverIcon(kind: McpServerKind): Component {
 
 function kindLabel(kind: McpServerKind) {
   if (kind === 'reality') return 'ON THIS PHONE';
+  if (kind === 'termux') return 'ANDROID LOCAL HUB';
   if (kind === 'qq') return 'QQ BRIDGE';
   if (kind === 'xiaohongshu') return 'XIAOHONGSHU BRIDGE';
   if (kind === 'taobao-search') return 'TAOBAO SEARCH';

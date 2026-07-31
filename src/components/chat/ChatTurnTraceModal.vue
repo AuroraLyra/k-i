@@ -27,7 +27,6 @@
           </span>
         </div>
         <div v-if="trace" class="trace-meta" aria-label="API 元数据">
-          <span v-if="trace.requestId"><small>REQUEST</small><strong>{{ trace.requestId }}</strong></span>
           <span v-if="tokenLabel"><small>TOKENS</small><strong>{{ tokenLabel }}</strong></span>
           <span v-if="trace.finishReason || trace.status"><small>STATUS</small><strong>{{ trace.finishReason || trace.status }}</strong></span>
         </div>

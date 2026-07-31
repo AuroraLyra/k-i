@@ -9,6 +9,13 @@ interface NativeRealityPlugin {
   getAppUsage(options: { from: number; to: number; limit: number }): Promise<AndroidAppUsageResult>;
 }
 
+interface NativeNotificationInboxPlugin {
+  getAccess(): Promise<{ granted: boolean; platform: 'android' }>;
+  openAccessSettings(): Promise<{ opened: boolean; granted: boolean; platform: 'android' }>;
+  getInbox(options: { from: number; limit: number; category: string }): Promise<AndroidNotificationInboxResult>;
+  clearInbox(): Promise<{ cleared: boolean }>;
+}
+
 export interface AndroidAppUsageEntry {
   appName: string;
   packageName: string;
@@ -26,10 +33,34 @@ export interface AndroidAppUsageResult {
   apps: AndroidAppUsageEntry[];
 }
 
+export interface AndroidNotificationInboxEntry {
+  id: string;
+  packageName: string;
+  appName: string;
+  title: string;
+  text: string;
+  postedAt: number;
+  category: 'delivery' | 'food' | 'meeting' | 'travel' | 'shopping' | 'message' | 'other';
+  redacted: boolean;
+}
+
+export interface AndroidNotificationInboxResult {
+  granted: boolean;
+  platform: 'android';
+  from: number;
+  category: string;
+  entries: AndroidNotificationInboxEntry[];
+}
+
 const LinkReality = registerPlugin<NativeRealityPlugin>('LinkReality');
+const LinkNotificationInbox = registerPlugin<NativeNotificationInboxPlugin>('LinkNotificationInbox');
 
 export function androidRealityAvailable() {
   return Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('LinkReality');
+}
+
+export function androidNotificationInboxAvailable() {
+  return Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('LinkNotificationInbox');
 }
 
 export async function setAndroidSystemAlarm(options: { hour: number; minute: number; label: string }) {
@@ -60,4 +91,24 @@ export async function openAndroidAppUsageSettings() {
 export async function getAndroidAppUsage(options: { from: number; to: number; limit: number }) {
   if (!androidRealityAvailable()) throw new Error('真实 App 使用时长当前仅支持 Android App。');
   return await LinkReality.getAppUsage(options);
+}
+
+export async function getAndroidNotificationInboxAccess() {
+  if (!androidNotificationInboxAvailable()) return { granted: false, platform: 'unsupported' as const };
+  return await LinkNotificationInbox.getAccess();
+}
+
+export async function openAndroidNotificationInboxSettings() {
+  if (!androidNotificationInboxAvailable()) throw new Error('通知收件箱仅支持 Android App。');
+  return await LinkNotificationInbox.openAccessSettings();
+}
+
+export async function getAndroidNotificationInbox(options: { from: number; limit: number; category: string }) {
+  if (!androidNotificationInboxAvailable()) throw new Error('通知收件箱仅支持 Android App。');
+  return await LinkNotificationInbox.getInbox(options);
+}
+
+export async function clearAndroidNotificationInbox() {
+  if (!androidNotificationInboxAvailable()) throw new Error('通知收件箱仅支持 Android App。');
+  return await LinkNotificationInbox.clearInbox();
 }

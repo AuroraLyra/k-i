@@ -1,0 +1,51 @@
+{
+  "host": "127.0.0.1",
+  "port": 8765,
+  "token": "${BABYLINK_MCP_TOKEN}",
+  "dataDirectory": "${HOME}/.local/share/babylink-mcp",
+  "allowedOrigins": [
+    "https://babylink.top"
+  ],
+  "priceCheckIntervalMinutes": 180,
+  "connectors": {
+    "amapWebKey": "${AMAP_WEB_KEY}",
+    "kuaidi100Customer": "${KUAIDI100_CUSTOMER}",
+    "kuaidi100Key": "${KUAIDI100_KEY}",
+    "bilibiliCookie": "${BILIBILI_COOKIE}",
+    "taobao": {
+      "appKey": "${TAOBAO_APP_KEY}",
+      "appSecret": "${TAOBAO_APP_SECRET}",
+      "session": "${TAOBAO_SESSION}",
+      "pid": "${TAOBAO_PID}",
+      "adzoneId": "${TAOBAO_ADZONE_ID}",
+      "apiUrl": "https://eco.taobao.com/router/rest",
+      "materialSearchMethod": "taobao.tbk.dg.material.optional.upgrade"
+    },
+    "douyin": {
+      "cookiePath": "${HOME}/.config/douyinmcp/cookies.txt",
+      "projectDirectory": "${HOME}/.local/share/douyinmcp",
+      "asrProvider": "siliconflow",
+      "siliconflowApiKey": ""
+    }
+  },
+  "httpServers": [
+    {
+      "id": "xiaohongshu",
+      "name": "xiaohongshu-mcp 上游",
+      "enabled": false,
+      "url": "http://127.0.0.1:18060/mcp",
+      "prefix": "xhs",
+      "headers": {},
+      "allowedTools": [
+        "check_login_status",
+        "list_feeds",
+        "search_feeds",
+        "get_feed_detail",
+        "user_profile"
+      ],
+      "readOnly": true,
+      "timeoutMs": 120000
+    }
+  ],
+  "stdioServers": []
+}

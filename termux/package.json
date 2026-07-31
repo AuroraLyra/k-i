@@ -1,0 +1,13 @@
+{
+  "name": "babylink-termux-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node gateway.mjs",
+    "check": "node --check gateway.mjs && node --check pairing.mjs && node --check setup.mjs && node --check lib/connectors.mjs && node --check lib/taobao.mjs && node --check lib/shared-links.mjs && node --check lib/upstreams.mjs"
+  }
+}

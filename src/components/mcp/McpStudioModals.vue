@@ -44,8 +44,8 @@
   <AppModal :model-value="showComposer" :title="editingServerId ? '编辑 MCP' : '添加 MCP'" :show-header="false" fixed-height variant="ins" @update:model-value="showComposer = $event">
     <form class="mcp-modal-shell" @submit.prevent="saveComposer">
       <section class="mcp-modal-hero" :class="`kind-${composer.kind}`">
-        <span class="mcp-modal-icon"><Heart v-if="composer.kind === 'xiaohongshu' || composer.kind === 'xiaohongshu-search'" :size="22" /><MessageCircle v-else-if="composer.kind === 'qq'" :size="22" /><ShoppingBag v-else-if="composer.kind === 'taobao-search'" :size="22" /><Clapperboard v-else-if="composer.kind === 'douyin-search'" :size="22" /><Network v-else :size="22" /></span>
-        <div><small>{{ composer.kind.endsWith('-search') ? 'AI PLATFORM SEARCH' : composer.kind === 'custom' ? 'REMOTE MCP' : 'COMPUTER SERVICE' }}</small><h2>{{ serverKindLabel(composer) }}</h2><p>{{ composerKindHelper }}</p></div>
+        <span class="mcp-modal-icon"><Heart v-if="composer.kind === 'xiaohongshu' || composer.kind === 'xiaohongshu-search'" :size="22" /><MessageCircle v-else-if="composer.kind === 'qq'" :size="22" /><TerminalSquare v-else-if="composer.kind === 'termux'" :size="22" /><ShoppingBag v-else-if="composer.kind === 'taobao-search'" :size="22" /><Clapperboard v-else-if="composer.kind === 'douyin-search'" :size="22" /><Network v-else :size="22" /></span>
+        <div><small>{{ composer.kind === 'termux' ? 'ANDROID LOCAL HUB' : composer.kind.endsWith('-search') ? 'AI PLATFORM SEARCH' : composer.kind === 'custom' ? 'REMOTE MCP' : 'COMPUTER SERVICE' }}</small><h2>{{ serverKindLabel(composer) }}</h2><p>{{ composerKindHelper }}</p></div>
       </section>
 
       <nav class="mcp-composer-tabs" aria-label="MCP 编辑分栏">
@@ -57,7 +57,7 @@
         <label class="mcp-modal-field"><span>显示名称</span><input v-model="composer.name" maxlength="60" required></label>
         <label class="mcp-modal-field">
           <span>MCP 地址</span>
-          <input v-model="composer.url" inputmode="url" :placeholder="composer.kind === 'custom' || composer.kind.endsWith('-search') ? 'https://mcp.example.com/mcp' : 'https://你的电脑助手域名/mcp'" required>
+          <input v-model="composer.url" inputmode="url" :placeholder="composer.kind === 'termux' ? 'http://127.0.0.1:8765/mcp' : composer.kind === 'custom' || composer.kind.endsWith('-search') ? 'https://mcp.example.com/mcp' : 'https://你的电脑助手域名/mcp'" required>
           <small>公开服务须用 HTTPS；电脑本机可用 http://127.0.0.1。手机中的 127.0.0.1 指手机自身。</small>
         </label>
         <label class="mcp-modal-field"><span>API Key <em>没有鉴权可留空</em></span><input v-model="composer.apiKey" autocomplete="off" placeholder="粘贴服务商提供的 Key" type="password"></label>
@@ -140,7 +140,7 @@
 </template>
 
 <script setup lang="ts">
-import { AlertTriangle, ChevronDown, Clapperboard, Heart, MessageCircle, Network, ShieldCheck, ShoppingBag, Sparkles, Trash2, Upload } from 'lucide-vue-next';
+import { AlertTriangle, ChevronDown, Clapperboard, Heart, MessageCircle, Network, ShieldCheck, ShoppingBag, Sparkles, TerminalSquare, Trash2, Upload } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import { serverKindLabel, useMcpStudio } from '@/components/mcp/mcpStudio';
 
@@ -200,6 +200,7 @@ const {
 }
 
 .mcp-modal-hero.kind-qq { background: radial-gradient(circle at 100% 0, rgba(205, 230, 252, 0.9), transparent 44%), linear-gradient(145deg, #fffafd, #eef3fb); }
+.mcp-modal-hero.kind-termux { background: radial-gradient(circle at 100% 0, rgba(202, 239, 219, 0.9), transparent 44%), linear-gradient(145deg, #fffafd, #edf7f2); }
 .mcp-modal-hero.kind-xiaohongshu { background: radial-gradient(circle at 100% 0, rgba(252, 208, 220, 0.88), transparent 44%), linear-gradient(145deg, #fff9fb, #f6edf1); }
 .mcp-modal-hero.kind-taobao-search { background: radial-gradient(circle at 100% 0, rgba(255, 206, 174, 0.9), transparent 44%), linear-gradient(145deg, #fffaf7, #fff1e8); }
 .mcp-modal-hero.kind-douyin-search { background: radial-gradient(circle at 100% 0, rgba(194, 229, 239, 0.9), transparent 44%), linear-gradient(145deg, #fff9fc, #edf6f7); }

@@ -42,6 +42,7 @@ const mixedMessages = [
 const mixedFloors = getConversationFloors(mixedMessages);
 assert.deepEqual(mixedFloors.map((floor) => floor.map((item) => item.id)), [['u1', 'u2'], ['c1', 'c2'], ['u3'], ['c3']]);
 assert.deepEqual(getRecentCompleteFloorMessages(mixedMessages, 3).map((item) => item.id), ['c1', 'c2', 'u3', 'c3']);
+assert.deepEqual(getRecentCompleteFloorMessages(mixedMessages, 2).map((item) => item.id), ['u3', 'c3']);
 
 const pendingTurn = getConversationFloors([
   message('u1', 'user', 'online', 1),
@@ -60,8 +61,8 @@ assert.deepEqual(resolveMemoryEpisodeFloorRange([], 0, 32), { startFloor: 1, end
 assert.deepEqual(resolveMemoryEpisodeFloorRange([8, 9], 1, 2), { startFloor: 8, endFloor: 9 });
 assert.equal(normalizeChatMemorySetting('captureEvery', undefined), 25);
 assert.equal(normalizeChatMemorySetting('captureEvery', 200), 120);
-assert.equal(normalizeChatMemorySetting('recentMessageLimit', undefined), 50);
-assert.equal(normalizeChatMemorySetting('recentMessageLimit', 80), 80);
+assert.equal(normalizeChatMemorySetting('recentFloorLimit', undefined), 20);
+assert.equal(normalizeChatMemorySetting('recentFloorLimit', 80), 80);
 assert.equal(normalizeChatMemorySetting('recallTokenBudget', undefined), 5_000);
 assert.equal(normalizeChatMemorySetting('recallTokenBudget', 7_500), 7_500);
 

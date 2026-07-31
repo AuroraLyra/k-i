@@ -21,14 +21,14 @@ const sensitiveKeyPattern = /(?:authorization|cookie|password|passwd|secret|toke
 const collectionKeys = [
   'results', 'result', 'items', 'item', 'list', 'records', 'data', 'products', 'product',
   'feeds', 'feed', 'pois', 'poi', 'places', 'shops', 'posts', 'notes', 'videos', 'documents', 'matches',
-  'suggestions', 'routes'
+  'suggestions', 'routes', 'tracks', 'priceTracks', 'shoppingList', 'traces', 'comments', 'folders', 'meals', 'lines', 'images'
 ];
-const titleKeys = ['title', 'name', 'displayName', 'displayTitle', 'productName', 'itemName', 'poiName', 'videoTitle', 'noteTitle', 'dtitle', 'shortTitle', 'materialName', '名称', '标题'];
-const descriptionKeys = ['description', 'summary', 'subtitle', 'desc', 'content', 'text', 'snippet', '介绍', '摘要', '描述', '正文'];
-const urlKeys = ['url', 'link', 'href', 'detailUrl', 'shareUrl', 'webUrl', 'jumpUrl', 'productUrl', 'itemUrl', 'videoUrl', 'noteUrl', 'clickUrl', 'couponShareUrl', 'couponClickUrl', '详情链接', '链接'];
-const imageKeys = ['imageUrl', 'image', 'coverUrl', 'cover', 'thumbnailUrl', 'thumbnail', 'picUrl', 'pictUrl', 'pictureUrl', 'picture', 'pic', 'logoUrl', 'logo', '图片', '封面'];
-const priceKeys = ['price', 'currentPrice', 'salePrice', 'finalPrice', 'amount', 'priceText', 'viewPrice', 'zkFinalPrice', 'reservePrice', 'quanhouPrice', '价格', '售价'];
-const sourceKeys = ['source', 'platform', 'site', 'provider', 'author', 'user', 'shopName', 'storeName', 'sellerName', 'nick', '来源', '平台', '作者', '店铺'];
+const titleKeys = ['title', 'name', 'displayName', 'displayTitle', 'productName', 'itemName', 'poiName', 'videoTitle', 'noteTitle', 'dtitle', 'shortTitle', 'materialName', 'message', 'context', 'status', 'ingredient', '名称', '标题'];
+const descriptionKeys = ['description', 'summary', 'subtitle', 'desc', 'content', 'text', 'snippet', 'message', 'note', 'couponInfo', 'recommendationReason', '介绍', '摘要', '描述', '正文'];
+const urlKeys = ['url', 'resolvedUrl', 'affiliateUrl', 'originalUrl', 'link', 'href', 'detailUrl', 'shareUrl', 'webUrl', 'jumpUrl', 'productUrl', 'itemUrl', 'videoUrl', 'sourceUrl', 'noteUrl', 'clickUrl', 'couponShareUrl', 'couponClickUrl', '详情链接', '链接'];
+const imageKeys = ['imageUrl', 'imageUrls', 'images', 'image', 'coverUrl', 'cover', 'thumbnailUrl', 'thumbnail', 'picUrl', 'pictUrl', 'pictureUrl', 'picture', 'pic', 'logoUrl', 'logo', '图片', '封面'];
+const priceKeys = ['finalPrice', 'price', 'currentPrice', 'salePrice', 'amount', 'priceText', 'viewPrice', 'zkFinalPrice', 'reservePrice', 'quanhouPrice', '价格', '售价'];
+const sourceKeys = ['source', 'platform', 'site', 'siteName', 'provider', 'author', 'artist', 'album', 'user', 'shopName', 'storeName', 'sellerName', 'nick', '来源', '平台', '作者', '店铺'];
 const addressKeys = ['address', 'formattedAddress', 'locationName', 'formatted_address', '地址', '详细地址'];
 const latitudeKeys = ['latitude', 'lat', '纬度'];
 const longitudeKeys = ['longitude', 'lng', 'lon', '经度'];
@@ -45,9 +45,14 @@ function normalizedKey(value: string) {
 }
 
 function getField(record: UnknownRecord, keys: string[]) {
-  const wanted = new Set(keys.map(normalizedKey));
+  const values = new Map<string, unknown>();
   for (const [key, value] of Object.entries(record)) {
-    if (wanted.has(normalizedKey(key))) return value;
+    const normalized = normalizedKey(key);
+    if (!values.has(normalized)) values.set(normalized, value);
+  }
+  for (const key of keys) {
+    const normalized = normalizedKey(key);
+    if (values.has(normalized)) return values.get(normalized);
   }
   return undefined;
 }
@@ -123,8 +128,9 @@ function readCoordinates(record: UnknownRecord) {
   return { latitude, longitude };
 }
 
-function formatPrice(record: UnknownRecord) {
-  const rawPrice = getField(record, priceKeys);
+function formatPrice(record: UnknownRecord, platformHint = '') {
+  const finalPrice = getField(record, ['finalPrice', 'quanhouPrice', 'couponPrice', 'coupon_price', 'zkFinalPrice']);
+  const rawPrice = finalPrice ?? getField(record, priceKeys);
   const priceRecord = asRecord(rawPrice);
   const value = readDisplayText(priceRecord ? getField(priceRecord, ['value', 'amount', 'price', 'text']) : rawPrice, 80);
   if (!value) return '';
@@ -134,7 +140,8 @@ function formatPrice(record: UnknownRecord) {
   if (currency === 'USD') return `$${value}`;
   if (currency === 'EUR') return `€${value}`;
   if (currency === 'GBP') return `£${value}`;
-  return currency ? `${value} ${currency}` : value;
+  if (currency) return `${value} ${currency}`;
+  return /taobao|tmall|淘宝|天猫|taoke/.test(platformHint) && /^\d+(?:\.\d+)?$/.test(value) ? `¥${value}` : value;
 }
 
 function resultKind(item: Omit<ChatMcpResultItem, 'kind' | 'title'>): ChatMcpResultItemKind {
@@ -182,9 +189,18 @@ function flattenPlatformRecord(record: UnknownRecord) {
   return flattened;
 }
 
-function nestedImageUrl(record: UnknownRecord) {
-  const direct = readRemoteUrl(getField(record, imageKeys));
-  if (direct) return direct;
+function nestedImageUrls(record: UnknownRecord) {
+  const urls: string[] = [];
+  const directValue = getField(record, imageKeys);
+  if (Array.isArray(directValue)) {
+    for (const value of directValue.slice(0, 8)) {
+      const url = readRemoteUrl(value);
+      if (url) urls.push(url);
+    }
+  } else {
+    const direct = readRemoteUrl(directValue);
+    if (direct) urls.push(direct);
+  }
   for (const containerKey of ['video', 'images', 'imageList', 'image_list', 'smallImages', 'small_images']) {
     const container = getField(record, [containerKey]);
     const containerRecord = asRecord(container);
@@ -192,9 +208,9 @@ function nestedImageUrl(record: UnknownRecord) {
       ? getField(containerRecord, ['cover', 'dynamicCover', 'dynamic_cover', 'originCover', 'origin_cover', 'urlList', 'url_list', 'string']) ?? container
       : container;
     const url = readRemoteUrl(candidate);
-    if (url) return url;
+    if (url) urls.push(url);
   }
-  return '';
+  return [...new Set(urls)].slice(0, 8);
 }
 
 function validPlatformId(value: unknown) {
@@ -240,11 +256,12 @@ function nestedSource(record: UnknownRecord) {
 function normalizeResultItem(rawRecord: UnknownRecord, platformHint = ''): ChatMcpResultItem | null {
   const record = flattenPlatformRecord(rawRecord);
   const url = platformResultUrl(record, platformHint);
-  const imageUrl = nestedImageUrl(record);
+  const imageUrls = nestedImageUrls(record);
+  const imageUrl = imageUrls[0] || '';
   const description = readDisplayText(getField(record, descriptionKeys), 500);
   const source = nestedSource(record);
   const address = readDisplayText(getField(record, addressKeys), 240);
-  const price = formatPrice(record);
+  const price = formatPrice(record, platformHint);
   const distance = readDisplayText(getField(record, distanceKeys), 80);
   const eta = readDisplayText(getField(record, etaKeys), 80);
   const { latitude, longitude } = readCoordinates(record);
@@ -264,6 +281,7 @@ function normalizeResultItem(rawRecord: UnknownRecord, platformHint = ''): ChatM
     ...(description && description !== title ? { description } : {}),
     ...(url ? { url } : {}),
     ...(imageUrl ? { imageUrl } : {}),
+    ...(imageUrls.length > 1 ? { imageUrls } : {}),
     ...(price ? { price } : {}),
     ...(source ? { source } : {}),
     ...(address && address !== title ? { address } : {}),

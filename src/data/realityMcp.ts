@@ -56,6 +56,141 @@ export const realityMcpTools: McpToolDefinition[] = [
     write: false
   },
   {
+    name: 'get_app_usage_report',
+    title: '生成 App 使用报告',
+    description: '根据 Android 真实使用时长生成日/周汇总、分类占比、常用 App 与专注提醒建议。',
+    inputSchema: objectSchema({
+      days: { type: 'number', minimum: 1, maximum: 31, description: '报告天数，默认 7' },
+      focusThresholdMinutes: { type: 'number', minimum: 15, maximum: 1440, description: '单 App 专注提醒阈值，默认 120 分钟' }
+    }),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'get_notification_inbox_access',
+    title: '检查通知收件箱权限',
+    description: '检查 Android 是否已由用户允许 BabyLink 读取系统通知；不会自动授权。',
+    inputSchema: objectSchema({}),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'request_notification_inbox_access',
+    title: '授权通知收件箱',
+    description: '打开 Android 官方通知使用权设置，由用户亲自决定是否允许。',
+    inputSchema: objectSchema({}),
+    enabled: true,
+    write: true
+  },
+  {
+    name: 'get_notification_inbox',
+    title: '读取通知收件箱',
+    description: '读取授权后保存在本机的近期通知摘要，可筛选快递、外卖、会议、出行、购物和消息；验证码会被遮盖。',
+    inputSchema: objectSchema({
+      days: { type: 'number', minimum: 1, maximum: 7, description: '查询最近天数，默认 1' },
+      category: { type: 'string', enum: ['delivery', 'food', 'meeting', 'travel', 'shopping', 'message', 'other'], description: '可选分类' },
+      limit: { type: 'number', minimum: 1, maximum: 200, description: '最多返回数量，默认 50' }
+    }),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'clear_notification_inbox',
+    title: '清空通知收件箱',
+    description: '经用户再次确认后，删除 BabyLink 在本机保存的通知摘要。',
+    inputSchema: objectSchema({}),
+    enabled: true,
+    write: true
+  },
+  {
+    name: 'prepare_date_plan',
+    title: '准备约会规划',
+    description: '一次读取天气、当前位置和系统日历空闲时间，为后续地点搜索与路线规划准备真实上下文。',
+    inputSchema: objectSchema({
+      from: stringProperty('ISO 8601 查询起始时间，默认现在'),
+      to: stringProperty('ISO 8601 查询结束时间，默认七天后'),
+      durationMinutes: { type: 'number', minimum: 15, maximum: 1440, description: '约会所需分钟数，默认 120' }
+    }),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'prepare_trip_plan',
+    title: '准备旅行规划',
+    description: '一次读取目的时间段的天气、当前位置与系统日程，供角色继续组合 POI、路线和提醒。',
+    inputSchema: objectSchema({
+      from: stringProperty('ISO 8601 行程起始时间'),
+      to: stringProperty('ISO 8601 行程结束时间')
+    }),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'prepare_shopping_plan',
+    title: '准备购物对比',
+    description: '读取当前剪贴板中的商品链接或口令，并给出平台搜索、比价和价格追踪的后续工具链。',
+    inputSchema: objectSchema({
+      query: stringProperty('想购买的商品或关键词'),
+      budget: { type: 'number', minimum: 0, description: '可选预算' },
+      targetPrice: { type: 'number', minimum: 0, description: '可选目标价' }
+    }, ['query']),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'prepare_study_session',
+    title: '准备一起学习',
+    description: '汇总真实 App 使用报告和待办提醒，为专注时长、音乐和休息节奏提供依据。',
+    inputSchema: objectSchema({ days: { type: 'number', minimum: 1, maximum: 31, description: '回顾天数，默认 7' } }),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'prepare_watch_together',
+    title: '准备共同追剧',
+    description: '读取系统日历空闲时间，为后续 B 站/网页内容搜索和一起观看安排提供真实时间段。',
+    inputSchema: objectSchema({
+      from: stringProperty('ISO 8601 查询起始时间，默认现在'),
+      to: stringProperty('ISO 8601 查询结束时间，默认七天后'),
+      durationMinutes: { type: 'number', minimum: 15, maximum: 480, description: '观看时长，默认 90 分钟' }
+    }),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'get_nightly_brief',
+    title: '生成睡前日报素材',
+    description: '一次汇总未来天气、明日日程、提醒、许可范围内的通知摘要和 App 使用报告。',
+    inputSchema: objectSchema({}),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'set_cooking_timer',
+    title: '设置烹饪计时器',
+    description: '为烹饪步骤创建真实系统提醒；必须提供未来的分钟数。',
+    inputSchema: objectSchema({ label: stringProperty('步骤名称'), minutes: { type: 'number', minimum: 1, maximum: 1440, description: '计时分钟数' } }, ['label', 'minutes']),
+    enabled: true,
+    write: true
+  },
+  {
+    name: 'add_music_to_queue',
+    title: '加入一起听队列',
+    description: '把音乐 MCP 返回的歌曲与试听地址加入 BabyLink 当前播放队列；不会修改外部平台歌单。',
+    inputSchema: objectSchema({
+      id: stringProperty('平台歌曲 ID'),
+      name: stringProperty('歌曲名'),
+      artist: stringProperty('歌手'),
+      album: stringProperty('专辑'),
+      source: stringProperty('来源，例如 apple'),
+      audioUrl: stringProperty('可播放或试听 HTTPS 地址'),
+      coverUrl: stringProperty('封面 HTTPS 地址'),
+      durationMs: numberProperty('歌曲时长，毫秒')
+    }, ['id', 'name', 'audioUrl']),
+    enabled: true,
+    write: true
+  },
+  {
     name: 'notify_user',
     title: '发送手机通知',
     description: '在用户当前设备显示一条真实系统通知。',
@@ -317,6 +452,14 @@ export const realityMcpTools: McpToolDefinition[] = [
     title: '读取剪贴板',
     description: '先向用户弹出确认，再读取当前设备剪贴板中的文本或链接。',
     inputSchema: objectSchema({ reason: stringProperty('向用户说明读取用途') }),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'analyze_clipboard',
+    title: '识别剪贴板工作流',
+    description: '先向用户确认，再识别剪贴板中的网页、地址、淘口令、BV 号或平台分享文本，并返回建议的下一步工具。',
+    inputSchema: objectSchema({ reason: stringProperty('向用户说明识别用途') }),
     enabled: true,
     write: false
   },

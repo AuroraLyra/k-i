@@ -49,7 +49,7 @@
 
 <script setup lang="ts">
 import { computed, ref, type Component } from 'vue';
-import { BarChart3, BellRing, CalendarDays, CheckCircle2, Clipboard, ClipboardPaste, CloudSun, ContactRound, FileText, Globe2, LocateFixed, MapPinned, MessageCircle, Navigation, Newspaper, PhoneCall, Search, Settings2, Share2, ShieldCheck, Smartphone, Volume2, Vibrate } from 'lucide-vue-next';
+import { BarChart3, BellRing, CalendarDays, CheckCircle2, Clipboard, ClipboardPaste, CloudSun, ContactRound, FileText, Globe2, LocateFixed, MapPinned, MessageCircle, Navigation, Newspaper, PhoneCall, Search, Settings2, Share2, ShieldCheck, ShoppingBasket, Smartphone, Volume2, Vibrate } from 'lucide-vue-next';
 import type { McpToolDefinition } from '@/types/domain';
 
 type CategoryId = 'all' | 'online' | 'device' | 'productivity' | 'places' | 'communication';
@@ -72,6 +72,19 @@ const toolPresentation: Record<string, { category: Exclude<CategoryId, 'all'>; i
   get_app_usage_access: { category: 'device', icon: BarChart3 },
   request_app_usage_access: { category: 'device', icon: Settings2 },
   get_app_usage: { category: 'device', icon: BarChart3 },
+  get_app_usage_report: { category: 'device', icon: BarChart3 },
+  get_notification_inbox_access: { category: 'device', icon: BellRing },
+  request_notification_inbox_access: { category: 'device', icon: Settings2 },
+  get_notification_inbox: { category: 'device', icon: BellRing },
+  clear_notification_inbox: { category: 'device', icon: BellRing },
+  prepare_date_plan: { category: 'places', icon: MapPinned },
+  prepare_trip_plan: { category: 'places', icon: Navigation },
+  prepare_shopping_plan: { category: 'productivity', icon: ShoppingBasket },
+  prepare_study_session: { category: 'productivity', icon: BarChart3 },
+  prepare_watch_together: { category: 'productivity', icon: CalendarDays },
+  get_nightly_brief: { category: 'productivity', icon: CloudSun },
+  set_cooking_timer: { category: 'productivity', icon: BellRing },
+  add_music_to_queue: { category: 'communication', icon: Volume2 },
   notify_user: { category: 'device', icon: BellRing },
   speak_to_user: { category: 'device', icon: Volume2 },
   vibrate_phone: { category: 'device', icon: Vibrate },
@@ -97,6 +110,7 @@ const toolPresentation: Record<string, { category: Exclude<CategoryId, 'all'>; i
   search_web: { category: 'online', icon: Globe2 },
   read_web_page: { category: 'online', icon: FileText },
   read_clipboard_text: { category: 'device', icon: ClipboardPaste },
+  analyze_clipboard: { category: 'device', icon: ClipboardPaste },
   write_clipboard_text: { category: 'device', icon: Clipboard },
   get_weather: { category: 'places', icon: CloudSun },
   search_nearby_places: { category: 'places', icon: MapPinned },
@@ -136,17 +150,5 @@ function checked(event: Event) {
 </script>
 
 <style scoped>
-.mcp-capability-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .mcp-capability-row:has(.phone-tool-switch input:not(:checked)) { opacity: 0.58; }
-.phone-tool-switch { position: relative; display: inline-flex; cursor: pointer; }
-.phone-tool-switch input { position: absolute; opacity: 0; pointer-events: none; }
-.phone-tool-switch i { display: block; width: 36px; height: 21px; border-radius: 999px; background: #d7ddda; transition: 180ms ease; }
-.phone-tool-switch i::after { display: block; width: 15px; height: 15px; margin: 3px; border-radius: 50%; background: #fff; box-shadow: 0 2px 7px rgba(20, 26, 23, 0.2); content: ''; transition: 180ms ease; }
-.phone-tool-switch input:checked + i { background: #2f6249; }
-.phone-tool-switch input:checked + i::after { transform: translateX(15px); }
-
-@media (max-width: 370px) {
-  .mcp-capability-row { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .mcp-permission-chip { display: none; }
-}
 </style>

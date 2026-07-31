@@ -80,7 +80,7 @@
           <span class="service-icon"><Network :size="22" stroke-width="1.8" /></span>
           <span class="service-copy">
             <small>Connected life</small>
-            <strong>MCP Studio</strong>
+            <strong>MCP</strong>
             <em>手机能力、联网搜索与外部连接</em>
           </span>
           <span class="service-dot" aria-hidden="true"></span>

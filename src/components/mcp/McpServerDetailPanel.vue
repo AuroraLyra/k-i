@@ -68,7 +68,7 @@
 
 <script setup lang="ts">
 import { computed, type Component } from 'vue';
-import { AlertTriangle, Cable, Clapperboard, Globe2, Heart, MessageCircle, Network, Pencil, RefreshCw, ShoppingBag, Smartphone, Trash2 } from 'lucide-vue-next';
+import { AlertTriangle, Cable, Clapperboard, Globe2, Heart, MessageCircle, Network, Pencil, RefreshCw, ShoppingBag, Smartphone, TerminalSquare, Trash2 } from 'lucide-vue-next';
 import type { McpServerConfig, McpToolPolicy } from '@/types/domain';
 
 const props = defineProps<{ server?: McpServerConfig; testing: boolean }>();
@@ -83,6 +83,7 @@ const emit = defineEmits<{
 
 const serverIcon = computed<Component>(() => {
   if (props.server?.kind === 'reality') return Smartphone;
+  if (props.server?.kind === 'termux') return TerminalSquare;
   if (props.server?.kind === 'qq') return MessageCircle;
   if (props.server?.kind === 'xiaohongshu' || props.server?.kind === 'xiaohongshu-search') return Heart;
   if (props.server?.kind === 'taobao-search') return ShoppingBag;
@@ -91,6 +92,7 @@ const serverIcon = computed<Component>(() => {
 });
 const kindLabel = computed(() => {
   if (props.server?.kind === 'reality') return 'ON THIS PHONE';
+  if (props.server?.kind === 'termux') return 'ANDROID LOCAL HUB';
   if (props.server?.kind === 'qq') return 'QQ BRIDGE';
   if (props.server?.kind === 'xiaohongshu') return 'XIAOHONGSHU BRIDGE';
   if (props.server?.kind === 'taobao-search') return 'TAOBAO SEARCH';
