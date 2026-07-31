@@ -49,7 +49,7 @@
 
 <script setup lang="ts">
 import { computed, ref, type Component } from 'vue';
-import { BarChart3, BellRing, CalendarDays, CheckCircle2, Clipboard, ClipboardPaste, CloudSun, ContactRound, FileText, Globe2, LocateFixed, MapPinned, MessageCircle, Navigation, Newspaper, PhoneCall, Search, Settings2, Share2, ShieldCheck, ShoppingBasket, Smartphone, Volume2, Vibrate } from 'lucide-vue-next';
+import { BarChart3, BellRing, CalendarDays, CheckCircle2, Clipboard, ClipboardPaste, CloudSun, ContactRound, FileText, Globe2, LocateFixed, MapPinned, MessageCircle, Navigation, Newspaper, PhoneCall, Search, Settings2, ShieldCheck, ShoppingBasket, Smartphone, Volume2, Vibrate } from 'lucide-vue-next';
 import type { McpToolDefinition } from '@/types/domain';
 
 type CategoryId = 'all' | 'online' | 'device' | 'productivity' | 'places' | 'communication';
@@ -100,7 +100,8 @@ const toolPresentation: Record<string, { category: Exclude<CategoryId, 'all'>; i
   delete_calendar_event: { category: 'productivity', icon: CalendarDays },
   check_calendar_conflicts: { category: 'productivity', icon: CalendarDays },
   find_calendar_free_time: { category: 'productivity', icon: CalendarDays },
-  create_memo: { category: 'productivity', icon: Share2 },
+  create_memo: { category: 'productivity', icon: FileText },
+  list_memos: { category: 'productivity', icon: FileText },
   pick_contact: { category: 'communication', icon: ContactRound },
   search_contacts: { category: 'communication', icon: Search },
   create_contact: { category: 'communication', icon: ContactRound },

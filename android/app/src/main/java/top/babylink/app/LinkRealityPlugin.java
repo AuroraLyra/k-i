@@ -18,6 +18,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,7 +64,16 @@ public class LinkRealityPlugin extends Plugin {
     public void getAppUsage(PluginCall call) {
         long now = System.currentTimeMillis();
         long to = Math.min(now, call.getLong("to", now));
-        long from = call.getLong("from", to - 24L * 60L * 60L * 1000L);
+        long from = call.getLong("from", Long.MIN_VALUE);
+        if (from == Long.MIN_VALUE) {
+            Calendar localDayStart = Calendar.getInstance();
+            localDayStart.setTimeInMillis(to);
+            localDayStart.set(Calendar.HOUR_OF_DAY, 0);
+            localDayStart.set(Calendar.MINUTE, 0);
+            localDayStart.set(Calendar.SECOND, 0);
+            localDayStart.set(Calendar.MILLISECOND, 0);
+            from = localDayStart.getTimeInMillis();
+        }
         int limit = Math.max(1, Math.min(200, call.getInt("limit", 50)));
         long maxRange = 31L * 24L * 60L * 60L * 1000L;
         from = Math.max(to - maxRange, Math.min(from, to - 1));

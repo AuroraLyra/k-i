@@ -28,13 +28,13 @@
       </label>
       <label class="mcp-setting-row policy">
         <span><strong>角色权限</strong><small>{{ policyDescription }}</small></span>
-        <select :value="server.toolPolicy" :disabled="!server.enabled || server.kind === 'reality'" @change="emit('set-policy', server, ($event.target as HTMLSelectElement).value as McpToolPolicy)">
+        <select :value="server.toolPolicy" :disabled="!server.enabled || isBuiltin" @change="emit('set-policy', server, ($event.target as HTMLSelectElement).value as McpToolPolicy)">
           <option value="disabled">不允许调用</option><option value="read-only">只浏览与查询</option><option value="all">浏览并执行操作</option>
         </select>
       </label>
       <div class="mcp-endpoint-card">
-        <span><component :is="server.kind === 'reality' ? Smartphone : Globe2" :size="16" /></span>
-        <div><small>ENDPOINT</small><strong>{{ server.kind === 'reality' ? '当前设备本地执行' : server.url }}</strong></div>
+        <span><component :is="server.kind === 'notification-inbox' ? BellRing : server.kind === 'reality' ? Smartphone : Globe2" :size="16" /></span>
+        <div><small>ENDPOINT</small><strong>{{ isBuiltin ? '当前设备本地执行' : server.url }}</strong></div>
       </div>
     </section>
 
@@ -55,8 +55,8 @@
 
     <section class="mcp-detail-actions">
       <button type="button" :disabled="testing" @click="emit('inspect', server)"><RefreshCw :class="{ spin: testing }" :size="16" />{{ testing ? '检测中' : '重新检测' }}</button>
-      <button v-if="server.kind !== 'reality'" type="button" @click="emit('edit', server)"><Pencil :size="16" />编辑连接</button>
-      <button v-if="server.kind !== 'reality'" class="danger" type="button" @click="emit('delete', server)"><Trash2 :size="16" />删除连接</button>
+      <button v-if="!isBuiltin" type="button" @click="emit('edit', server)"><Pencil :size="16" />编辑连接</button>
+      <button v-if="!isBuiltin" class="danger" type="button" @click="emit('delete', server)"><Trash2 :size="16" />删除连接</button>
     </section>
   </section>
 
@@ -68,7 +68,7 @@
 
 <script setup lang="ts">
 import { computed, type Component } from 'vue';
-import { AlertTriangle, Cable, Clapperboard, Globe2, Heart, MessageCircle, Network, Pencil, RefreshCw, ShoppingBag, Smartphone, TerminalSquare, Trash2 } from 'lucide-vue-next';
+import { AlertTriangle, BellRing, Cable, Clapperboard, Globe2, Heart, MessageCircle, Network, Pencil, RefreshCw, ShoppingBag, Smartphone, TerminalSquare, Trash2 } from 'lucide-vue-next';
 import type { McpServerConfig, McpToolPolicy } from '@/types/domain';
 
 const props = defineProps<{ server?: McpServerConfig; testing: boolean }>();
@@ -82,6 +82,7 @@ const emit = defineEmits<{
 }>();
 
 const serverIcon = computed<Component>(() => {
+  if (props.server?.kind === 'notification-inbox') return BellRing;
   if (props.server?.kind === 'reality') return Smartphone;
   if (props.server?.kind === 'termux') return TerminalSquare;
   if (props.server?.kind === 'qq') return MessageCircle;
@@ -91,6 +92,7 @@ const serverIcon = computed<Component>(() => {
   return Network;
 });
 const kindLabel = computed(() => {
+  if (props.server?.kind === 'notification-inbox') return 'SYSTEM NOTIFICATIONS';
   if (props.server?.kind === 'reality') return 'ON THIS PHONE';
   if (props.server?.kind === 'termux') return 'ANDROID LOCAL HUB';
   if (props.server?.kind === 'qq') return 'QQ BRIDGE';
@@ -101,6 +103,7 @@ const kindLabel = computed(() => {
   return 'REMOTE MCP';
 });
 const enabledTools = computed(() => props.server?.tools.filter((tool) => tool.enabled).length ?? 0);
+const isBuiltin = computed(() => props.server?.kind === 'reality' || props.server?.kind === 'notification-inbox');
 const statusClass = computed(() => props.testing ? 'checking' : props.server?.lastStatus ?? 'idle');
 const statusLabel = computed(() => props.testing ? '正在检测' : props.server?.lastStatus === 'connected' ? '连接正常' : props.server?.lastStatus === 'error' ? '需要检查' : '等待检测');
 const policyShort = computed(() => props.server?.toolPolicy === 'all' ? 'ALL' : props.server?.toolPolicy === 'disabled' ? 'OFF' : 'READ');

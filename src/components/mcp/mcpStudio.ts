@@ -443,6 +443,7 @@ export function useMcpStudioController(navigate: McpStudioContext['navigate']): 
 
 export function serverKindLabel(server: McpServerConfig) {
   if (server.kind === 'reality') return 'Reality MCP · 手机能力';
+  if (server.kind === 'notification-inbox') return '系统通知 MCP · 角色专用';
   if (server.kind === 'termux') return 'Termux · Android 本机网关';
   if (server.kind === 'qq') return 'QQ / NapCat MCP';
   if (server.kind === 'xiaohongshu') return '小红书电脑 Bridge';
@@ -454,6 +455,7 @@ export function serverKindLabel(server: McpServerConfig) {
 
 export function serverKindShortLabel(server: McpServerConfig) {
   if (server.kind === 'reality') return 'PHONE';
+  if (server.kind === 'notification-inbox') return 'NOTIFICATIONS';
   if (server.kind === 'termux') return 'TERMUX';
   if (server.kind === 'qq') return 'QQ';
   if (server.kind === 'xiaohongshu') return 'RED';

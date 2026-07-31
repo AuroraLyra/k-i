@@ -20,7 +20,8 @@
     "start": "node server-dist/index.js",
     "preview": "vite preview --host 0.0.0.0",
     "test:mcp-results": "tsx --tsconfig tsconfig.app.json scripts/mcp-results-regression.ts",
-    "test:link-preview": "tsx --tsconfig tsconfig.app.json scripts/link-preview-regression.ts"
+    "test:link-preview": "tsx --tsconfig tsconfig.app.json scripts/link-preview-regression.ts",
+    "test:role-operations": "tsx --tsconfig tsconfig.app.json scripts/role-operations-regression.ts"
   },
   "dependencies": {
     "@capacitor-community/contacts": "^8.0.0",

@@ -20,6 +20,7 @@ function defaultConfig() {
     platform: 'qq',
     qqOneBotUrl: 'http://127.0.0.1:3000',
     xhsAdapterUrl: 'http://127.0.0.1:8790',
+    douyinAdapterUrl: 'http://127.0.0.1:8791',
     tunnelMode: 'quick',
     publicUrl: '',
     allowedQqUsers: '',
@@ -172,7 +173,7 @@ async function startBridge(inputConfig) {
   await stopBridge();
   const config = { ...defaultConfig(), ...inputConfig };
   const port = Math.min(65_535, Math.max(1_024, Number(config.port || 8787)));
-  if (!['qq', 'xiaohongshu', 'both'].includes(config.platform)) throw new Error('请选择要连接的平台。');
+  if (!['qq', 'xiaohongshu', 'douyin', 'both', 'all'].includes(config.platform)) throw new Error('请选择要连接的平台。');
   if (config.tunnelMode === 'custom' && !/^https:\/\//i.test(config.publicUrl)) throw new Error('固定地址必须以 https:// 开头。');
   saveConfig(config);
   sendState({ phase: 'starting', message: '正在启动本机 Bridge…', publicUrl: '', dashboardUrl: '' });
@@ -192,7 +193,8 @@ async function startBridge(inputConfig) {
     BABYLINK_BRIDGE_READS_PER_MINUTE: String(config.readsPerMinute || 120),
     BABYLINK_BRIDGE_WRITES_PER_MINUTE: String(config.writesPerMinute || 30),
     QQ_ONEBOT_URL: String(config.qqOneBotUrl || 'http://127.0.0.1:3000'),
-    XHS_ADAPTER_URL: String(config.xhsAdapterUrl || 'http://127.0.0.1:8790')
+    XHS_ADAPTER_URL: String(config.xhsAdapterUrl || 'http://127.0.0.1:8790'),
+    DOUYIN_ADAPTER_URL: String(config.douyinAdapterUrl || 'http://127.0.0.1:8791')
   };
   bridgeProcess = spawn(process.execPath, [bridgeScriptPath()], { env, windowsHide: true });
   bridgeProcess.stdout.on('data', (chunk) => console.log(`[bridge] ${chunk.toString().trim()}`));

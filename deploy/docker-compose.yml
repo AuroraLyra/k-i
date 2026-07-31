@@ -80,6 +80,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - termux_dist:/srv/termux:ro
     depends_on:
       - app
     networks:
@@ -97,3 +98,4 @@ volumes:
   napcat_qq:
   napcat_config:
   napcat_plugins:
+  termux_dist:

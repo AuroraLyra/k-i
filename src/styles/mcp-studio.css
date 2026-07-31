@@ -157,6 +157,7 @@
 .mcp-service-page .mcp-board-card { display: grid; align-content: start; gap: 6px; min-height: 188px; padding: 16px; border-radius: 27px; text-align: left; box-shadow: var(--mcp-shadow); }
 .mcp-service-page .mcp-board-phone { background: radial-gradient(circle at 100% 0, rgba(255, 215, 229, 0.75), transparent 44%), linear-gradient(145deg, #fffafd, #f2edf9); }
 .mcp-service-page .mcp-board-links { background: radial-gradient(circle at 100% 0, rgba(195, 235, 216, 0.77), transparent 44%), linear-gradient(145deg, #fbfffc, #ecf5f0); }
+.mcp-service-page .mcp-board-operations { background: radial-gradient(circle at 100% 0, rgba(213, 231, 255, 0.78), transparent 44%), linear-gradient(145deg, #fbfdff, #eaf4ed); }
 .mcp-service-page .mcp-board-icon { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 4px; border-radius: 17px; color: #54505d; background: rgba(255, 255, 255, 0.76); box-shadow: 0 9px 19px rgba(50, 42, 47, 0.07); }
 .mcp-service-page .mcp-board-card > small { color: #a08390; font-size: 8px; font-weight: 950; letter-spacing: 0.11em; }
 .mcp-service-page .mcp-board-card > strong { color: #2e292c; font-size: 17px; font-weight: 950; }
@@ -202,6 +203,7 @@
 
 .mcp-service-page .mcp-kind-avatar { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 16px; color: #635978; background: var(--mcp-lilac); }
 .mcp-service-page .mcp-kind-avatar.kind-reality { color: #43745a; background: var(--mcp-mint); }
+.mcp-service-page .mcp-kind-avatar.kind-notification-inbox { color: #9a6738; background: var(--mcp-peach); }
 .mcp-service-page .mcp-kind-avatar.kind-termux { color: #397052; background: #e4f6eb; }
 .mcp-service-page .mcp-kind-avatar.kind-qq { color: #426c91; background: var(--mcp-blue); }
 .mcp-service-page .mcp-kind-avatar.kind-xiaohongshu { color: #b34c69; background: var(--mcp-pink); }
@@ -372,6 +374,7 @@
 /* Server detail */
 .mcp-service-page .mcp-server-detail-hero { grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 14px; min-height: 166px; padding: 18px; }
 .mcp-service-page .mcp-server-detail-hero.kind-reality { background: radial-gradient(circle at 100% 0, rgba(202, 239, 219, 0.84), transparent 44%), linear-gradient(145deg, #fffafd, #f0f7f3); }
+.mcp-service-page .mcp-server-detail-hero.kind-notification-inbox { background: radial-gradient(circle at 100% 0, rgba(248, 220, 184, 0.84), transparent 44%), linear-gradient(145deg, #fffafd, #fbf4eb); }
 .mcp-service-page .mcp-server-detail-hero.kind-termux { background: radial-gradient(circle at 100% 0, rgba(202, 239, 219, 0.84), transparent 44%), linear-gradient(145deg, #fffafd, #edf7f2); }
 .mcp-service-page .mcp-server-detail-hero.kind-qq { background: radial-gradient(circle at 100% 0, rgba(205, 229, 250, 0.86), transparent 44%), linear-gradient(145deg, #fffafd, #eef4fa); }
 .mcp-service-page .mcp-server-detail-hero.kind-xiaohongshu { background: radial-gradient(circle at 100% 0, rgba(250, 206, 220, 0.84), transparent 44%), linear-gradient(145deg, #fffafd, #f8eff2); }

@@ -2,6 +2,7 @@ export type ChatMode = 'online' | 'offline';
 
 import type { CharacterEconomySnapshot, ChatCommerceAttachment, ChatShopShareAttachment, ShopCartItem, ShopMoment, ShopOrder, ShopProduct, ShopStorefront, ShopWishlistItem, WalletAccount, WalletTransaction } from './commerce';
 import type { MemoryAssertion, MemoryEdge, MemoryEmbeddingCache, MemoryEntity, MemoryEpisode, MemoryStateSnapshot, MemoryTheme } from './memory';
+import type { RoleContentDraft, RoleOperationAuditEntry, RoleOperationPolicy, RoleOutboundTask, RoleSocialAccount, UserSocialAccount } from './roleOperations';
 
 export type AppTab = 'home' | 'voom' | 'music' | 'fanfic' | 'wallet';
 
@@ -1616,7 +1617,7 @@ export interface AppThemeSettings {
   offline: ThemeStyleScopeSettings;
 }
 
-export type McpServerKind = 'custom' | 'xiaohongshu' | 'qq' | 'reality' | 'termux' | 'taobao-search' | 'douyin-search' | 'xiaohongshu-search';
+export type McpServerKind = 'custom' | 'xiaohongshu' | 'qq' | 'reality' | 'notification-inbox' | 'termux' | 'taobao-search' | 'douyin-search' | 'xiaohongshu-search';
 
 export type McpToolPolicy = 'disabled' | 'read-only' | 'all';
 
@@ -1682,6 +1683,14 @@ export interface RealityReminder {
   recurrence: RealityRecurrenceRule | null;
 }
 
+export interface RealityMemo {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface RealityCalendarEvent {
   id: string;
   systemEventId: string;
@@ -1698,6 +1707,7 @@ export interface RealityCalendarEvent {
 
 export interface RealityMcpSettings {
   reminders: RealityReminder[];
+  memos: RealityMemo[];
   calendarEvents: RealityCalendarEvent[];
 }
 
@@ -1786,6 +1796,12 @@ export interface AppSnapshot {
   shopWishlistItems?: ShopWishlistItem[];
   shopOrders?: ShopOrder[];
   shopMoments?: ShopMoment[];
+  roleSocialAccounts?: RoleSocialAccount[];
+  userSocialAccounts?: UserSocialAccount[];
+  roleContentDrafts?: RoleContentDraft[];
+  roleOutboundTasks?: RoleOutboundTask[];
+  roleOperationPolicies?: RoleOperationPolicy[];
+  roleOperationAudits?: RoleOperationAuditEntry[];
   settings: AppSettings;
 }
 

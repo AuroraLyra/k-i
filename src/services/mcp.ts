@@ -1,5 +1,5 @@
 import type { AppSettings, CharacterProfile, ChatMcpResultAttachment, McpServerConfig, McpServerKind, McpToolDefinition } from '@/types/domain';
-import { createBuiltinRealityMcpServer, realityMcpTools } from '@/data/realityMcp';
+import { createBuiltinNotificationInboxMcpServer, createBuiltinRealityMcpServer, notificationInboxMcpTools, realityMcpTools } from '@/data/realityMcp';
 import { fetchNativeMcpLocal, nativeMcpLocalAvailable } from '@/services/nativeMcpLocal';
 import { executeRealityMcpTool } from '@/services/realityMcp';
 import { createActiveTimeout, isFetchInterruptedError, waitForActiveNetworkWindow } from '@/utils/activeTimeout';
@@ -111,6 +111,10 @@ export interface McpToolExecutionRequest {
   args: Record<string, unknown>;
   settings?: AppSettings;
   persistSettings?: (settings: AppSettings) => Promise<void>;
+}
+
+function isBuiltinDeviceMcpServer(server: McpServerConfig) {
+  return server.kind === 'reality' || server.kind === 'notification-inbox';
 }
 
 export type McpToolExecutionOutcome =
@@ -505,16 +509,17 @@ function normalizeDiscoveredTool(tool: McpRawTool, current?: McpToolDefinition):
 }
 
 export async function inspectMcpServer(server: McpServerConfig): Promise<McpServerInspection> {
-  if (server.kind === 'reality') {
+  if (isBuiltinDeviceMcpServer(server)) {
     const currentTools = new Map(server.tools.map((tool) => [tool.name, tool]));
+    const builtinTools = server.kind === 'notification-inbox' ? notificationInboxMcpTools : realityMcpTools;
     return {
-      tools: realityMcpTools.map((tool) => ({
+      tools: builtinTools.map((tool) => ({
         ...tool,
         inputSchema: { ...tool.inputSchema },
         enabled: currentTools.get(tool.name)?.enabled ?? tool.enabled
       })),
       protocolVersion: 'builtin',
-      serverName: 'BabyLink Reality MCP',
+      serverName: server.kind === 'notification-inbox' ? 'BabyLink Notification Inbox MCP' : 'BabyLink Reality MCP',
       serverVersion: '1.0.0'
     };
   }
@@ -559,7 +564,7 @@ function formatToolCallResult(result: McpToolCallResultPayload | undefined) {
 }
 
 function validateMcpToolExecution(server: McpServerConfig, toolName: string) {
-  if (server.kind !== 'reality') normalizeMcpRemoteUrl(server.url);
+  if (!isBuiltinDeviceMcpServer(server)) normalizeMcpRemoteUrl(server.url);
   const configuredTool = server.tools.find((tool) => tool.name === toolName);
   if (!configuredTool?.enabled) throw new Error('该 MCP 工具未启用。');
   if (server.toolPolicy === 'disabled') throw new Error('该 MCP 连接已禁止角色自动调用。');
@@ -592,7 +597,7 @@ export async function executeMcpTools(requests: McpToolExecutionRequest[]): Prom
       let session: McpHttpSession | undefined;
       try {
         validateMcpToolExecution(server, toolName);
-        if (server.kind === 'reality') {
+        if (isBuiltinDeviceMcpServer(server)) {
           const result = await executeRealityMcpTool(request);
           outcomes.push({ ok: true, result });
           continue;
@@ -678,6 +683,7 @@ function inferServerKind(name: string, url: string): McpServerKind {
 
 export function createMcpServerTemplate(kind: McpServerKind = 'custom'): McpServerConfig {
   if (kind === 'reality') return createBuiltinRealityMcpServer();
+  if (kind === 'notification-inbox') return createBuiltinNotificationInboxMcpServer();
   const metadata = kind === 'termux'
     ? {
         name: 'BabyLink Termux 本机网关',

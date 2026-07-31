@@ -7,10 +7,9 @@ import { Device } from '@capacitor/device';
 import { Geolocation } from '@capacitor/geolocation';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { LocalNotifications, type Schedule } from '@capacitor/local-notifications';
-import { Share } from '@capacitor/share';
 import { Readability } from '@mozilla/readability';
 import { loadSnapshot, putEntity } from '@/data/db';
-import type { AppSettings, McpServerConfig, RealityCalendarEvent, RealityMcpSettings, RealityRecurrenceRule, RealityReminder } from '@/types/domain';
+import type { AppSettings, McpServerConfig, RealityCalendarEvent, RealityMemo, RealityMcpSettings, RealityRecurrenceRule, RealityReminder } from '@/types/domain';
 import { createActiveTimeout, isFetchInterruptedError, waitForActiveNetworkWindow } from '@/utils/activeTimeout';
 import { createId } from '@/utils/id';
 import { normalizeAppSettings } from '@/utils/settings';
@@ -553,6 +552,20 @@ function confirmRealityAction(message: string) {
   return typeof window !== 'undefined' && typeof window.confirm === 'function' && window.confirm(message);
 }
 
+function calendarStartIsInPast(startAt: number, isAllDay: boolean) {
+  if (!isAllDay) return startAt <= Date.now();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return startAt < today.getTime();
+}
+
+function localCalendarRange(days: number, endAt = Date.now()) {
+  const from = new Date(endAt);
+  from.setHours(0, 0, 0, 0);
+  from.setDate(from.getDate() - days + 1);
+  return { from: from.getTime(), to: endAt };
+}
+
 async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<string> {
   const { toolName, args } = request;
   if (toolName === 'get_device_status') {
@@ -605,6 +618,9 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
     const days = Math.min(31, Math.max(1, Math.round(numberArg(args, 'days') ?? 1)));
     let to = Number.isFinite(parsedTo) ? parsedTo : Date.now();
     let from = Number.isFinite(parsedFrom) ? parsedFrom : to - days * 24 * 60 * 60_000;
+    if (!date && !Number.isFinite(parsedFrom) && !Number.isFinite(parsedTo)) {
+      ({ from } = localCalendarRange(days, to));
+    }
     if (date) {
       const start = new Date(`${date}T00:00:00`);
       if (!Number.isFinite(start.getTime())) throw new Error('查询日期格式无效，请使用 YYYY-MM-DD。');
@@ -630,8 +646,7 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
 
   if (toolName === 'get_app_usage_report') {
     const days = Math.min(31, Math.max(1, Math.round(numberArg(args, 'days') ?? 7)));
-    const to = Date.now();
-    const from = to - days * 24 * 60 * 60_000;
+    const { from, to } = localCalendarRange(days);
     const result = await getAndroidAppUsage({ from, to, limit: 200 });
     const focusThresholdMinutes = Math.min(1440, Math.max(15, Math.round(numberArg(args, 'focusThresholdMinutes') ?? 120)));
     const categories = new Map<string, number>();
@@ -685,6 +700,7 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
   if (toolName === 'prepare_date_plan' || toolName === 'prepare_watch_together') {
     const from = Number.isFinite(Date.parse(textArg(args, 'from'))) ? Date.parse(textArg(args, 'from')) : Date.now();
     const to = Number.isFinite(Date.parse(textArg(args, 'to'))) ? Date.parse(textArg(args, 'to')) : from + 7 * 24 * 60 * 60_000;
+    if (from < Date.now()) throw new Error('规划开始时间不能早于当前现实时间。');
     const durationMinutes = Math.min(toolName === 'prepare_watch_together' ? 480 : 1440, Math.max(15, Math.round(numberArg(args, 'durationMinutes') ?? (toolName === 'prepare_watch_together' ? 90 : 120))));
     const [weather, location, freeTime] = await Promise.all([
       compositeRealitySource(request, 'get_weather', { hourlyLimit: 24 }),
@@ -697,6 +713,7 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
   if (toolName === 'prepare_trip_plan') {
     const from = Number.isFinite(Date.parse(textArg(args, 'from'))) ? Date.parse(textArg(args, 'from')) : Date.now();
     const to = Number.isFinite(Date.parse(textArg(args, 'to'))) ? Date.parse(textArg(args, 'to')) : from + 3 * 24 * 60 * 60_000;
+    if (from < Date.now()) throw new Error('旅行开始时间不能早于当前现实时间。');
     const [weather, location, calendar] = await Promise.all([
       compositeRealitySource(request, 'get_weather', { hourlyLimit: 72 }),
       compositeRealitySource(request, 'get_current_location', {}),
@@ -974,6 +991,7 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
     const location = textArg(args, 'location');
     const notes = textArg(args, 'notes');
     const isAllDay = booleanArg(args, 'isAllDay');
+    if (calendarStartIsInPast(startDate, isAllDay)) throw new Error('日程开始时间不能早于当前现实时间，请使用未来日期。');
     await ensureCalendarPermission(true);
     const result = await CapacitorCalendar.createEvent({
       title,
@@ -1061,6 +1079,10 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
     if (startAt !== undefined && endAt !== undefined && endAt <= startAt) throw new Error('日程结束时间必须晚于开始时间。');
     const recurrence = parseRecurrence(args, existing?.recurrence ?? null);
     if (recurrence?.endAt && startAt !== undefined && recurrence.endAt <= startAt) throw new Error('日程重复结束时间必须晚于开始时间。');
+    const nextIsAllDay = hasArg(args, 'isAllDay') ? booleanArg(args, 'isAllDay') : existing?.isAllDay ?? false;
+    if (hasArg(args, 'startAt') && startAt !== undefined && calendarStartIsInPast(startAt, nextIsAllDay)) {
+      throw new Error('日程开始时间不能早于当前现实时间，请使用未来日期。');
+    }
     await ensureCalendarPermission(false);
     let nextSystemEventId = systemEventId;
     if (hasArg(args, 'repeat') && !recurrence) {
@@ -1178,8 +1200,32 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
     const content = textArg(args, 'content');
     if (!content) throw new Error('备忘录正文不能为空。');
     const title = textArg(args, 'title', content.slice(0, 24));
-    await Share.share({ title, text: `${title}\n\n${content}`, dialogTitle: '选择系统备忘录 App 保存' });
-    return JSON.stringify({ opened: true, systemApp: 'share-sheet', requiresUserSelection: true, limitation: 'iOS 和 Android 不允许第三方静默读取或修改系统备忘录，内容已交给系统分享面板。' });
+    if (content.length > 100_000) throw new Error('备忘录正文不能超过 100000 个字符。');
+    const now = Date.now();
+    const memo: RealityMemo = {
+      id: createId('memo'),
+      title,
+      content,
+      createdAt: now,
+      updatedAt: now
+    };
+    const current = normalizeAppSettings(request.settings).realityMcpSettings;
+    await persistRealitySettings(request, {
+      ...current,
+      memos: [memo, ...current.memos.filter((entry) => entry.id !== memo.id)]
+    });
+    return JSON.stringify({ saved: true, storage: 'babylink-local', memoId: memo.id, title, content, updatedAt: now });
+  }
+
+  if (toolName === 'list_memos') {
+    const query = textArg(args, 'query').toLocaleLowerCase('zh-CN');
+    const limit = Math.min(100, Math.max(1, Math.round(numberArg(args, 'limit') ?? 50)));
+    const memos = normalizeAppSettings(request.settings).realityMcpSettings.memos
+      .filter((memo) => !query || `${memo.title}\n${memo.content}`.toLocaleLowerCase('zh-CN').includes(query))
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .slice(0, limit)
+      .map((memo) => ({ ...memo, updatedAtText: formatDate(memo.updatedAt) }));
+    return JSON.stringify({ query, memos });
   }
 
   if (toolName === 'pick_contact') {

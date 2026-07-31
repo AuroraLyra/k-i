@@ -230,11 +230,24 @@ async function fetchPublicProductPage(rawUrl) {
   throw new Error('商品页面重定向次数过多。');
 }
 
+function networkErrorDetail(error) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  const cause = error && typeof error === 'object' && 'cause' in error ? error.cause : undefined;
+  const causeMessage = cause instanceof Error ? cause.message : String(cause || '');
+  return [message, causeMessage].filter(Boolean).join('；');
+}
+
 async function searchBing(query, limit) {
   const target = new URL('https://www.bing.com/search');
   target.searchParams.set('format', 'rss');
   target.searchParams.set('q', query);
-  const response = await fetch(target, { headers: { Accept: 'application/rss+xml, application/xml' }, redirect: 'error' });
+  let response;
+  try {
+    response = await fetch(target, { headers: { Accept: 'application/rss+xml, application/xml' }, redirect: 'error' });
+  } catch (error) {
+    const detail = networkErrorDetail(error);
+    throw new Error(`无法访问 Bing RSS（豆瓣公开检索依赖此服务）。请检查 Termux 网络、DNS、HTTPS 证书或当前网络对 bing.com 的访问${detail ? `：${detail}` : '。'}`);
+  }
   const xml = await readResponse(response);
   if (!response.ok) throw new Error(`网页搜索失败（${response.status}）。`);
   return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, limit).flatMap((match) => {

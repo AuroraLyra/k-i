@@ -1,6 +1,6 @@
 # BabyLink Bridge
 
-BabyLink Bridge 在用户自己的电脑运行，只连接用户自己登录的 QQ/NapCat/OneBot 或小红书适配器。手机通过 Bridge 的 MCP 地址调用工具；BabyLink 云端不代理 QQ、小红书登录和平台流量，也不包含微信适配器。
+BabyLink Bridge 在用户自己的电脑运行，只连接用户自己登录的 QQ/NapCat/OneBot、小红书适配器或抖音适配器。手机通过 Bridge 的 MCP 地址调用工具；BabyLink 云端不代理平台登录和平台流量，也不包含微信适配器。
 
 ## 普通用户流程
 
@@ -48,7 +48,7 @@ Bridge 不假装内置某个第三方小红书实现。用户在电脑自行安�
 - `POST ${XHS_ADAPTER_URL}/call`
 - 请求体：`{"tool":"search_notes","arguments":{"keyword":"..."}}`
 - 返回任意 JSON；错误使用非 `2xx` 状态码
-- 支持的工具名：`status`、`search_notes`、`get_note`、`like_note`、`comment_note`、`publish_note`、`save_draft`、`list_drafts`、`delete_draft`、`publish_draft`、`schedule_note`、`get_creator_metrics`
+- 支持的工具名：`status`、`search_notes`、`get_note`、`get_note_comments`、`get_user_profile`、`get_user_notes`、`like_note`、`comment_note`、`publish_note`、`send_direct_message`、`save_draft`、`list_drafts`、`delete_draft`、`publish_draft`、`schedule_note`、`get_creator_metrics`
 
 双击启动脚本，或在开发环境运行 Bridge：
 
@@ -63,6 +63,23 @@ node bridge/babylink-bridge.mjs
 
 小红书适配器和 Bridge 都只运行在用户电脑；适配器的账号登录、Cookie、风控和平台限制由用户自行承担。没有适配器时，Bridge 会明确返回未配置错误，不会伪造搜索、点赞或发布成功。
 
+## 抖音适配器
+
+Bridge 对抖音也使用相同的本机 HTTP 合约：`POST ${DOUYIN_ADAPTER_URL}/call`，请求体为 `{"tool":"publish_note","arguments":{...}}`。可选读取工具为 `status`、`search_videos`、`get_video_detail`、`get_video_comments`、`get_user_info`、`get_user_posts`；可选运营工具为 `like_video`、`publish_note`、`comment_video`、`send_direct_message`。适配器没有实现其中某项时，Bridge 会返回真实的未支持错误，不会伪造查询、点赞、发布、评论或私信成功。
+
+```sh
+BABYLINK_BRIDGE_PLATFORM=douyin \
+DOUYIN_ADAPTER_URL=http://127.0.0.1:8791 \
+DOUYIN_ADAPTER_TOKEN=适配器令牌（如果需要） \
+BABYLINK_BRIDGE_PUBLIC_URL=https://你的电脑助手域名 \
+BABYLINK_BRIDGE_TOKEN=请生成一串随机长令牌 \
+node bridge/babylink-bridge.mjs
+```
+
+社区搜索 MCP 通常只提供读取能力，不能因为已配对就被视为可写入账号。需要抖音写入时，用户必须自行提供有明确写工具的适配器并承担平台登录、风控与条款限制。
+
+运营中心会将两类绑定分开保存：角色账号仅用于以角色身份写入；用户账号只可被用户授权的角色读取资料、作品、内容和评论，任务执行器不会接受用户账号作为发布、点赞、评论或私信来源。
+
 ## 配对与安全
 
 - `BABYLINK_BRIDGE_TOKEN` 是手机访问 Bridge 的唯一令牌，请使用随机长字符串，不要提交到 Git。
@@ -76,7 +93,7 @@ node bridge/babylink-bridge.mjs
 
 ## 环境变量
 
-- `BABYLINK_BRIDGE_PLATFORM`：`qq`、`xiaohongshu` 或 `both`，默认 `qq`
+- `BABYLINK_BRIDGE_PLATFORM`：`qq`、`xiaohongshu`、`douyin`、`both`（QQ + 小红书）或 `all`，默认 `qq`
 - `BABYLINK_BRIDGE_PORT`：Bridge 端口，默认 `8787`
 - `BABYLINK_BRIDGE_HOST`：监听地址，默认 `127.0.0.1`
 - `BABYLINK_BRIDGE_PUBLIC_URL`：用户自己的 HTTPS 公网地址，用于配对配置
@@ -89,4 +106,6 @@ node bridge/babylink-bridge.mjs
 - `QQ_ONEBOT_TOKEN`：OneBot 访问令牌，可选
 - `XHS_ADAPTER_URL`：小红书适配器地址，可选
 - `XHS_ADAPTER_TOKEN`：小红书适配器令牌，可选
+- `DOUYIN_ADAPTER_URL`：抖音适配器地址，可选
+- `DOUYIN_ADAPTER_TOKEN`：抖音适配器令牌，可选
 - `BABYLINK_BRIDGE_TLS_KEY`、`BABYLINK_BRIDGE_TLS_CERT`：直接启用 HTTPS，可选

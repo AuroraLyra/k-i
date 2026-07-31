@@ -1,5 +1,5 @@
-import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, CloudBackupProvider, CloudBackupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, McpServerConfig, McpServerKind, McpSettings, McpToolDefinition, McpToolPolicy, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RealityCalendarEvent, RealityMcpSettings, RealityRecurrenceRule, RealityReminder, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
-import { createBuiltinRealityMcpServer } from '@/data/realityMcp';
+import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, CloudBackupProvider, CloudBackupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, McpServerConfig, McpServerKind, McpSettings, McpToolDefinition, McpToolPolicy, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RealityCalendarEvent, RealityMemo, RealityMcpSettings, RealityRecurrenceRule, RealityReminder, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
+import { createBuiltinNotificationInboxMcpServer, createBuiltinRealityMcpServer } from '@/data/realityMcp';
 import { createId } from './id';
 import { normalizeGlobalThemeScale } from './themeScale';
 
@@ -208,13 +208,14 @@ export function createDefaultMcpSettings(): McpSettings {
   return {
     enabled: true,
     maxToolCallsPerReply: 3,
-    servers: [createBuiltinRealityMcpServer()]
+    servers: [createBuiltinRealityMcpServer(), createBuiltinNotificationInboxMcpServer()]
   };
 }
 
 export function createDefaultRealityMcpSettings(): RealityMcpSettings {
   return {
     reminders: [],
+    memos: [],
     calendarEvents: []
   };
 }
@@ -253,6 +254,7 @@ function normalizeMcpServerKind(value: unknown): McpServerKind {
   return value === 'xiaohongshu'
     || value === 'qq'
     || value === 'reality'
+    || value === 'notification-inbox'
     || value === 'termux'
     || value === 'taobao-search'
     || value === 'douyin-search'
@@ -288,9 +290,18 @@ function normalizeMcpServer(value: unknown): McpServerConfig | null {
   const source = value as Partial<McpServerConfig>;
   const kind = normalizeMcpServerKind(source.kind);
   const id = String(source.id ?? '').trim();
-  const url = kind === 'reality' ? 'builtin://reality' : String(source.url ?? '').trim();
-  if (!id || (!url && kind !== 'reality')) return null;
-  const fallback = kind === 'reality' ? createBuiltinRealityMcpServer() : null;
+  const builtin = kind === 'reality' || kind === 'notification-inbox';
+  const url = kind === 'reality'
+    ? 'builtin://reality'
+    : kind === 'notification-inbox'
+      ? 'builtin://notification-inbox'
+      : String(source.url ?? '').trim();
+  if (!id || (!url && !builtin)) return null;
+  const fallback = kind === 'reality'
+    ? createBuiltinRealityMcpServer()
+    : kind === 'notification-inbox'
+      ? createBuiltinNotificationInboxMcpServer()
+      : null;
   const normalizedTools = Array.isArray(source.tools)
     ? source.tools.map(normalizeMcpTool).filter((tool): tool is McpToolDefinition => Boolean(tool))
     : [];
@@ -311,13 +322,13 @@ function normalizeMcpServer(value: unknown): McpServerConfig | null {
     apiKeyPrefix: String(source.apiKeyPrefix ?? 'Bearer ').replace(/[\r\n]/g, ''),
     enabled: source.enabled !== false,
     globalEnabled: source.globalEnabled ?? fallback?.globalEnabled ?? false,
-    toolPolicy: kind === 'reality' ? 'all' : normalizeMcpToolPolicy(source.toolPolicy),
+    toolPolicy: kind === 'reality' ? 'all' : kind === 'notification-inbox' ? 'read-only' : normalizeMcpToolPolicy(source.toolPolicy),
     timeoutMs: Math.min(120_000, Math.max(3_000, timeoutMs)),
     tools: [...new Map(tools.map((tool) => [tool.name, tool])).values()],
     protocolVersion: String(source.protocolVersion ?? '').trim() || fallback?.protocolVersion || '',
     serverName: String(source.serverName ?? '').trim() || fallback?.serverName || '',
     serverVersion: String(source.serverVersion ?? '').trim() || fallback?.serverVersion || '',
-    lastStatus: kind === 'reality'
+    lastStatus: builtin
       ? 'connected'
       : source.lastStatus === 'connected' || source.lastStatus === 'error'
         ? source.lastStatus
@@ -333,7 +344,12 @@ export function normalizeMcpSettings(settings?: Partial<McpSettings> | null): Mc
     ? settings.servers.map(normalizeMcpServer).filter((server): server is McpServerConfig => Boolean(server))
     : [];
   const realityServer = normalizedServers.find((server) => server.kind === 'reality') ?? fallback.servers[0];
-  const servers = [realityServer, ...normalizedServers.filter((server) => server.id !== realityServer.id)];
+  const notificationInboxServer = normalizedServers.find((server) => server.kind === 'notification-inbox') ?? fallback.servers[1];
+  const servers = [
+    realityServer,
+    notificationInboxServer,
+    ...normalizedServers.filter((server) => server.kind !== 'reality' && server.kind !== 'notification-inbox')
+  ];
   return {
     enabled: settings?.enabled !== false,
     maxToolCallsPerReply: Math.min(6, Math.max(1, Math.round(Number(settings?.maxToolCallsPerReply) || fallback.maxToolCallsPerReply))),
@@ -403,6 +419,23 @@ function normalizeRealityCalendarEvent(value: unknown): RealityCalendarEvent | n
   };
 }
 
+function normalizeRealityMemo(value: unknown): RealityMemo | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as Partial<RealityMemo>;
+  const id = String(source.id ?? '').trim();
+  const content = String(source.content ?? '').trim();
+  if (!id || !content) return null;
+  const title = String(source.title ?? '').trim() || content.slice(0, 24);
+  const createdAt = Math.max(0, Number(source.createdAt) || Date.now());
+  return {
+    id,
+    title,
+    content,
+    createdAt,
+    updatedAt: Math.max(createdAt, Number(source.updatedAt) || createdAt)
+  };
+}
+
 function normalizeRealityMcpSettings(settings?: Partial<RealityMcpSettings> | null): RealityMcpSettings {
   const reminders = Array.isArray(settings?.reminders)
     ? settings.reminders.map(normalizeRealityReminder).filter((reminder): reminder is RealityReminder => Boolean(reminder))
@@ -410,8 +443,12 @@ function normalizeRealityMcpSettings(settings?: Partial<RealityMcpSettings> | nu
   const calendarEvents = Array.isArray(settings?.calendarEvents)
     ? settings.calendarEvents.map(normalizeRealityCalendarEvent).filter((event): event is RealityCalendarEvent => Boolean(event))
     : [];
+  const memos = Array.isArray(settings?.memos)
+    ? settings.memos.map(normalizeRealityMemo).filter((memo): memo is RealityMemo => Boolean(memo))
+    : [];
   return {
     reminders: [...new Map(reminders.map((reminder) => [reminder.id, reminder])).values()].sort((left, right) => left.at - right.at),
+    memos: [...new Map(memos.map((memo) => [memo.id, memo])).values()].sort((left, right) => right.updatedAt - left.updatedAt),
     calendarEvents: [...new Map(calendarEvents.map((event) => [event.id, event])).values()].sort((left, right) => left.startAt - right.startAt)
   };
 }

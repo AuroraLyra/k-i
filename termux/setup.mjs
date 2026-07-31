@@ -12,6 +12,24 @@ function clean(value) {
   return String(value || '').trim();
 }
 
+function splitToolNames(value) {
+  return [...new Set(clean(value).split(/[，,\n]/).map((item) => item.trim()).filter(Boolean))];
+}
+
+async function configureManualWriteTools(label, existingServer, readTools) {
+  const previousWrites = (existingServer?.allowedTools || []).filter((tool) => !readTools.includes(tool));
+  output.write(`\n${label} 默认只读。只有你自己已登录、确认支持写入的上游，才可开启“用户手动互动”。角色自动任务不会使用这组工具。\n`);
+  if (!await confirm('为用户本人开启手动点赞、评论、私信等写入工具', previousWrites.length > 0)) {
+    return { allowedTools: readTools, readOnly: true };
+  }
+  const writeTools = splitToolNames(await ask('仅填上游实际存在的写工具名（逗号分隔；留空保持只读）', previousWrites.join(', ')));
+  if (!writeTools.length) {
+    output.write('未填写写工具名，保持只读。\n');
+    return { allowedTools: readTools, readOnly: true };
+  }
+  return { allowedTools: [...new Set([...readTools, ...writeTools])], readOnly: false };
+}
+
 async function ask(label, current = '') {
   const suffix = current ? ` [已配置，直接回车保留]` : '';
   const answer = clean(await terminal.question(`${label}${suffix}：`));
@@ -98,6 +116,8 @@ async function configureTaobao(config) {
 
 async function configureDouyin(config) {
   const current = config.connectors?.douyin || {};
+  const existingServer = [...config.stdioServers, ...config.httpServers].find((item) => item.id === 'douyin');
+  const readTools = ['check_login_status', 'search_videos', 'get_video_detail', 'get_video_comments', 'get_sub_comments', 'get_user_info', 'get_user_posts', 'get_homefeed', 'resolve_share_url', 'download_video', 'download_aweme_images', 'ocr_aweme_images', 'transcribe_video', 'batch_transcribe'];
   const cookiePath = await ask('抖音 Cookie 文件路径', current.cookiePath || `${process.env.HOME}/.config/douyinmcp/cookies.txt`);
   if (await confirm('现在粘贴抖音 Cookie 到本机独立文件', false)) {
     const cookie = clean(await terminal.question('粘贴完整 Cookie（只写入当前手机）：'));
@@ -109,6 +129,7 @@ async function configureDouyin(config) {
   }
   const upstreamType = clean(await terminal.question('抖音实验适配器：1=本机 stdio，2=已有 HTTPS MCP，回车跳过：'));
   config.connectors.douyin = { ...current, cookiePath };
+  const manualWrite = await configureManualWriteTools('抖音适配器', existingServer, readTools);
   if (upstreamType === '1') {
     const projectDirectory = await ask('douyin-mcp 项目目录', current.projectDirectory || `${process.env.HOME}/.local/share/douyinmcp`);
     config.connectors.douyin.projectDirectory = projectDirectory;
@@ -126,8 +147,8 @@ async function configureDouyin(config) {
         ASR_PROVIDER: current.asrProvider || 'siliconflow',
         SILICONFLOW_API_KEY: current.siliconflowApiKey || ''
       },
-      allowedTools: ['check_login_status', 'search_videos', 'get_video_detail', 'get_video_comments', 'get_sub_comments', 'get_user_info', 'get_user_posts', 'get_homefeed', 'resolve_share_url', 'download_video', 'download_aweme_images', 'ocr_aweme_images', 'transcribe_video', 'batch_transcribe'],
-      readOnly: true,
+      allowedTools: manualWrite.allowedTools,
+      readOnly: manualWrite.readOnly,
       timeoutMs: 120000
     });
   } else if (upstreamType === '2') {
@@ -140,8 +161,8 @@ async function configureDouyin(config) {
       url,
       prefix: 'douyin',
       headers: bearer ? { Authorization: `Bearer ${bearer}` } : {},
-      allowedTools: ['check_login_status', 'search_videos', 'get_video_detail', 'get_video_comments', 'get_sub_comments', 'get_user_info', 'get_user_posts', 'get_homefeed', 'resolve_share_url', 'download_video', 'download_aweme_images', 'ocr_aweme_images', 'transcribe_video', 'batch_transcribe'],
-      readOnly: true,
+      allowedTools: manualWrite.allowedTools,
+      readOnly: manualWrite.readOnly,
       timeoutMs: 120000
     });
   }
@@ -156,8 +177,10 @@ async function configureDouyin(config) {
 
 async function configureXiaohongshu(config) {
   const current = config.httpServers.find((item) => item.id === 'xiaohongshu') || {};
+  const readTools = ['check_login_status', 'list_feeds', 'search_feeds', 'get_feed_detail', 'user_profile'];
   const url = await ask('xiaohongshu-mcp 地址', current.url || 'http://127.0.0.1:18060/mcp');
   const bearer = await ask('上游 Bearer Token（本机无鉴权可留空）', clean(current.headers?.Authorization).replace(/^Bearer\s+/i, ''));
+  const manualWrite = await configureManualWriteTools('小红书适配器', current, readTools);
   upsertById(config.httpServers, {
     id: 'xiaohongshu',
     name: 'xiaohongshu-mcp 社区上游',
@@ -165,8 +188,8 @@ async function configureXiaohongshu(config) {
     url,
     prefix: 'xhs',
     headers: bearer ? { Authorization: `Bearer ${bearer}` } : {},
-    allowedTools: ['check_login_status', 'list_feeds', 'search_feeds', 'get_feed_detail', 'user_profile'],
-    readOnly: true,
+    allowedTools: manualWrite.allowedTools,
+    readOnly: manualWrite.readOnly,
     timeoutMs: 120000
   });
 }

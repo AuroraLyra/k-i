@@ -46,6 +46,13 @@
         <p>{{ servers.length }} 个连接，统一管理电脑助手和远程 MCP。</p>
         <span class="mcp-board-link">管理连接 <ArrowUpRight :size="14" /></span>
       </button>
+      <button class="mcp-board-card mcp-board-operations" type="button" @click="router.push({ name: 'service-role-operations' })">
+        <span class="mcp-board-icon"><Send :size="22" /></span>
+        <small>ROLE SOCIAL DESK</small>
+        <strong>角色运营</strong>
+        <p>绑定账号、保存草稿、审核发帖与私信，所有写操作可追溯。</p>
+        <span class="mcp-board-link">打开运营中心 <ArrowUpRight :size="14" /></span>
+      </button>
     </section>
 
     <article class="mcp-story-card">
@@ -68,7 +75,7 @@
       </header>
       <div v-if="servers.length" class="mcp-peek-list">
         <button v-for="server in servers.slice(0, 3)" :key="server.id" type="button" @click="emit('navigate', 'server', server.id)">
-          <span class="mcp-kind-avatar" :class="`kind-${server.kind}`"><component :is="server.kind === 'reality' ? Smartphone : server.kind === 'qq' ? MessageCircle : Cable" :size="17" /></span>
+          <span class="mcp-kind-avatar" :class="`kind-${server.kind}`"><component :is="server.kind === 'notification-inbox' ? BellRing : server.kind === 'reality' ? Smartphone : server.kind === 'qq' ? MessageCircle : Cable" :size="17" /></span>
           <span><strong>{{ server.name }}</strong><small>{{ server.tools.filter((tool) => tool.enabled).length }} 个能力</small></span>
           <i class="mcp-status-dot" :class="server.lastStatus"></i>
           <ChevronRight :size="16" />
@@ -80,8 +87,11 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowUpRight, Cable, CheckCircle2, ChevronRight, Globe2, MessageCircle, Smartphone, Sparkles } from 'lucide-vue-next';
+import { ArrowUpRight, BellRing, Cable, CheckCircle2, ChevronRight, Globe2, MessageCircle, Send, Smartphone, Sparkles } from 'lucide-vue-next';
+import { useRouter } from 'vue-router';
 import type { McpServerConfig } from '@/types/domain';
+
+const router = useRouter();
 
 defineProps<{
   enabled: boolean;

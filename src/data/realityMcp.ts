@@ -49,7 +49,7 @@ export const realityMcpTools: McpToolDefinition[] = [
       date: stringProperty('按本地日期查询，格式 YYYY-MM-DD'),
       from: stringProperty('ISO 8601 起始时间'),
       to: stringProperty('ISO 8601 结束时间'),
-      days: { type: 'number', minimum: 1, maximum: 31, description: '未指定时间时查询最近几天，默认 1' },
+      days: { type: 'number', minimum: 1, maximum: 31, description: '未指定时间时按本地自然日查询，默认查询今天；指定多天时从对应日期零点开始' },
       limit: { type: 'number', minimum: 1, maximum: 200, description: '最多返回 App 数量，默认 50' }
     }),
     enabled: true,
@@ -60,7 +60,7 @@ export const realityMcpTools: McpToolDefinition[] = [
     title: '生成 App 使用报告',
     description: '根据 Android 真实使用时长生成日/周汇总、分类占比、常用 App 与专注提醒建议。',
     inputSchema: objectSchema({
-      days: { type: 'number', minimum: 1, maximum: 31, description: '报告天数，默认 7' },
+      days: { type: 'number', minimum: 1, maximum: 31, description: '按本地自然日统计的报告天数，默认 7；传 1 表示今天' },
       focusThresholdMinutes: { type: 'number', minimum: 15, maximum: 1440, description: '单 App 专注提醒阈值，默认 120 分钟' }
     }),
     enabled: true,
@@ -221,7 +221,7 @@ export const realityMcpTools: McpToolDefinition[] = [
   {
     name: 'set_reminder',
     title: '设置提醒',
-    description: '在设备上创建一个持久化提醒，并在时间到达时发送系统通知。',
+    description: '仅在用户明确说“提醒我、通知我、闹钟、定时”时创建未来系统提醒；“备忘录、备忘、便签、笔记”绝对不要使用此工具。',
     inputSchema: objectSchema({
       title: stringProperty('提醒标题'),
       body: stringProperty('提醒内容'),
@@ -235,7 +235,7 @@ export const realityMcpTools: McpToolDefinition[] = [
   {
     name: 'list_reminders',
     title: '查看提醒',
-    description: '查看当前设备上尚未过期的 BabyLink 提醒。',
+    description: '仅查看提醒和通知任务；用户说“读取备忘录、查看备忘、便签或笔记”时绝对不要使用此工具，应使用 list_memos。',
     inputSchema: objectSchema({
       date: stringProperty('按本地日期查询，格式 YYYY-MM-DD'),
       from: stringProperty('ISO 8601 起始时间'),
@@ -292,7 +292,7 @@ export const realityMcpTools: McpToolDefinition[] = [
   {
     name: 'create_calendar_event',
     title: '创建系统日程',
-    description: '获得系统许可后，直接在 Android 或 iOS 的系统日历 App 中创建事件。',
+    description: '获得系统许可后，直接在 Android 或 iOS 的系统日历 App 中创建未来事件；开始时间必须基于当前现实时间，不能写入过去的日期。',
     inputSchema: objectSchema({
       title: stringProperty('事件标题'),
       startAt: stringProperty('ISO 8601 开始时间'),
@@ -319,7 +319,7 @@ export const realityMcpTools: McpToolDefinition[] = [
   {
     name: 'update_calendar_event',
     title: '修改系统日程',
-    description: '使用系统事件 ID 修改日程标题、时间、地点、备注或重复规则。',
+    description: '使用系统事件 ID 修改日程标题、时间、地点、备注或重复规则；如果修改开始时间，新的时间必须基于当前现实时间且不能落在过去。',
     inputSchema: objectSchema({
       eventId: stringProperty('BabyLink 日程 ID 或系统事件 ID'),
       title: stringProperty('新标题，可省略'),
@@ -368,14 +368,25 @@ export const realityMcpTools: McpToolDefinition[] = [
   },
   {
     name: 'create_memo',
-    title: '保存到系统备忘录',
-    description: '打开系统分享面板，将内容交给用户选择的备忘录 App 保存；系统不允许 BabyLink 静默写入 Apple Notes。',
+    title: '直接写入备忘录',
+    description: '把标题和正文直接保存到 BabyLink 应用内备忘录。不会打开分享面板，不需要用户选择 App，不需要提醒时间、日程或通知；用户说“写入备忘录、记到备忘、保存便签”时只能使用此工具。',
     inputSchema: objectSchema({
       title: stringProperty('备忘录标题'),
       content: stringProperty('备忘录正文')
     }, ['content']),
     enabled: true,
     write: true
+  },
+  {
+    name: 'list_memos',
+    title: '读取备忘录',
+    description: '直接读取 BabyLink 应用内已保存的备忘录，可按关键词筛选。用户说“读取、查看、搜索备忘录/备忘/便签/笔记”时使用此工具，绝对不要改用 list_reminders。',
+    inputSchema: objectSchema({
+      query: stringProperty('可选关键词；省略则读取最近备忘录'),
+      limit: { type: 'number', minimum: 1, maximum: 100, description: '最多返回条数，默认 50' }
+    }),
+    enabled: true,
+    write: false
   },
   {
     name: 'pick_contact',
@@ -537,6 +548,14 @@ export const realityMcpTools: McpToolDefinition[] = [
   }
 ];
 
+export const notificationInboxMcpTools: McpToolDefinition[] = realityMcpTools
+  .filter((tool) => tool.name === 'get_notification_inbox_access' || tool.name === 'get_notification_inbox')
+  .map((tool) => ({ ...tool, inputSchema: { ...tool.inputSchema } }));
+
+function cloneMcpTools(tools: McpToolDefinition[]) {
+  return tools.map((tool) => ({ ...tool, inputSchema: { ...tool.inputSchema } }));
+}
+
 export function createBuiltinRealityMcpServer(): McpServerConfig {
   return {
     id: 'mcp_reality_builtin',
@@ -552,9 +571,34 @@ export function createBuiltinRealityMcpServer(): McpServerConfig {
     globalEnabled: true,
     toolPolicy: 'all',
     timeoutMs: 45_000,
-    tools: realityMcpTools.map((tool) => ({ ...tool, inputSchema: { ...tool.inputSchema } })),
+    tools: cloneMcpTools(realityMcpTools),
     protocolVersion: 'builtin',
     serverName: 'BabyLink Reality MCP',
+    serverVersion: '1.0.0',
+    lastStatus: 'connected',
+    lastCheckedAt: 0,
+    lastError: ''
+  };
+}
+
+export function createBuiltinNotificationInboxMcpServer(): McpServerConfig {
+  return {
+    id: 'mcp_notification_inbox_builtin',
+    name: '系统通知 MCP · 角色专用',
+    kind: 'notification-inbox',
+    description: '只读取当前 Android 设备上经授权保存在本机的系统通知摘要。默认不全局应用，请专门绑定给需要查看通知的角色。',
+    url: 'builtin://notification-inbox',
+    headers: {},
+    apiKey: '',
+    apiKeyHeader: 'Authorization',
+    apiKeyPrefix: 'Bearer ',
+    enabled: true,
+    globalEnabled: false,
+    toolPolicy: 'read-only',
+    timeoutMs: 45_000,
+    tools: cloneMcpTools(notificationInboxMcpTools),
+    protocolVersion: 'builtin',
+    serverName: 'BabyLink Notification Inbox MCP',
     serverVersion: '1.0.0',
     lastStatus: 'connected',
     lastCheckedAt: 0,

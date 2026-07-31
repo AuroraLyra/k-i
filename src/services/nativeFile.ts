@@ -42,7 +42,7 @@ async function cleanupExpiredNativeShareFiles(now = Date.now()) {
 
   await Promise.all(entries.files.map(async (entry) => {
     if (entry.type !== 'file') return;
-    const timestamp = Number(entry.name.match(/^(\d+)-/)?.[1] ?? 0);
+    const timestamp = Number(entry.name.match(/^\d+-/)?.[1] ?? 0);
     const modifiedAt = Math.max(Number(entry.mtime) || 0, Number(entry.ctime) || 0, timestamp);
     if (!modifiedAt || now - modifiedAt < nativeShareFileMaxAgeMs) return;
     await Filesystem.deleteFile({
@@ -56,6 +56,30 @@ export function isNativeFileShareAvailable() {
   return Capacitor.isNativePlatform()
     && Capacitor.isPluginAvailable('Filesystem')
     && Capacitor.isPluginAvailable('Share');
+}
+
+export async function shareText(title: string, text: string, url = '') {
+  const normalizedTitle = title.trim() || 'BabyLink 分享';
+  const normalizedText = text.trim();
+  const normalizedUrl = url.trim();
+  if (!normalizedText && !normalizedUrl) throw new Error('没有可分享的内容。');
+
+  if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('Share')) {
+    await Share.share({ title: normalizedTitle, text: normalizedText || undefined, url: normalizedUrl || undefined, dialogTitle: normalizedTitle });
+    return true;
+  }
+
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    await navigator.share({ title: normalizedTitle, text: normalizedText || undefined, url: normalizedUrl || undefined });
+    return true;
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText([normalizedTitle, normalizedText, normalizedUrl].filter(Boolean).join('\n'));
+    return true;
+  }
+
+  throw new Error('当前设备不支持系统分享，请复制内容后手动发送。');
 }
 
 export function isNativeFilePickerAvailable() {

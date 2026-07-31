@@ -6,25 +6,28 @@ INSTALL_DIR="$HOME/.local/share/babylink-mcp/app"
 CONFIG_DIR="$HOME/.config/babylink-mcp"
 BOOT_DIR="$HOME/.termux/boot"
 BIN_DIR="$PREFIX/bin"
+OPENSSL_BIN="$BIN_DIR/openssl"
 
 printf '%s\n' '正在安装 BabyLink Termux MCP 网关…'
 pkg update -y
-pkg install -y nodejs-lts openssl curl termux-api
+pkg install -y nodejs-lts openssl openssl-tool curl termux-api
 mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$BOOT_DIR"
 cp -R "$SOURCE_DIR/package.json" "$SOURCE_DIR/gateway.mjs" "$SOURCE_DIR/pairing.mjs" "$SOURCE_DIR/setup.mjs" "$SOURCE_DIR/start.sh" "$SOURCE_DIR/manage.sh" "$SOURCE_DIR/tunnel.sh" "$SOURCE_DIR/lib" "$INSTALL_DIR/"
 chmod 700 "$INSTALL_DIR/start.sh" "$INSTALL_DIR/manage.sh" "$INSTALL_DIR/tunnel.sh"
 
 if [ ! -f "$CONFIG_DIR/config.json" ]; then
-  TOKEN=$(openssl rand -hex 32)
+  if [ ! -x "$OPENSSL_BIN" ]; then
+    printf '%s\n' '未找到 OpenSSL 命令行工具，请确认 openssl-tool 安装成功。' >&2
+    exit 1
+  fi
+  TOKEN=$($OPENSSL_BIN rand -hex 32)
   sed "s/\${BABYLINK_MCP_TOKEN}/$TOKEN/g" "$SOURCE_DIR/config.example.json" > "$CONFIG_DIR/config.json"
   chmod 600 "$CONFIG_DIR/config.json"
 fi
 
 cat > "$BOOT_DIR/babylink-mcp" <<EOF
 #!/data/data/com.termux/files/usr/bin/sh
-termux-wake-lock
-cd "$INSTALL_DIR"
-BABYLINK_MCP_CONFIG="$CONFIG_DIR/config.json" nohup node gateway.mjs >> "$CONFIG_DIR/gateway.log" 2>&1 &
+exec "$INSTALL_DIR/manage.sh" start
 EOF
 chmod 700 "$BOOT_DIR/babylink-mcp"
 ln -sf "$INSTALL_DIR/manage.sh" "$BIN_DIR/babylink-mcp"

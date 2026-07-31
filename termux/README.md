@@ -11,13 +11,15 @@ QQ 不在这个网关中实现，继续使用电脑上的 BabyLink Bridge + NapC
 已有 Termux 时，直接复制这一条命令：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/KizunaRP/LINK/main/termux/bootstrap.sh | sh
+curl -fsSL https://babylink.top/termux/bootstrap.sh | sh
 ```
+
+安装文件由 `babylink.top` 提供，不依赖 GitHub。若下载失败，检查网络是否能访问本站 HTTPS 地址；无需也不要粘贴 GitHub Token。自托管镜像可设置 `BABYLINK_MCP_ARCHIVE_URL` 指向自己的 `termux.tar.gz`。
 
 安装器会：
 
-- 从 GitHub 下载当前版本的 `termux` 子目录，不要求先克隆完整仓库。
-- 安装 Node.js、OpenSSL、curl 和 Termux:API 命令行包。
+- 从 `babylink.top` 下载当前版本的 `termux` 安装包，不要求先克隆完整仓库。
+- 安装 Node.js、OpenSSL 命令行工具、curl 和 Termux:API 命令行包。
 - 将网关复制到 `~/.local/share/babylink-mcp/app`。
 - 在 `~/.config/babylink-mcp/config.json` 生成权限为 `0600` 的随机 64 位十六进制 Bearer Token。
 - 创建 `~/.termux/boot/babylink-mcp`，配合 Termux:Boot 在开机后启动网关。
@@ -119,6 +121,23 @@ babylink-mcp restart
 2. 连接用户自己部署的带鉴权 HTTPS MCP。
 
 网关白名单暴露 Cookie 登录状态、关键词搜索、视频详情、作者、评论/回复、分享短链解析、媒体下载、OCR 和 ASR。Cookie 默认单独保存到 `~/.config/douyinmcp/cookies.txt`，不会进入 BabyLink 配置。
+
+运营中心可把这些小红书/抖音只读连接绑定为“用户账号”，授权指定角色查询账号资料、作品、内容和评论；Termux 的默认白名单不会将它们作为角色点赞、评论、发帖或私信账号。角色写入仍需要另一个实际提供写工具的角色账号连接。
+
+## 用户本人手动互动（点赞、评论、私信）
+
+运营中心的“我的账号”标签提供单独的“手动互动”入口。它与角色账号、角色队列完全隔离：只有用户亲手打开弹窗、填写目标和内容、并再次确认后，才会调用平台工具；角色、聊天模型和定时任务不能借用此入口。
+
+Termux 默认仍然是只读，因而默认不能评论或私信。只有同时满足以下条件，才可在 `babylink-mcp setup` 中启用：
+
+1. 用户已经在自己的 Termux、电脑 Bridge 或 HTTPS 上游完成合法登录。
+2. 上游真实提供了对应的写工具，并且能在当前 Android/ARM64 环境运行。
+3. 在向导的“开启手动点赞、评论、私信等写入工具”确认中选择开启，并逐项填写上游**实际**工具名；向导会把它们加入精确 `allowedTools` 白名单，而不是放开全部工具。
+4. 重启网关，重新在 MCP Studio 检测连接，并将连接的工具策略设为“全部允许”。
+
+例如自有适配器常见的工具名可能是 `like_note`、`comment_note`、`send_direct_message`（小红书）或 `like_video`、`comment_video`、`send_direct_message`（抖音），但必须以 MCP Studio 实际发现的工具为准。社区上游若没有这些工具、登录失效、平台要求验证码或 Android ARM64 不兼容，应用会显示真实错误，不会伪造发送成功。
+
+不要将 Cookie、密码或平台 Token 粘贴到 BabyLink 的账号展示 ID、草稿、评论正文或聊天中；它们只应存放在上游自己的 `0600` 本地配置或独立登录流程内。使用前也应确认操作符合平台规则与账号授权范围。
 
 该社区项目使用 Python、本地 V8 签名、ffmpeg，并可选 Chromium/Playwright。Android ARM64 上的 Python 原生依赖与 Chromium 支持因机型和 Termux 版本而异，因此这是轻量实验能力：安装器会真实尝试构建；失败时保持上游禁用并给出错误，不会用普通网页搜索冒充抖音 API。ASR 还需要用户自己的服务商 Key。
 

@@ -22,6 +22,7 @@ import { discoverGeneratedGroups, estimateRoleplayReplyInputTokens, fetchVendorM
 import { fetchMusicCoverUrl, mergeMusicTrack, refreshPlayableMusicTrack, searchMusicTracks } from '@/services/music';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import { useCommerceStore } from '@/stores/commerceStore';
+import { useRoleOperationsStore } from '@/stores/roleOperationsStore';
 import { downloadEncryptedCloudBackup, isCloudBackupConnected, uploadEncryptedCloudBackup } from '@/services/cloudBackup';
 import { GitHubBackupError, downloadGitHubBackup, downloadGitHubBackupVersion, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
 import { dismissLinkCallNotification, showLinkNotification } from '@/services/keepAlive';
@@ -489,6 +490,12 @@ export const useAppStore = defineStore('app', () => {
       shopWishlistItems: snapshot.shopWishlistItems ?? [],
       shopOrders: snapshot.shopOrders ?? [],
       shopMoments: snapshot.shopMoments ?? [],
+      roleSocialAccounts: snapshot.roleSocialAccounts ?? [],
+      userSocialAccounts: snapshot.userSocialAccounts ?? [],
+      roleContentDrafts: snapshot.roleContentDrafts ?? [],
+      roleOutboundTasks: snapshot.roleOutboundTasks ?? [],
+      roleOperationPolicies: snapshot.roleOperationPolicies ?? [],
+      roleOperationAudits: snapshot.roleOperationAudits ?? [],
       settings: sharedLibraryData.settings
     };
   }
@@ -4840,6 +4847,7 @@ export const useAppStore = defineStore('app', () => {
   async function deleteCharacterProfile(characterId: string) {
     const character = characterById(characterId);
     if (!character) return false;
+    const roleOperations = useRoleOperationsStore();
 
     const now = Date.now();
     const privateConversations = conversations.value.filter((entry) => entry.kind !== 'group' && entry.charId === characterId);
@@ -5047,6 +5055,8 @@ export const useAppStore = defineStore('app', () => {
       ...relatedLocalWorldBooks.map((book) => deleteEntity('worldBooks', book.id)),
       ...(nextSettings ? [putEntity('settings', nextSettings, 'main')] : [])
     ]);
+    await roleOperations.ensureReady();
+    await roleOperations.removeCharacterData(characterId);
     queueStoredMediaPrune();
     return true;
   }
@@ -5399,6 +5409,8 @@ export const useAppStore = defineStore('app', () => {
     await options.onProgress?.('正在刷新本地数据', 92);
     markRestoredGlobalNoticesSeen(preparedSnapshot);
     applySnapshotToStore(preparedSnapshot);
+    const roleOperations = useRoleOperationsStore();
+    roleOperations.applySnapshot(preparedSnapshot);
     queueMissingStickerImageCaches(preparedSnapshot.stickers);
     void refreshEnabledVendorModels();
     return { slimmedForMobile, persistentStorageGranted };

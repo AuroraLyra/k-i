@@ -143,7 +143,7 @@
 </template>
 
 <script setup lang="ts">
-import { AlertTriangle, Apple, Cable, ChevronRight, Clapperboard, Copy, Download, Heart, LoaderCircle, MessageCircle, Monitor, Network, Plus, RefreshCw, Search, ShieldCheck, ShoppingBag, Smartphone, TerminalSquare, Upload } from 'lucide-vue-next';
+import { AlertTriangle, Apple, BellRing, Cable, ChevronRight, Clapperboard, Copy, Download, Heart, LoaderCircle, MessageCircle, Monitor, Network, Plus, RefreshCw, Search, ShieldCheck, ShoppingBag, Smartphone, TerminalSquare, Upload } from 'lucide-vue-next';
 import { computed, onMounted, reactive, ref, type Component } from 'vue';
 import { downloadDesktopBridgeRelease, fetchDesktopBridgeRelease, type DesktopBridgePlatform, type DesktopBridgeRelease } from '@/services/desktopBridgeRelease';
 import type { McpServerConfig, McpServerKind, McpToolPolicy } from '@/types/domain';
@@ -175,7 +175,7 @@ const desktopReleaseItems = computed(() => [
 const releaseLoading = computed(() => desktopReleaseItems.value.some((item) => item.phase === 'loading'));
 const desktopReleaseError = computed(() => desktopReleaseItems.value.find((item) => item.error)?.error ?? '');
 const termuxCapabilities = ['淘宝/TBK', '抖音实验版', '小红书上游', '分享链接深读', 'B 站', '地图', '快递', '价格追踪'];
-const termuxInstallCommand = 'curl -fsSL https://raw.githubusercontent.com/KizunaRP/LINK/main/termux/bootstrap.sh | sh';
+const termuxInstallCommand = 'curl -fsSL https://babylink.top/termux/bootstrap.sh | sh';
 const termuxCopyLabel = ref('复制一键安装命令');
 let termuxCopyResetTimer = 0;
 
@@ -243,6 +243,7 @@ function releaseDescription(item: typeof desktopReleaseItems.value[number]) {
 
 function serverIcon(kind: McpServerKind): Component {
   if (kind === 'reality') return Smartphone;
+  if (kind === 'notification-inbox') return BellRing;
   if (kind === 'termux') return TerminalSquare;
   if (kind === 'qq') return MessageCircle;
   if (kind === 'xiaohongshu' || kind === 'xiaohongshu-search') return Heart;
@@ -253,6 +254,7 @@ function serverIcon(kind: McpServerKind): Component {
 
 function kindLabel(kind: McpServerKind) {
   if (kind === 'reality') return 'ON THIS PHONE';
+  if (kind === 'notification-inbox') return 'SYSTEM NOTIFICATIONS';
   if (kind === 'termux') return 'ANDROID LOCAL HUB';
   if (kind === 'qq') return 'QQ BRIDGE';
   if (kind === 'xiaohongshu') return 'XIAOHONGSHU BRIDGE';

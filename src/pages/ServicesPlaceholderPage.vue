@@ -21,7 +21,7 @@
 
       <div class="services-section-title">
         <span>Daily services</span>
-        <small>6 spaces</small>
+        <small>7 spaces</small>
       </div>
 
       <section class="services-grid" aria-label="Services 功能列表">
@@ -86,6 +86,16 @@
           <span class="service-dot" aria-hidden="true"></span>
           <ChevronRight class="service-arrow" :size="17" />
         </button>
+
+        <button class="service-card tone-role" type="button" @click="openService('service-role-operations')">
+          <span class="service-icon"><Send :size="22" stroke-width="1.8" /></span>
+          <span class="service-copy">
+            <small>Role social desk</small>
+            <strong>运营中心</strong>
+            <em>账号、草稿、审核、队列与执行日志</em>
+          </span>
+          <ChevronRight class="service-arrow" :size="17" />
+        </button>
       </section>
 
       <p class="services-footnote">Your story stays private, tidy and close.</p>
@@ -95,9 +105,9 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
-import { BatteryCharging, ChevronRight, CloudUpload, Database, KeyRound, Network, RefreshCw, Sparkles } from 'lucide-vue-next';
+import { BatteryCharging, ChevronRight, CloudUpload, Database, KeyRound, Network, RefreshCw, Send, Sparkles } from 'lucide-vue-next';
 
-type ServiceRouteName = 'service-keepalive' | 'service-update' | 'service-backup' | 'service-access' | 'service-data' | 'service-mcp-overview';
+type ServiceRouteName = 'service-keepalive' | 'service-update' | 'service-backup' | 'service-access' | 'service-data' | 'service-mcp-overview' | 'service-role-operations';
 
 const router = useRouter();
 
@@ -242,6 +252,7 @@ function openService(name: ServiceRouteName) {
     radial-gradient(circle at 100% 0, rgba(206, 241, 223, 0.82), transparent 44%),
     linear-gradient(145deg, rgba(255, 249, 252, 0.98), rgba(241, 231, 248, 0.9));
 }
+.tone-role { background: linear-gradient(145deg, rgba(247, 255, 250, 0.98), rgba(218, 241, 226, 0.92)); }
 
 .service-dot {
   position: absolute;

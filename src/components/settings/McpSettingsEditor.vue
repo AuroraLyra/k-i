@@ -44,7 +44,7 @@
       <div class="capability-grid">
         <article class="search-capability"><span class="capability-icon violet"><Globe2 :size="18" /></span><div><strong>联网与资讯</strong><small>网页搜索、实时新闻、来源链接</small></div></article>
         <article><span class="capability-icon green"><Smartphone :size="18" /></span><div><strong>设备与提醒</strong><small>状态、通知、语音、震动、提醒</small></div></article>
-        <article><span class="capability-icon blue"><CalendarDays :size="18" /></span><div><strong>效率工具</strong><small>系统日历、备忘录分享、Android 闹钟</small></div></article>
+        <article><span class="capability-icon blue"><CalendarDays :size="18" /></span><div><strong>效率工具</strong><small>系统日历、应用内备忘录、Android 闹钟</small></div></article>
         <article><span class="capability-icon amber"><MapPinned :size="18" /></span><div><strong>地点与出行</strong><small>定位、系统天气、系统地图、高德</small></div></article>
         <article><span class="capability-icon rose"><ContactRound :size="18" /></span><div><strong>通讯与应用</strong><small>系统联系人、电话、短信、常用 App</small></div></article>
       </div>
@@ -52,7 +52,7 @@
       <details class="reality-help">
         <summary><span>权限与系统限制</span><ChevronDown :size="15" /></summary>
         <div>
-          <p><strong>真实系统数据：</strong>日程写入系统日历，联系人来自系统通讯录；备忘录通过系统分享面板保存，天气与地图直接打开系统 App。</p>
+          <p><strong>真实系统数据：</strong>日程写入系统日历，联系人来自系统通讯录；备忘录直接保存在 BabyLink 本机数据中，天气与地图直接打开系统 App。</p>
           <p><strong>系统限制：</strong>iOS 不允许第三方创建“时钟”闹钟；BabyLink 不会读取其他 App 私有页面，也不能跨 App 查看或控制手机屏幕。</p>
         </div>
       </details>
@@ -96,6 +96,7 @@
             <span class="server-avatar" :class="`kind-${server.kind}`">
               <Camera v-if="server.kind === 'xiaohongshu'" :size="19" />
               <MessageCircle v-else-if="server.kind === 'qq'" :size="19" />
+              <BellRing v-else-if="server.kind === 'notification-inbox'" :size="19" />
               <Smartphone v-else-if="server.kind === 'reality'" :size="19" />
               <Network v-else :size="19" />
             </span>
@@ -115,7 +116,7 @@
             <span>{{ server.lastCheckedAt ? formatLastChecked(server.lastCheckedAt) : '保存后自动检测' }}</span>
           </div>
 
-          <div class="endpoint-row"><Smartphone v-if="server.kind === 'reality'" :size="14" /><Globe2 v-else :size="14" /><span>{{ server.kind === 'reality' ? '当前设备本地执行 · 不需要远程地址' : server.url }}</span></div>
+          <div class="endpoint-row"><BellRing v-if="server.kind === 'notification-inbox'" :size="14" /><Smartphone v-else-if="server.kind === 'reality'" :size="14" /><Globe2 v-else :size="14" /><span>{{ isBuiltinMcpServer(server) ? '当前设备本地执行 · 不需要远程地址' : server.url }}</span></div>
 
           <div class="server-tags">
             <span :class="server.globalEnabled ? 'active' : ''">{{ server.globalEnabled ? '全局应用' : '仅角色选择' }}</span>
@@ -132,7 +133,7 @@
               </label>
               <label class="policy-row">
                 <span><strong>角色权限</strong><small>{{ policyDescription(server.toolPolicy) }}</small></span>
-                <select :value="server.toolPolicy" :disabled="!server.enabled || server.kind === 'reality'" @change="setToolPolicy(server, $event)">
+                <select :value="server.toolPolicy" :disabled="!server.enabled || isBuiltinMcpServer(server)" @change="setToolPolicy(server, $event)">
                   <option value="disabled">不允许角色调用</option>
                   <option value="read-only">只浏览与查询</option>
                   <option value="all">浏览并执行操作</option>
@@ -158,12 +159,12 @@
               </details>
 
               <p v-if="server.lastError" class="server-error">{{ server.lastError }}</p>
-              <footer class="server-actions" :class="{ builtin: server.kind === 'reality' }">
+              <footer class="server-actions" :class="{ builtin: isBuiltinMcpServer(server) }">
                 <button type="button" :disabled="testingServerIds.has(server.id)" @click="inspectServer(server)">
                   <RefreshCw :class="{ spin: testingServerIds.has(server.id) }" :size="15" />重新检测
                 </button>
-                <button v-if="server.kind !== 'reality'" type="button" @click="editServer(server)"><Pencil :size="15" />编辑</button>
-                <button v-if="server.kind !== 'reality'" class="danger" type="button" @click="deleteTarget = server"><Trash2 :size="15" />删除</button>
+                <button v-if="!isBuiltinMcpServer(server)" type="button" @click="editServer(server)"><Pencil :size="15" />编辑</button>
+                <button v-if="!isBuiltinMcpServer(server)" class="danger" type="button" @click="deleteTarget = server"><Trash2 :size="15" />删除</button>
                 <span v-else class="builtin-action-note">手机能力已内置</span>
               </footer>
             </div>
@@ -351,7 +352,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
-import { AlertTriangle, ArrowRight, CalendarDays, Camera, CheckCircle2, ChevronDown, ContactRound, Database, Globe2, KeyRound, Laptop2, MapPinned, MessageCircle, Network, Pencil, Plus, RefreshCw, ShieldCheck, Smartphone, Sparkles, Trash2, Upload, X } from 'lucide-vue-next';
+import { AlertTriangle, ArrowRight, BellRing, CalendarDays, Camera, CheckCircle2, ChevronDown, ContactRound, Database, Globe2, KeyRound, Laptop2, MapPinned, MessageCircle, Network, Pencil, Plus, RefreshCw, ShieldCheck, Smartphone, Sparkles, Trash2, Upload, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import { createMcpServerTemplate, importMcpServers, inspectMcpServer, normalizeMcpRemoteUrl } from '@/services/mcp';
 import { useAppStore } from '@/stores/appStore';
@@ -468,10 +469,15 @@ function kindLabel(kind: McpServerKind) {
   if (kind === 'xiaohongshu') return '小红书电脑 Bridge';
   if (kind === 'qq') return 'QQ / NapCat MCP';
   if (kind === 'reality') return 'Reality MCP · 手机能力';
+  if (kind === 'notification-inbox') return '系统通知 MCP · 角色专用';
   if (kind === 'taobao-search') return '淘宝商品搜索 MCP';
   if (kind === 'douyin-search') return '抖音视频搜索 MCP';
   if (kind === 'xiaohongshu-search') return '小红书内容搜索 MCP';
   return '自定义 MCP';
+}
+
+function isBuiltinMcpServer(server: McpServerConfig) {
+  return server.kind === 'reality' || server.kind === 'notification-inbox';
 }
 
 function policyDescription(policy: McpToolPolicy) {

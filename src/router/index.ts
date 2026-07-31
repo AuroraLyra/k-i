@@ -25,6 +25,7 @@ const AddFriendPage = () => import('@/pages/AddFriendPage.vue');
 const ServicesPage = () => import('@/pages/ServicesPlaceholderPage.vue');
 const ServicesUtilityPage = () => import('@/pages/ServicesUtilityPage.vue');
 const McpServicePage = () => import('@/pages/McpServicePage.vue');
+const RoleOperationsPage = () => import('@/pages/RoleOperationsPage.vue');
 const CloudBackupOAuthCallbackPage = () => import('@/pages/CloudBackupOAuthCallbackPage.vue');
 const ImageModuleSettingsPage = () => import('@/pages/settings/ImageModuleSettingsPage.vue');
 const SettingsPage = () => import('@/pages/settings/SettingsPage.vue');
@@ -57,6 +58,7 @@ export const router = createRouter({
     { path: '/services/mcp/connections', name: 'service-mcp-connections', component: McpServicePage, props: { view: 'connections' } },
     { path: '/services/mcp/connections/:serverId', name: 'service-mcp-server', component: McpServicePage, props: (route) => ({ view: 'server', serverId: String(route.params.serverId) }) },
     { path: '/services/mcp/preferences', name: 'service-mcp-preferences', component: McpServicePage, props: { view: 'preferences' } },
+    { path: '/services/role-operations', name: 'service-role-operations', component: RoleOperationsPage },
     { path: '/stickers', name: 'stickers', component: StickersPage },
     { path: '/favorites', name: 'favorites', component: FavoritesPage },
     { path: '/ringtones', name: 'ringtones', component: RingtoneSettingsPage },

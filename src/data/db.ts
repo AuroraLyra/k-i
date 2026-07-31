@@ -3,6 +3,7 @@ import { toRaw } from 'vue';
 import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatMessage, Conversation, ConversationSettings, FanficBook, FanficChapter, FanficComment, FanficGenerationJob, FanficTopic, FavoriteMessageRecord, GeneratedImageRecord, MusicCommentThread, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomPost, WorldBookEntry } from '@/types/domain';
 import type { CommerceSnapshot, ShopCartItem, ShopMoment, ShopOrder, ShopProduct, ShopStorefront, ShopWishlistItem, WalletAccount, WalletTransaction } from '@/types/commerce';
 import type { MemoryAssertion, MemoryEdge, MemoryEmbeddingCache, MemoryEntity, MemoryEpisode, MemoryStateSnapshot, MemoryTheme } from '@/types/memory';
+import type { RoleContentDraft, RoleOperationAuditEntry, RoleOperationPolicy, RoleOutboundTask, RoleSocialAccount, UserSocialAccount } from '@/types/roleOperations';
 import { compressInlineImageDataUrl } from '@/utils/imageFile';
 import { collectStoredMediaLocators, externalizeLargeMediaRefs, pruneStoredMediaCache } from '@/utils/mediaStorage';
 import { normalizeUserProfile, removeVisualProfileAvatar } from '@/utils/profile';
@@ -49,6 +50,12 @@ interface LinkDb extends DBSchema {
   shopWishlistItems: { key: string; value: ShopWishlistItem; indexes: { byUser: string } };
   shopOrders: { key: string; value: ShopOrder; indexes: { byUser: string; byPurchaser: string; byCreatedAt: number } };
   shopMoments: { key: string; value: ShopMoment; indexes: { byCharacter: string; byCreatedAt: number } };
+  roleSocialAccounts: { key: string; value: RoleSocialAccount; indexes: { byCharacter: string; byPlatform: string; byStatus: string } };
+  userSocialAccounts: { key: string; value: UserSocialAccount; indexes: { byUser: string; byPlatform: string; byStatus: string } };
+  roleContentDrafts: { key: string; value: RoleContentDraft; indexes: { byCharacter: string; byAccount: string; byStatus: string; byScheduledAt: number } };
+  roleOutboundTasks: { key: string; value: RoleOutboundTask; indexes: { byCharacter: string; byAccount: string; byStatus: string; byScheduledAt: number } };
+  roleOperationPolicies: { key: string; value: RoleOperationPolicy; indexes: { byCharacter: string } };
+  roleOperationAudits: { key: string; value: RoleOperationAuditEntry; indexes: { byCharacter: string; byTask: string; byCreatedAt: number } };
   settings: { key: string; value: AppSettings };
 }
 
@@ -57,7 +64,7 @@ let backupReadLockDepth = 0;
 let backupReadLockReleased: Promise<void> | null = null;
 let releaseBackupReadLock: (() => void) | null = null;
 
-const storeNames = ['user', 'characters', 'conversations', 'messages', 'voomPosts', 'profileThemes', 'profileHomepages', 'smallTheaterTopics', 'smallTheaters', 'fanficBooks', 'fanficChapters', 'fanficComments', 'fanficTopics', 'fanficGenerationJobs', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'memoryEpisodes', 'memoryEntities', 'memoryAssertions', 'memoryEdges', 'memoryThemes', 'memoryStateSnapshots', 'memoryEmbeddings', 'generatedImages', 'favorites', 'walletAccounts', 'walletTransactions', 'shopStorefronts', 'shopProducts', 'shopCartItems', 'shopWishlistItems', 'shopOrders', 'shopMoments', 'settings'] as const;
+const storeNames = ['user', 'characters', 'conversations', 'messages', 'voomPosts', 'profileThemes', 'profileHomepages', 'smallTheaterTopics', 'smallTheaters', 'fanficBooks', 'fanficChapters', 'fanficComments', 'fanficTopics', 'fanficGenerationJobs', 'musicFavoriteTracks', 'musicCommentThreads', 'worldBooks', 'stickerGroups', 'stickers', 'conversationSettings', 'memoryEpisodes', 'memoryEntities', 'memoryAssertions', 'memoryEdges', 'memoryThemes', 'memoryStateSnapshots', 'memoryEmbeddings', 'generatedImages', 'favorites', 'walletAccounts', 'walletTransactions', 'shopStorefronts', 'shopProducts', 'shopCartItems', 'shopWishlistItems', 'shopOrders', 'shopMoments', 'roleSocialAccounts', 'userSocialAccounts', 'roleContentDrafts', 'roleOutboundTasks', 'roleOperationPolicies', 'roleOperationAudits', 'settings'] as const;
 const legacyDefaultUserIds = new Set(['1008600002']);
 const legacyDefaultCharacterIds = new Set(['2000100001', '2000100002', '2000100003']);
 const legacyDefaultConversationIds = new Set(['conv_2000100001', 'conv_2000100002', 'conv_2000100003']);
@@ -701,7 +708,7 @@ function migrateArchivedSummaries(database: IDBDatabase, transaction: IDBTransac
 }
 
 export function getDb() {
-  dbPromise ??= openDB<LinkDb>('link-local-db', 16, {
+  dbPromise ??= openDB<LinkDb>('link-local-db', 18, {
     upgrade(db, oldVersion, _newVersion, transaction) {
       if (!db.objectStoreNames.contains('user')) db.createObjectStore('user', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('characters')) db.createObjectStore('characters', { keyPath: 'id' });
@@ -855,6 +862,42 @@ export function getDb() {
         store.createIndex('byCharacter', 'characterId');
         store.createIndex('byCreatedAt', 'createdAt');
       }
+      if (!db.objectStoreNames.contains('roleSocialAccounts')) {
+        const store = db.createObjectStore('roleSocialAccounts', { keyPath: 'id' });
+        store.createIndex('byCharacter', 'characterId');
+        store.createIndex('byPlatform', 'platform');
+        store.createIndex('byStatus', 'status');
+      }
+      if (!db.objectStoreNames.contains('userSocialAccounts')) {
+        const store = db.createObjectStore('userSocialAccounts', { keyPath: 'id' });
+        store.createIndex('byUser', 'userId');
+        store.createIndex('byPlatform', 'platform');
+        store.createIndex('byStatus', 'status');
+      }
+      if (!db.objectStoreNames.contains('roleContentDrafts')) {
+        const store = db.createObjectStore('roleContentDrafts', { keyPath: 'id' });
+        store.createIndex('byCharacter', 'characterId');
+        store.createIndex('byAccount', 'accountId');
+        store.createIndex('byStatus', 'status');
+        store.createIndex('byScheduledAt', 'scheduledAt');
+      }
+      if (!db.objectStoreNames.contains('roleOutboundTasks')) {
+        const store = db.createObjectStore('roleOutboundTasks', { keyPath: 'id' });
+        store.createIndex('byCharacter', 'characterId');
+        store.createIndex('byAccount', 'accountId');
+        store.createIndex('byStatus', 'status');
+        store.createIndex('byScheduledAt', 'scheduledAt');
+      }
+      if (!db.objectStoreNames.contains('roleOperationPolicies')) {
+        const store = db.createObjectStore('roleOperationPolicies', { keyPath: 'characterId' });
+        store.createIndex('byCharacter', 'characterId');
+      }
+      if (!db.objectStoreNames.contains('roleOperationAudits')) {
+        const store = db.createObjectStore('roleOperationAudits', { keyPath: 'id' });
+        store.createIndex('byCharacter', 'characterId');
+        store.createIndex('byTask', 'taskId');
+        store.createIndex('byCreatedAt', 'createdAt');
+      }
       if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings');
 
       if (oldVersion < 4) {
@@ -974,7 +1017,7 @@ export async function loadSnapshot() {
   await seedDatabase();
   await pruneLegacyDefaultData();
   const db = await getDb();
-  const [users, characters, conversations, messages, voomPosts, profileThemes, profileHomepages, smallTheaterTopics, smallTheaters, fanficBooks, fanficChapters, fanficComments, fanficTopics, fanficGenerationJobs, musicFavoriteTracks, musicCommentThreads, worldBooks, stickerGroups, stickers, conversationSettings, memoryEpisodes, memoryEntities, memoryAssertions, memoryEdges, memoryThemes, memoryStateSnapshots, memoryEmbeddings, generatedImages, favorites, walletAccounts, walletTransactions, shopStorefronts, shopProducts, shopCartItems, shopWishlistItems, shopOrders, shopMoments, settings] = await Promise.all([
+  const [users, characters, conversations, messages, voomPosts, profileThemes, profileHomepages, smallTheaterTopics, smallTheaters, fanficBooks, fanficChapters, fanficComments, fanficTopics, fanficGenerationJobs, musicFavoriteTracks, musicCommentThreads, worldBooks, stickerGroups, stickers, conversationSettings, memoryEpisodes, memoryEntities, memoryAssertions, memoryEdges, memoryThemes, memoryStateSnapshots, memoryEmbeddings, generatedImages, favorites, walletAccounts, walletTransactions, shopStorefronts, shopProducts, shopCartItems, shopWishlistItems, shopOrders, shopMoments, roleSocialAccounts, userSocialAccounts, roleContentDrafts, roleOutboundTasks, roleOperationPolicies, roleOperationAudits, settings] = await Promise.all([
     db.getAll('user'),
     db.getAll('characters'),
     db.getAll('conversations'),
@@ -1012,6 +1055,12 @@ export async function loadSnapshot() {
     db.getAll('shopWishlistItems'),
     db.getAll('shopOrders'),
     db.getAll('shopMoments'),
+    db.getAll('roleSocialAccounts'),
+    db.getAll('userSocialAccounts'),
+    db.getAll('roleContentDrafts'),
+    db.getAll('roleOutboundTasks'),
+    db.getAll('roleOperationPolicies'),
+    db.getAll('roleOperationAudits'),
     db.get('settings', 'main')
   ]);
 
@@ -1058,6 +1107,12 @@ export async function loadSnapshot() {
     shopWishlistItems,
     shopOrders,
     shopMoments,
+    roleSocialAccounts,
+    userSocialAccounts,
+    roleContentDrafts,
+    roleOutboundTasks,
+    roleOperationPolicies,
+    roleOperationAudits,
     settings: normalizedSettings
   };
 }
@@ -1230,6 +1285,30 @@ export async function replaceSnapshot(snapshot: AppSnapshot) {
   const shopMomentStore = tx.objectStore('shopMoments');
   void shopMomentStore.clear();
   (snapshot.shopMoments ?? []).forEach((entry) => void shopMomentStore.put(toPersistableValue(entry)));
+
+  const roleSocialAccountStore = tx.objectStore('roleSocialAccounts');
+  void roleSocialAccountStore.clear();
+  (snapshot.roleSocialAccounts ?? []).forEach((entry) => void roleSocialAccountStore.put(toPersistableValue(entry)));
+
+  const userSocialAccountStore = tx.objectStore('userSocialAccounts');
+  void userSocialAccountStore.clear();
+  (snapshot.userSocialAccounts ?? []).forEach((entry) => void userSocialAccountStore.put(toPersistableValue(entry)));
+
+  const roleContentDraftStore = tx.objectStore('roleContentDrafts');
+  void roleContentDraftStore.clear();
+  (snapshot.roleContentDrafts ?? []).forEach((entry) => void roleContentDraftStore.put(toPersistableValue(entry)));
+
+  const roleOutboundTaskStore = tx.objectStore('roleOutboundTasks');
+  void roleOutboundTaskStore.clear();
+  (snapshot.roleOutboundTasks ?? []).forEach((entry) => void roleOutboundTaskStore.put(toPersistableValue(entry)));
+
+  const roleOperationPolicyStore = tx.objectStore('roleOperationPolicies');
+  void roleOperationPolicyStore.clear();
+  (snapshot.roleOperationPolicies ?? []).forEach((entry) => void roleOperationPolicyStore.put(toPersistableValue(entry)));
+
+  const roleOperationAuditStore = tx.objectStore('roleOperationAudits');
+  void roleOperationAuditStore.clear();
+  (snapshot.roleOperationAudits ?? []).forEach((entry) => void roleOperationAuditStore.put(toPersistableValue(entry)));
 
   const settingsStore = tx.objectStore('settings');
   void settingsStore.clear();

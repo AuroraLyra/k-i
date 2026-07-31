@@ -11,6 +11,11 @@
 		-Server
 	}
 
+	handle_path /termux/* {
+		root * /srv/termux
+		file_server
+	}
+
 	reverse_proxy app:3000
 
 	log {

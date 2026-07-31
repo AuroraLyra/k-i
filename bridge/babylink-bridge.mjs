@@ -15,6 +15,8 @@ const oneBotUrl = String(process.env.QQ_ONEBOT_URL || 'http://127.0.0.1:3000').t
 const oneBotToken = String(process.env.QQ_ONEBOT_TOKEN || '').trim();
 const xhsAdapterUrl = String(process.env.XHS_ADAPTER_URL || '').trim().replace(/\/$/, '');
 const xhsAdapterToken = String(process.env.XHS_ADAPTER_TOKEN || '').trim();
+const douyinAdapterUrl = String(process.env.DOUYIN_ADAPTER_URL || '').trim().replace(/\/$/, '');
+const douyinAdapterToken = String(process.env.DOUYIN_ADAPTER_TOKEN || '').trim();
 const tlsKeyPath = String(process.env.BABYLINK_BRIDGE_TLS_KEY || '').trim();
 const tlsCertPath = String(process.env.BABYLINK_BRIDGE_TLS_CERT || '').trim();
 const sessions = new Set();
@@ -145,6 +147,27 @@ const xhsTools = [
     readOnlyHint: true
   },
   {
+    name: 'xhs_get_note_comments',
+    title: '读取小红书评论',
+    description: '通过用户电脑上的适配器读取指定笔记的评论。',
+    inputSchema: objectSchema({ note_id: stringProperty('笔记 ID'), page: { type: 'number', minimum: 1, description: '页码，可省略' } }, ['note_id']),
+    readOnlyHint: true
+  },
+  {
+    name: 'xhs_get_user_profile',
+    title: '读取小红书用户资料',
+    description: '通过用户电脑上的适配器读取公开或当前账号可见的小红书用户资料。',
+    inputSchema: objectSchema({ user_id: stringProperty('小红书用户 ID') }, ['user_id']),
+    readOnlyHint: true
+  },
+  {
+    name: 'xhs_get_user_notes',
+    title: '读取小红书用户笔记',
+    description: '通过用户电脑上的适配器读取指定用户的公开或当前账号可见笔记。',
+    inputSchema: objectSchema({ user_id: stringProperty('小红书用户 ID'), page: { type: 'number', minimum: 1, description: '页码，可省略' } }, ['user_id']),
+    readOnlyHint: true
+  },
+  {
     name: 'xhs_like_note',
     title: '点赞小红书笔记',
     description: '使用用户自己的小红书账号点赞指定笔记。',
@@ -165,6 +188,14 @@ const xhsTools = [
     title: '发布小红书笔记',
     description: '使用用户自己的小红书账号发布笔记；需要适配器支持。',
     inputSchema: objectSchema({ title: stringProperty('标题'), content: stringProperty('正文'), images: { type: 'array', items: { type: 'string' }, description: '图片路径或 URL' } }, ['title', 'content']),
+    readOnlyHint: false,
+    destructiveHint: false
+  },
+  {
+    name: 'xhs_send_direct_message',
+    title: '发送小红书私信',
+    description: '向指定小红书用户发送私信；仅在当前电脑上的适配器明确支持时可用。',
+    inputSchema: objectSchema({ user_id: stringProperty('小红书收件人 ID'), content: stringProperty('私信内容') }, ['user_id', 'content']),
     readOnlyHint: false,
     destructiveHint: false
   },
@@ -216,10 +247,89 @@ const xhsTools = [
   }
 ];
 
+const douyinTools = [
+  {
+    name: 'douyin_status',
+    title: '抖音适配器状态',
+    description: '读取用户电脑上抖音适配器的登录与连接状态。',
+    inputSchema: objectSchema({}),
+    readOnlyHint: true
+  },
+  {
+    name: 'douyin_search_videos',
+    title: '搜索抖音视频',
+    description: '通过当前电脑上的抖音适配器搜索视频。',
+    inputSchema: objectSchema({ keyword: stringProperty('搜索关键词'), page: { type: 'number', minimum: 1, description: '页码，可省略' } }, ['keyword']),
+    readOnlyHint: true
+  },
+  {
+    name: 'douyin_get_video_detail',
+    title: '读取抖音视频',
+    description: '通过当前电脑上的抖音适配器读取指定视频详情。',
+    inputSchema: objectSchema({ aweme_id: stringProperty('抖音视频 ID') }, ['aweme_id']),
+    readOnlyHint: true
+  },
+  {
+    name: 'douyin_get_video_comments',
+    title: '读取抖音评论',
+    description: '通过当前电脑上的抖音适配器读取指定视频的评论。',
+    inputSchema: objectSchema({ aweme_id: stringProperty('抖音视频 ID'), page: { type: 'number', minimum: 1, description: '页码，可省略' } }, ['aweme_id']),
+    readOnlyHint: true
+  },
+  {
+    name: 'douyin_get_user_info',
+    title: '读取抖音用户资料',
+    description: '通过当前电脑上的抖音适配器读取公开或当前账号可见的用户资料。',
+    inputSchema: objectSchema({ user_id: stringProperty('抖音用户 ID') }, ['user_id']),
+    readOnlyHint: true
+  },
+  {
+    name: 'douyin_get_user_posts',
+    title: '读取抖音用户作品',
+    description: '通过当前电脑上的抖音适配器读取指定用户的公开或当前账号可见作品。',
+    inputSchema: objectSchema({ user_id: stringProperty('抖音用户 ID'), page: { type: 'number', minimum: 1, description: '页码，可省略' } }, ['user_id']),
+    readOnlyHint: true
+  },
+  {
+    name: 'douyin_like_video',
+    title: '点赞抖音视频',
+    description: '通过当前电脑上的抖音适配器点赞视频；需要适配器明确支持。',
+    inputSchema: objectSchema({ aweme_id: stringProperty('抖音视频 ID') }, ['aweme_id']),
+    readOnlyHint: false,
+    destructiveHint: false
+  },
+  {
+    name: 'douyin_publish_note',
+    title: '发布抖音内容',
+    description: '通过当前电脑上的抖音适配器发布内容；需要适配器明确支持。',
+    inputSchema: objectSchema({ title: stringProperty('标题'), content: stringProperty('正文'), images: { type: 'array', items: { type: 'string' }, description: '图片路径或 URL' } }, ['content']),
+    readOnlyHint: false,
+    destructiveHint: false
+  },
+  {
+    name: 'douyin_comment_video',
+    title: '评论抖音视频',
+    description: '通过当前电脑上的抖音适配器评论视频；需要适配器明确支持。',
+    inputSchema: objectSchema({ aweme_id: stringProperty('视频 ID'), content: stringProperty('评论内容') }, ['aweme_id', 'content']),
+    readOnlyHint: false,
+    destructiveHint: false
+  },
+  {
+    name: 'douyin_send_direct_message',
+    title: '发送抖音私信',
+    description: '通过当前电脑上的抖音适配器发送私信；需要适配器明确支持。',
+    inputSchema: objectSchema({ user_id: stringProperty('抖音收件人 ID'), content: stringProperty('私信内容') }, ['user_id', 'content']),
+    readOnlyHint: false,
+    destructiveHint: false
+  }
+];
+
 function enabledTools() {
   if (platform === 'qq') return qqTools;
   if (platform === 'xiaohongshu' || platform === 'xhs') return xhsTools;
-  return [...qqTools, ...xhsTools];
+  if (platform === 'douyin') return douyinTools;
+  if (platform === 'both') return [...qqTools, ...xhsTools];
+  return [...qqTools, ...xhsTools, ...douyinTools];
 }
 
 function authorizationMatches(request) {
@@ -330,6 +440,16 @@ async function xhsAction(toolName, args) {
   });
 }
 
+async function douyinAction(toolName, args) {
+  if (!douyinAdapterUrl) throw new Error('DOUYIN_ADAPTER_URL is not configured on this computer.');
+  const action = toolName.replace(/^douyin_/, '');
+  return await requestJson(`${douyinAdapterUrl}/call`, {
+    method: 'POST',
+    headers: douyinAdapterToken ? { Authorization: `Bearer ${douyinAdapterToken}` } : {},
+    body: JSON.stringify({ tool: action, arguments: args })
+  });
+}
+
 async function qqMediaAction(scope, args) {
   const targetKey = scope === 'private' ? 'user_id' : 'group_id';
   const target = args[targetKey];
@@ -364,6 +484,7 @@ async function callToolUnsafe(name, args) {
   if (name === 'qq_send_private_media') return await qqMediaAction('private', args);
   if (name === 'qq_send_group_media') return await qqMediaAction('group', args);
   if (name.startsWith('xhs_')) return await xhsAction(name, args);
+  if (name.startsWith('douyin_')) return await douyinAction(name, args);
   throw new Error(`unknown_tool:${name}`);
 }
 
@@ -391,14 +512,14 @@ async function callTool(name, args) {
 function pairingPayload() {
   if (!publicUrl) return null;
   const url = `${publicUrl}/mcp`;
-  const kind = platform === 'xiaohongshu' || platform === 'xhs' ? 'xiaohongshu' : platform === 'qq' ? 'qq' : 'custom';
+  const kind = platform === 'xiaohongshu' || platform === 'xhs' ? 'xiaohongshu' : platform === 'douyin' ? 'douyin-search' : platform === 'qq' ? 'qq' : 'custom';
   return {
     version: 1,
     platform,
-    name: platform === 'qq' ? '我的 QQ 电脑助手' : platform === 'xiaohongshu' || platform === 'xhs' ? '我的小红书电脑助手' : '我的 BabyLink 电脑助手',
+    name: platform === 'qq' ? '我的 QQ 电脑助手' : platform === 'xiaohongshu' || platform === 'xhs' ? '我的小红书电脑助手' : platform === 'douyin' ? '我的抖音电脑助手' : '我的 BabyLink 电脑助手',
     mcpServers: {
       [platform]: {
-        name: platform === 'qq' ? 'QQ / NapCat 电脑助手' : platform === 'xiaohongshu' || platform === 'xhs' ? '小红书电脑助手' : 'BabyLink 电脑助手',
+        name: platform === 'qq' ? 'QQ / NapCat 电脑助手' : platform === 'xiaohongshu' || platform === 'xhs' ? '小红书电脑助手' : platform === 'douyin' ? '抖音电脑助手' : 'BabyLink 电脑助手',
         kind,
         url,
         apiKey: token,
@@ -418,7 +539,7 @@ function isLocalRequest(request) {
 async function runSelfCheck() {
   const checks = [{ key: 'bridge', label: 'Bridge 本机服务', ok: true, detail: `${host}:${port}` }];
   checks.push({ key: 'https', label: '手机 HTTPS 地址', ok: /^https:\/\//i.test(publicUrl), detail: publicUrl || '等待自动隧道或固定地址' });
-  if (platform === 'qq' || platform === 'both') {
+  if (platform === 'qq' || platform === 'both' || platform === 'all') {
     try {
       const login = await oneBotAction('get_login_info');
       checks.push({ key: 'qq', label: 'QQ / NapCat', ok: true, detail: String(login?.data?.nickname || login?.nickname || 'QQ 在线') });
@@ -426,12 +547,20 @@ async function runSelfCheck() {
       checks.push({ key: 'qq', label: 'QQ / NapCat', ok: false, detail: error instanceof Error ? error.message : 'OneBot 无响应' });
     }
   }
-  if (platform === 'xiaohongshu' || platform === 'xhs' || platform === 'both') {
+  if (platform === 'xiaohongshu' || platform === 'xhs' || platform === 'both' || platform === 'all') {
     try {
       const status = await xhsAction('xhs_status', {});
       checks.push({ key: 'xiaohongshu', label: '小红书适配器', ok: true, detail: String(status?.message || status?.status || '适配器在线') });
     } catch (error) {
       checks.push({ key: 'xiaohongshu', label: '小红书适配器', ok: false, detail: error instanceof Error ? error.message : '适配器无响应' });
+    }
+  }
+  if (platform === 'douyin' || platform === 'all') {
+    try {
+      const status = await douyinAction('douyin_status', {});
+      checks.push({ key: 'douyin', label: '抖音适配器', ok: true, detail: String(status?.message || status?.status || '适配器在线') });
+    } catch (error) {
+      checks.push({ key: 'douyin', label: '抖音适配器', ok: false, detail: error instanceof Error ? error.message : '适配器无响应' });
     }
   }
   if (publicUrl) {
@@ -446,7 +575,7 @@ async function runSelfCheck() {
 }
 
 async function dashboardPage() {
-  const platformName = platform === 'qq' ? 'QQ' : platform === 'xiaohongshu' || platform === 'xhs' ? '小红书' : 'QQ + 小红书';
+  const platformName = platform === 'qq' ? 'QQ' : platform === 'xiaohongshu' || platform === 'xhs' ? '小红书' : platform === 'douyin' ? '抖音' : platform === 'both' ? 'QQ + 小红书' : 'QQ + 小红书 + 抖音';
   const pairing = pairingPayload();
   const pairingText = pairing ? JSON.stringify(pairing, null, 2) : '';
   const qrCode = pairing ? await QRCode.toDataURL(pairingText, { errorCorrectionLevel: 'M', margin: 1, width: 280 }) : '';
@@ -551,7 +680,7 @@ async function handler(request, response) {
     return json(response, 200, { entries: readAuditEntries(Number(url.searchParams.get('limit') || 100)) });
   }
   if (url.pathname === '/health' && request.method === 'GET') {
-    return json(response, 200, { ok: true, platform, bridge: 'BabyLink Bridge', publicUrl: publicUrl || null, configured: { qq: Boolean(oneBotUrl), xiaohongshu: Boolean(xhsAdapterUrl) }, tools: enabledTools().length });
+    return json(response, 200, { ok: true, platform, bridge: 'BabyLink Bridge', publicUrl: publicUrl || null, configured: { qq: Boolean(oneBotUrl), xiaohongshu: Boolean(xhsAdapterUrl), douyin: Boolean(douyinAdapterUrl) }, tools: enabledTools().length });
   }
   if (url.pathname === '/pairing' && request.method === 'GET') {
     if (!authorizationMatches(request)) return json(response, 401, { error: 'unauthorized' });

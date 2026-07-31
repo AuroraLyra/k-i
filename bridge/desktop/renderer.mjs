@@ -43,6 +43,7 @@ function readForm() {
     platform: checkedValue('platform'),
     qqOneBotUrl: value('#qq-url'),
     xhsAdapterUrl: value('#xhs-url'),
+    douyinAdapterUrl: value('#douyin-url'),
     tunnelMode: checkedValue('tunnelMode'),
     publicUrl: value('#public-url'),
     allowedQqUsers: value('#allowed-users'),
@@ -59,6 +60,7 @@ function applyConfig(config) {
   setRadio('tunnelMode', config.tunnelMode);
   setValue('#qq-url', config.qqOneBotUrl);
   setValue('#xhs-url', config.xhsAdapterUrl);
+  setValue('#douyin-url', config.douyinAdapterUrl);
   setValue('#public-url', config.publicUrl);
   setValue('#allowed-users', config.allowedQqUsers);
   setValue('#allowed-groups', config.allowedQqGroups);
