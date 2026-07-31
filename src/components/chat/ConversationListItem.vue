@@ -29,6 +29,7 @@ const props = defineProps<{
 const preview = computed(() => {
   if (props.lastMessage?.sticker) return `[Sticker] ${props.lastMessage.sticker.description}`;
   if (props.lastMessage?.image) return `[图片] ${props.lastMessage.image.description}`;
+  if (props.lastMessage?.linkPreview) return `[链接] ${props.lastMessage.linkPreview.title}`;
   if (props.lastMessage?.theaterLink) return `[网站链接] ${props.lastMessage.theaterLink.title}`;
   return props.lastMessage?.content || props.character.subtitle || '开始聊天';
 });

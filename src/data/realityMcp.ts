@@ -8,6 +8,13 @@ const objectSchema = (properties: Record<string, unknown>, required: string[] = 
 
 const stringProperty = (description: string) => ({ type: 'string', description });
 const numberProperty = (description: string) => ({ type: 'number', description });
+const recurrenceProperties = {
+  repeat: { type: 'string', enum: ['none', 'daily', 'weekly', 'monthly', 'yearly'], description: '重复频率，默认不重复' },
+  repeatInterval: { type: 'number', minimum: 1, maximum: 365, description: '重复间隔，默认 1' },
+  repeatEndAt: stringProperty('ISO 8601 重复结束时间，可省略'),
+  repeatCount: { type: 'number', minimum: 1, maximum: 999, description: '重复次数，可省略' },
+  repeatWeekdays: { type: 'array', items: { type: 'number', minimum: 1, maximum: 7 }, description: '每周重复日，1 为周一、7 为周日' }
+};
 
 export const realityMcpTools: McpToolDefinition[] = [
   {
@@ -15,6 +22,36 @@ export const realityMcpTools: McpToolDefinition[] = [
     title: '读取手机状态',
     description: '读取当前手机或浏览器的设备、系统、电量、网络和可用权限状态。',
     inputSchema: objectSchema({}),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'get_app_usage_access',
+    title: '检查使用时长权限',
+    description: '检查 Android 是否已允许 BabyLink 读取系统 App 使用情况；不会打开其他 App 或伪造统计。',
+    inputSchema: objectSchema({}),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'request_app_usage_access',
+    title: '授权使用时长',
+    description: '打开 Android 官方“使用情况访问权限”设置，由用户亲自允许 BabyLink；不会自动授予权限。',
+    inputSchema: objectSchema({}),
+    enabled: true,
+    write: true
+  },
+  {
+    name: 'get_app_usage',
+    title: '读取 App 使用时长',
+    description: '通过 Android UsageStatsManager 读取真实 App 前台使用时长、最后使用时间与包名，最多查询最近 31 天。',
+    inputSchema: objectSchema({
+      date: stringProperty('按本地日期查询，格式 YYYY-MM-DD'),
+      from: stringProperty('ISO 8601 起始时间'),
+      to: stringProperty('ISO 8601 结束时间'),
+      days: { type: 'number', minimum: 1, maximum: 31, description: '未指定时间时查询最近几天，默认 1' },
+      limit: { type: 'number', minimum: 1, maximum: 200, description: '最多返回 App 数量，默认 50' }
+    }),
     enabled: true,
     write: false
   },
@@ -54,7 +91,8 @@ export const realityMcpTools: McpToolDefinition[] = [
       title: stringProperty('提醒标题'),
       body: stringProperty('提醒内容'),
       at: stringProperty('ISO 8601 时间；与 delayMinutes 二选一'),
-      delayMinutes: numberProperty('从现在开始的延迟分钟数')
+      delayMinutes: numberProperty('从现在开始的延迟分钟数'),
+      repeat: recurrenceProperties.repeat
     }, ['title']),
     enabled: true,
     write: true
@@ -63,9 +101,50 @@ export const realityMcpTools: McpToolDefinition[] = [
     name: 'list_reminders',
     title: '查看提醒',
     description: '查看当前设备上尚未过期的 BabyLink 提醒。',
-    inputSchema: objectSchema({ includeExpired: { type: 'boolean', description: '是否包含已过期提醒' } }),
+    inputSchema: objectSchema({
+      date: stringProperty('按本地日期查询，格式 YYYY-MM-DD'),
+      from: stringProperty('ISO 8601 起始时间'),
+      to: stringProperty('ISO 8601 结束时间'),
+      includeExpired: { type: 'boolean', description: '是否包含已过期提醒' },
+      includeCompleted: { type: 'boolean', description: '是否包含已完成提醒' }
+    }),
     enabled: true,
     write: false
+  },
+  {
+    name: 'update_reminder',
+    title: '编辑提醒',
+    description: '修改 BabyLink 提醒的标题、内容、时间或重复方式，并同步系统通知。',
+    inputSchema: objectSchema({
+      reminderId: stringProperty('提醒 ID'),
+      title: stringProperty('新标题，可省略'),
+      body: stringProperty('新内容，可省略'),
+      at: stringProperty('新的 ISO 8601 时间'),
+      delayMinutes: numberProperty('从现在开始的延迟分钟数'),
+      repeat: recurrenceProperties.repeat
+    }, ['reminderId']),
+    enabled: true,
+    write: true
+  },
+  {
+    name: 'complete_reminder',
+    title: '完成提醒',
+    description: '将一个提醒标记为已完成，并取消对应的系统通知。',
+    inputSchema: objectSchema({ reminderId: stringProperty('提醒 ID') }, ['reminderId']),
+    enabled: true,
+    write: true
+  },
+  {
+    name: 'snooze_reminder',
+    title: '稍后提醒',
+    description: '把提醒推迟指定分钟数或推迟到指定时间，并重新安排系统通知。',
+    inputSchema: objectSchema({
+      reminderId: stringProperty('提醒 ID'),
+      delayMinutes: numberProperty('推迟分钟数，默认 10 分钟'),
+      at: stringProperty('新的 ISO 8601 时间，与 delayMinutes 二选一')
+    }, ['reminderId']),
+    enabled: true,
+    write: true
   },
   {
     name: 'cancel_reminder',
@@ -84,7 +163,9 @@ export const realityMcpTools: McpToolDefinition[] = [
       startAt: stringProperty('ISO 8601 开始时间'),
       endAt: stringProperty('ISO 8601 结束时间，可省略并默认一小时'),
       location: stringProperty('地点'),
-      notes: stringProperty('备注')
+      notes: stringProperty('备注'),
+      isAllDay: { type: 'boolean', description: '是否全天日程' },
+      ...recurrenceProperties
     }, ['title', 'startAt']),
     enabled: true,
     write: true
@@ -97,6 +178,56 @@ export const realityMcpTools: McpToolDefinition[] = [
       from: stringProperty('ISO 8601 起始时间'),
       to: stringProperty('ISO 8601 结束时间')
     }),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'update_calendar_event',
+    title: '修改系统日程',
+    description: '使用系统事件 ID 修改日程标题、时间、地点、备注或重复规则。',
+    inputSchema: objectSchema({
+      eventId: stringProperty('BabyLink 日程 ID 或系统事件 ID'),
+      title: stringProperty('新标题，可省略'),
+      startAt: stringProperty('新的 ISO 8601 开始时间'),
+      endAt: stringProperty('新的 ISO 8601 结束时间'),
+      location: stringProperty('新地点，可省略'),
+      notes: stringProperty('新备注，可省略'),
+      isAllDay: { type: 'boolean', description: '是否全天日程' },
+      ...recurrenceProperties
+    }, ['eventId']),
+    enabled: true,
+    write: true
+  },
+  {
+    name: 'delete_calendar_event',
+    title: '删除系统日程',
+    description: '使用 BabyLink 日程 ID 或系统事件 ID 删除真实系统日历事件。',
+    inputSchema: objectSchema({ eventId: stringProperty('BabyLink 日程 ID 或系统事件 ID') }, ['eventId']),
+    enabled: true,
+    write: true
+  },
+  {
+    name: 'check_calendar_conflicts',
+    title: '检查日程冲突',
+    description: '读取系统日历并检查指定时间段是否与现有事件冲突。',
+    inputSchema: objectSchema({
+      startAt: stringProperty('ISO 8601 开始时间'),
+      endAt: stringProperty('ISO 8601 结束时间'),
+      excludeEventId: stringProperty('可排除的系统事件 ID')
+    }, ['startAt', 'endAt']),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'find_calendar_free_time',
+    title: '查找空闲时间',
+    description: '读取系统日历，在指定范围内查找满足时长的空闲时间段。',
+    inputSchema: objectSchema({
+      from: stringProperty('ISO 8601 查询起始时间'),
+      to: stringProperty('ISO 8601 查询结束时间'),
+      durationMinutes: { type: 'number', minimum: 1, maximum: 1440, description: '所需连续空闲分钟数' },
+      limit: { type: 'number', minimum: 1, maximum: 20, description: '最多返回数量，默认 8' }
+    }, ['from', 'to', 'durationMinutes']),
     enabled: true,
     write: false
   },
@@ -171,12 +302,43 @@ export const realityMcpTools: McpToolDefinition[] = [
     write: false
   },
   {
-    name: 'get_weather',
-    title: '打开系统天气',
-    description: '打开手机系统天气 App；系统不允许 BabyLink 读取天气 App 的私有界面或数据。',
-    inputSchema: objectSchema({}),
+    name: 'read_web_page',
+    title: '读取网页正文',
+    description: '读取公开网页的标题、正文、摘要、发布时间和来源；不执行网页脚本。',
+    inputSchema: objectSchema({
+      url: stringProperty('要读取的公开 HTTP 或 HTTPS 网页地址'),
+      maxCharacters: { type: 'number', minimum: 1000, maximum: 50000, description: '最多返回正文字符数，默认 12000' }
+    }, ['url']),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'read_clipboard_text',
+    title: '读取剪贴板',
+    description: '先向用户弹出确认，再读取当前设备剪贴板中的文本或链接。',
+    inputSchema: objectSchema({ reason: stringProperty('向用户说明读取用途') }),
+    enabled: true,
+    write: false
+  },
+  {
+    name: 'write_clipboard_text',
+    title: '写入剪贴板',
+    description: '先向用户弹出确认，再把指定文本或链接写入当前设备剪贴板。',
+    inputSchema: objectSchema({ text: stringProperty('要写入的文本或链接'), reason: stringProperty('向用户说明写入用途') }, ['text']),
     enabled: true,
     write: true
+  },
+  {
+    name: 'get_weather',
+    title: '读取真实天气',
+    description: '读取当前位置或指定坐标的实时天气、逐小时预报、七天预报、空气质量和近期降雨提示。',
+    inputSchema: objectSchema({
+      latitude: numberProperty('纬度，可省略并请求当前位置'),
+      longitude: numberProperty('经度，可省略并请求当前位置'),
+      hourlyLimit: { type: 'number', minimum: 1, maximum: 72, description: '逐小时预报数量，默认 24' }
+    }),
+    enabled: true,
+    write: false
   },
   {
     name: 'search_nearby_places',

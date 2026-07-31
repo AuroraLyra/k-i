@@ -11,6 +11,7 @@ import { registerNapCat } from './napcat.js';
 import { registerUpstreamProxy } from './proxy.js';
 import { registerReleaseRoutes } from './releases.js';
 import { registerFanficTrendRoutes } from './fanfic.js';
+import { registerLinkPreviewRoutes } from './linkPreview.js';
 
 const app = Fastify({
   disableRequestLogging: true,
@@ -88,6 +89,7 @@ await registerNapCat(app);
 await registerReleaseRoutes(app);
 await registerUpstreamProxy(app);
 await registerFanficTrendRoutes(app);
+await registerLinkPreviewRoutes(app);
 
 await app.register(fastifyStatic, {
   root: config.staticDir,

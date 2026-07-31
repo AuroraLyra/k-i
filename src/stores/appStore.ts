@@ -2,7 +2,7 @@ import { computed, ref, toRaw, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { applyMemoryStoreMutation, deleteEntity, loadSnapshot, pruneUnusedStoredMediaCache, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatGobangAttachment, ChatImageAttachment, ChatImageCandidate, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatGobangAttachment, ChatImageAttachment, ChatImageCandidate, ChatLinkPreviewAttachment, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import type { CharacterEconomySnapshot, ChatCommerceAttachment, ChatShopShareAttachment } from '@/types/commerce';
 import type { MemoryAssertion, MemoryCompressionStats, MemoryEdge, MemoryEmbeddingCache, MemoryEntity, MemoryEpisode, MemoryRecallResult, MemoryStateSnapshot, MemoryTheme } from '@/types/memory';
 import { createAccountId, createId } from '@/utils/id';
@@ -41,6 +41,8 @@ import { consolidateMemoryThemeReport, extractTemporalMemory, generateTemporalMe
 import { registerTabooWorldBookProvider } from '@/services/tabooWorldBook';
 import { createUserTimeSnapshot } from '@/utils/timeAwareness';
 import { normalizeNarrativeText } from '@/utils/structuredText';
+import { normalizeMcpResultAttachments } from '@/utils/mcpResults';
+import { createChatLinkPreview, fetchChatLinkPreview } from '@/services/linkPreview';
 
 interface CreateUserVoomPostPayload {
   userId: string;
@@ -720,6 +722,7 @@ export const useAppStore = defineStore('app', () => {
     }
     syncPendingIncomingCall();
     ready.value = true;
+    queueMissingStickerImageCaches();
     const storedTransferMessages = messages.value.filter((message) => message.transfer && !message.transfer.responseToMessageId && message.sender !== 'system');
     for (const transferMessage of storedTransferMessages) {
       try {
@@ -2766,6 +2769,10 @@ export const useAppStore = defineStore('app', () => {
     return `[网站链接] ${link.title}${link.summary ? ` · ${link.summary}` : ''} · ${link.url}`;
   }
 
+  function formatLinkPreviewContent(link: Pick<ChatLinkPreviewAttachment, 'title' | 'description' | 'url'>) {
+    return `[链接卡片] ${link.title}${link.description ? ` · ${link.description}` : ''} · ${link.url}`;
+  }
+
   function formatOfflineInvitationContent(invitation: Pick<ChatOfflineInvitationAttachment, 'status'>) {
     const statusText = {
       pending: '等待选择',
@@ -2944,6 +2951,7 @@ export const useAppStore = defineStore('app', () => {
       commerce: quote.commerce ? { ...quote.commerce, items: quote.commerce.items.map((item) => ({ ...item })) } : undefined,
       shopShare: quote.shopShare ? { ...quote.shopShare } : undefined,
       musicListenInvite: quote.musicListenInvite ? { ...quote.musicListenInvite } : undefined,
+      linkPreview: quote.linkPreview ? { ...quote.linkPreview } : undefined,
       theaterLink: quote.theaterLink ? { ...quote.theaterLink } : undefined,
       offlineInvitation: quote.offlineInvitation ? { ...quote.offlineInvitation } : undefined,
       call: quote.call ? { ...quote.call } : undefined
@@ -2959,6 +2967,7 @@ export const useAppStore = defineStore('app', () => {
     if (message.commerce) return formatCommerceContent(message.commerce).trim();
     if (message.shopShare) return formatShopShareContent(message.shopShare).trim();
     if (message.musicListenInvite) return formatMusicListenInviteContent(message.musicListenInvite).trim();
+    if (message.linkPreview) return formatLinkPreviewContent(message.linkPreview).trim();
     if (message.theaterLink) return formatSmallTheaterLinkContent(message.theaterLink).trim();
     if (message.offlineInvitation) return formatOfflineInvitationContent(message.offlineInvitation).trim();
     if (message.call) return formatCallContent(message.call, callParticipantNames(message.conversationId)).trim();
@@ -2985,7 +2994,7 @@ export const useAppStore = defineStore('app', () => {
   function canFavoriteMessage(message: ChatMessage) {
     if (message.voice) return true;
     if (message.image) return Boolean(message.image.url);
-    if (message.sticker || message.location || message.transfer || message.commerce || message.shopShare || message.musicListenInvite || message.theaterLink || message.offlineInvitation || message.call || message.gobang) return false;
+    if (message.sticker || message.location || message.transfer || message.commerce || message.shopShare || message.musicListenInvite || message.linkPreview || message.theaterLink || message.offlineInvitation || message.call || message.gobang) return false;
     return Boolean(message.content.trim() || message.displayStyle === 'narration');
   }
 
@@ -3077,6 +3086,7 @@ export const useAppStore = defineStore('app', () => {
       commerce: message.commerce ? { ...message.commerce, items: message.commerce.items.map((item) => ({ ...item })) } : undefined,
       shopShare: message.shopShare ? { ...message.shopShare } : undefined,
       musicListenInvite: message.musicListenInvite ? { ...message.musicListenInvite } : undefined,
+      linkPreview: message.linkPreview ? { ...message.linkPreview } : undefined,
       theaterLink: message.theaterLink ? { ...message.theaterLink } : undefined,
       offlineInvitation: message.offlineInvitation ? { ...message.offlineInvitation } : undefined,
       call: message.call ? { ...message.call } : undefined
@@ -3914,11 +3924,24 @@ export const useAppStore = defineStore('app', () => {
       });
   }
 
-  function queueImportedStickerCache(sticker: Sticker, draft: StickerImportDraft) {
-    queueStickerCache(sticker, {
-      readImageUrl: draft.cacheImageUrl,
-      cleanupImageUrl: draft.cleanupImageUrl
-    });
+  async function prepareImportedSticker(draft: StickerImportDraft, groupIds: string[]) {
+    const sticker = createStickerFromDraft(draft, groupIds);
+    try {
+      const cachedImageUrl = String(draft.cacheImageUrl
+        ? await draft.cacheImageUrl()
+        : await cacheStickerImageUrl(sticker.imageUrl)).trim();
+      if (!/^data:image\//i.test(cachedImageUrl)) {
+        throw new Error('贴纸图片无法写入本地缓存。请检查图片链接后重试。');
+      }
+      return {
+        ...sticker,
+        imageUrl: isPersistableStickerSourceUrl(sticker.imageUrl) ? sticker.imageUrl : stickerBackupPlaceholder,
+        cachedImageUrl,
+        cachedImageUpdatedAt: Date.now()
+      } satisfies Sticker;
+    } finally {
+      draft.cleanupImageUrl?.();
+    }
   }
 
   async function importStickers(drafts: StickerImportDraft[], groupIds: string[]) {
@@ -3930,38 +3953,25 @@ export const useAppStore = defineStore('app', () => {
       return [];
     }
     const existingKeys = new Set(stickers.value.map((sticker) => `${sticker.description.toLocaleLowerCase()}::${sticker.imageUrl}`));
-    const createdEntries: Array<{ draft: StickerImportDraft; sticker: Sticker }> = [];
-    for (const draft of drafts) {
-      let sticker = createStickerFromDraft(draft, targetGroupIds);
-      if (draft.cacheImageUrl) {
-        try {
-          const cachedImageUrl = await draft.cacheImageUrl();
-          if (!cachedImageUrl) throw new Error('本地贴纸图片无法写入缓存。');
-          sticker = {
-            ...sticker,
-            imageUrl: stickerBackupPlaceholder,
-            cachedImageUrl,
-            cachedImageUpdatedAt: Date.now()
-          };
-        } finally {
+    const createdStickers: Sticker[] = [];
+    try {
+      for (const draft of drafts) {
+        const sourceSticker = createStickerFromDraft(draft, targetGroupIds);
+        const key = `${sourceSticker.description.toLocaleLowerCase()}::${sourceSticker.imageUrl}`;
+        if (existingKeys.has(key)) {
           draft.cleanupImageUrl?.();
+          continue;
         }
+        existingKeys.add(key);
+        createdStickers.push(await prepareImportedSticker(draft, targetGroupIds));
       }
-      const key = `${sticker.description.toLocaleLowerCase()}::${sticker.imageUrl}`;
-      if (existingKeys.has(key)) {
-        draft.cleanupImageUrl?.();
-        continue;
-      }
-      existingKeys.add(key);
-      createdEntries.push({ draft, sticker });
+    } catch (error) {
+      drafts.forEach((draft) => draft.cleanupImageUrl?.());
+      throw error;
     }
-    const createdStickers = createdEntries.map((entry) => entry.sticker);
     if (!createdStickers.length) return [];
     stickers.value.unshift(...createdStickers);
     await Promise.all(createdStickers.map((sticker) => putEntity('stickers', sticker)));
-    createdEntries
-      .filter((entry) => !entry.sticker.cachedImageUrl)
-      .forEach((entry) => queueImportedStickerCache(entry.sticker, entry.draft));
     return createdStickers;
   }
 
@@ -4375,15 +4385,17 @@ export const useAppStore = defineStore('app', () => {
     const trimmedContent = content.trim();
     if (!conversation || conversation.kind !== 'group' || !activeUser || !trimmedContent) return;
     if (!canCurrentUserSendGroupMessage(conversation)) return;
+    const linkPreview = conversation.activeMode === 'online' ? createChatLinkPreview(trimmedContent) : null;
     const message: ChatMessage = {
       id: createId('msg'), conversationId, sender: 'user', authorType: 'user', authorId: activeUser.id,
       authorName: getUserAiName(activeUser), mode: conversation.activeMode, content: trimmedContent,
-      quote: cloneMessageQuote(quote), createdAt: Date.now(), status: 'sent'
+      ...(linkPreview ? { linkPreview } : {}), quote: cloneMessageQuote(quote), createdAt: Date.now(), status: 'sent'
     };
     messages.value.push(message);
     const nextConversation = { ...conversation, updatedAt: message.createdAt, unreadCount: 0 };
     conversations.value = conversations.value.map((item) => item.id === conversationId ? nextConversation : item);
     await Promise.all([putEntity('messages', message), putEntity('conversations', nextConversation)]);
+    if (linkPreview) void hydrateUserMessageLinkPreview(message.id, linkPreview);
     await syncGroupEventsToCharacterConversations(nextConversation, [message]);
     return message;
   }
@@ -4392,16 +4404,18 @@ export const useAppStore = defineStore('app', () => {
     const conversation = conversationById(conversationId);
     const trimmedContent = content.trim();
     if (!conversation || conversation.kind !== 'group' || !trimmedContent) return;
+    const linkPreview = createChatLinkPreview(trimmedContent);
     const anonymousId = conversation.groupAnonymousId || createId('anonymous');
     const anonymousName = conversation.groupAnonymousName || `匿名用户${Math.floor(1000 + Math.random() * 9000)}`;
     const ensuredConversation = conversation.groupAnonymousId && conversation.groupAnonymousName ? conversation : { ...conversation, groupAnonymousId: anonymousId, groupAnonymousName: anonymousName };
     const message: ChatMessage = {
       id: createId('msg'), conversationId, sender: 'user', authorType: 'user', authorId: anonymousId, authorName: anonymousName,
-      mode: 'online', content: trimmedContent, createdAt: Date.now(), status: 'sent'
+      mode: 'online', content: trimmedContent, ...(linkPreview ? { linkPreview } : {}), createdAt: Date.now(), status: 'sent'
     };
     messages.value.push(message);
     const nextConversation = { ...ensuredConversation, updatedAt: message.createdAt, unreadCount: 0 };
     await Promise.all([putEntity('messages', message), saveGroupConversation(nextConversation)]);
+    if (linkPreview) void hydrateUserMessageLinkPreview(message.id, linkPreview);
     await syncGroupEventsToCharacterConversations(nextConversation, [message]);
     return message;
   }
@@ -5907,6 +5921,7 @@ export const useAppStore = defineStore('app', () => {
     if (conversation.kind === 'group' && !isActiveGroupMember(groupUserMember(conversation))) return;
     const privateCharacter = conversation.kind !== 'group' ? characterById(conversation.charId) : null;
     const privateMessageBlocked = Boolean(privateCharacter && !isCharacterFriend(privateCharacter));
+    const linkPreview = conversation.activeMode === 'online' ? createChatLinkPreview(trimmedContent) : null;
 
     const userMessage: ChatMessage = {
       id: createId('msg'),
@@ -5915,6 +5930,7 @@ export const useAppStore = defineStore('app', () => {
       ...groupUserMessageIdentity(conversation),
       mode: conversation.activeMode,
       content: trimmedContent,
+      ...(linkPreview ? { linkPreview } : {}),
       quote: cloneMessageQuote(quote),
       createdAt: Date.now(),
       status: privateMessageBlocked ? 'failed' : 'sent',
@@ -5926,8 +5942,20 @@ export const useAppStore = defineStore('app', () => {
     const conversationIndex = conversations.value.findIndex((item) => item.id === conversationId);
     if (conversationIndex >= 0) conversations.value[conversationIndex] = nextConversation;
     await putEntity('conversations', nextConversation);
+    if (linkPreview) void hydrateUserMessageLinkPreview(userMessage.id, linkPreview);
     if (!privateMessageBlocked) void maybeAutoCaptureConversationMemory(conversationId);
     return userMessage;
+  }
+
+  async function hydrateUserMessageLinkPreview(messageId: string, fallback: ChatLinkPreviewAttachment) {
+    const preview = await fetchChatLinkPreview(fallback);
+    if (!preview.fetchedAt) return;
+    const index = messages.value.findIndex((message) => message.id === messageId);
+    const current = messages.value[index];
+    if (index < 0 || !current?.linkPreview || current.linkPreview.url !== fallback.url) return;
+    const updatedMessage: ChatMessage = { ...current, linkPreview: preview };
+    messages.value[index] = updatedMessage;
+    await putEntity('messages', updatedMessage);
   }
 
   async function appendUserCallMessage(conversationId: string, content: string, callId: string, callMode: ChatCallMode) {
@@ -8022,6 +8050,8 @@ export const useAppStore = defineStore('app', () => {
       const replyPayload = options?.generatedReplyPayload ?? await generateRoleplayReply(replyInputBundle.input);
       if (isReplyRunCancelled(conversationId, replyCancelVersion)) return [];
       const parsedReply = JSON.parse(replyPayload) as RoleplayReplyResult;
+      const apiTrace = parsedReply.apiTrace;
+      const mcpResultAttachments = normalizeMcpResultAttachments(parsedReply.mcpResults);
       const replyBatchId = createId('reply');
       const replyVariantFields = options?.replyVariantGroupId
         ? {
@@ -8192,7 +8222,7 @@ export const useAppStore = defineStore('app', () => {
         const quote = targetMessage ? createMessageQuoteSnapshot(targetMessage) : null;
         if (quote) quoteByReplyIndex.set(Math.max(0, Math.floor(quoteAction.replyIndex)), quote);
       }
-      if (!effectiveReplyMessages.length && !replyStickers.length && !replyImages.length && !narrationMessages.length && !hasOrderedSticker && !hasOrderedNarration && !hasOrderedImage && !hasOrderedVoice && !hasOrderedLocation && !hasOrderedTransfer && !hasOrderedCommerce && !hasOrderedMusicAction && !validRecallMessageIds.length && !validTransferDecisions.length && !validMusicListenInviteDecisions.length && !canSendMusicListenInvite && !(parsedReply.messageActions?.musicActions ?? []).length && !offlineInvitation && !callInvite && !callResponseTargetMessage && !gobangInvite && !gobangResponseTargetMessage && !relationshipAction) {
+      if (!effectiveReplyMessages.length && !replyStickers.length && !replyImages.length && !narrationMessages.length && !mcpResultAttachments.length && !hasOrderedSticker && !hasOrderedNarration && !hasOrderedImage && !hasOrderedVoice && !hasOrderedLocation && !hasOrderedTransfer && !hasOrderedCommerce && !hasOrderedMusicAction && !validRecallMessageIds.length && !validTransferDecisions.length && !validMusicListenInviteDecisions.length && !canSendMusicListenInvite && !(parsedReply.messageActions?.musicActions ?? []).length && !offlineInvitation && !callInvite && !callResponseTargetMessage && !gobangInvite && !gobangResponseTargetMessage && !relationshipAction) {
         showConfigAlert('AI 返回内容中没有可显示的聊天文本，请重试或检查模型输出格式。', '回复异常');
         return;
       }
@@ -8502,6 +8532,23 @@ export const useAppStore = defineStore('app', () => {
       }
       appendStickerMessages(replyStickers);
       const charMessages: ChatMessage[] = orderedSegments.length ? orderedCharMessages : [...charNarrationMessages, ...charMessagesAfterNarration];
+      for (const mcpResult of mcpResultAttachments) {
+        const itemSummary = mcpResult.items.slice(0, 3).map((item) => item.title).join('、');
+        charMessages.push({
+          id: createId('msg'),
+          conversationId,
+          sender: 'char' as const,
+          mode: conversation.activeMode,
+          content: `[MCP 结构化结果] ${mcpResult.serverName} · ${mcpResult.toolName}${itemSummary ? `：${itemSummary}` : ''}`,
+          mcpResult,
+          replyBatchId,
+          ...replyVariantFields,
+          ...callFields,
+          ...gobangFields,
+          createdAt: createdAt + charMessageOffset++,
+          status: 'sent' as const
+        } satisfies ChatMessage);
+      }
       if (isCharacterReapplyEvent || (isBlockedInteraction && ['blocked-by-user', 'deleted-by-user'].includes(relationshipStatus))) {
         charMessages.forEach((message) => {
           if (message.sender === 'char') {
@@ -8583,6 +8630,10 @@ export const useAppStore = defineStore('app', () => {
       if (plotChoices.length) {
         const plotChoiceMessage = charMessages.find((message) => message.sender === 'char' && !message.sticker && !message.image && !message.voice && !message.location && !message.transfer && !message.commerce && !message.musicListenInvite);
         if (plotChoiceMessage) plotChoiceMessage.plotChoices = plotChoices;
+      }
+      if (apiTrace) {
+        const traceMessage = charMessages.find((message) => message.sender === 'char');
+        if (traceMessage) traceMessage.apiTrace = apiTrace;
       }
       if (charMessages.length) {
         if (conversation.activeMode === 'online' && conversation.kind !== 'group') {

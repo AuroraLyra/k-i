@@ -368,7 +368,7 @@
             </div>
           </label>
           <p class="character-mcp-note">
-            {{ characterMcpBinding.overrideGlobal ? '当前为角色独立配置；未勾选时该角色不会使用任何 MCP。' : '当前跟随 Settings > MCP 中已开启的全局应用。' }}
+            {{ characterMcpBinding.overrideGlobal ? '当前为角色独立配置；未勾选时该角色不会使用任何 MCP。' : '当前跟随 Services > MCP Studio 中已开启的全局应用。' }}
           </p>
           <div v-if="configuredMcpServers.length" class="character-mcp-list">
             <label v-for="server in configuredMcpServers" :key="server.id" class="character-mcp-row" :class="{ unavailable: !server.enabled }">
@@ -384,7 +384,7 @@
               />
             </label>
           </div>
-          <p v-else class="character-mcp-note empty-character-mcp-note">请先到 Settings &gt; MCP 导入或添加远程连接。</p>
+          <p v-else class="character-mcp-note empty-character-mcp-note">请先到 Services &gt; MCP Studio 导入或添加远程连接。</p>
           <p v-if="!mcpMasterEnabled" class="character-mcp-warning">全局 MCP 总开关当前关闭，角色绑定会保留但不会调用。</p>
         </section>
         <section class="settings-block">

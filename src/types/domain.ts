@@ -676,6 +676,59 @@ export interface ChatLocationAttachment {
   distance: string;
 }
 
+export type ChatMcpResultItemKind = 'link' | 'product' | 'place' | 'media' | 'generic';
+
+export interface ChatMcpResultItem {
+  kind: ChatMcpResultItemKind;
+  title: string;
+  description?: string;
+  url?: string;
+  imageUrl?: string;
+  price?: string;
+  source?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  distance?: string;
+  eta?: string;
+}
+
+export interface ChatMcpResultAttachment {
+  serverId: string;
+  serverName: string;
+  toolName: string;
+  items: ChatMcpResultItem[];
+}
+
+export type ChatApiReasoningFormat = 'openai-compatible' | 'gemini' | 'claude' | 'unknown';
+
+export interface ChatApiUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
+export interface ChatMcpToolCallTrace {
+  serverId: string;
+  serverName: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+  status: 'success' | 'error';
+  result: string;
+}
+
+export interface ChatApiTrace {
+  generatedAt: number;
+  model: string;
+  requestId?: string;
+  reasoning?: string;
+  reasoningFormat?: ChatApiReasoningFormat;
+  finishReason?: string;
+  status?: string;
+  usage?: ChatApiUsage;
+  mcpToolCalls: ChatMcpToolCallTrace[];
+}
+
 export type ChatTransferStatus = 'pending' | 'accepted' | 'rejected';
 
 export interface ChatTransferAttachment {
@@ -703,6 +756,18 @@ export interface ChatSmallTheaterLinkAttachment {
   summary: string;
   url: string;
   content: string;
+}
+
+export type ChatLinkPreviewPlatform = 'website' | 'xiaohongshu' | 'douyin' | 'taobao';
+
+export interface ChatLinkPreviewAttachment {
+  platform: ChatLinkPreviewPlatform;
+  url: string;
+  title: string;
+  description: string;
+  imageUrl?: string;
+  siteName: string;
+  fetchedAt: number;
 }
 
 export type ChatOfflineInvitationStatus = 'pending' | 'accepted' | 'rejected';
@@ -797,10 +862,12 @@ export interface ChatMessageQuote {
   image?: ChatImageAttachment;
   voice?: ChatVoiceAttachment;
   location?: ChatLocationAttachment;
+  mcpResult?: ChatMcpResultAttachment;
   transfer?: ChatTransferAttachment;
   commerce?: ChatCommerceAttachment;
   shopShare?: ChatShopShareAttachment;
   musicListenInvite?: ChatMusicListenInviteAttachment;
+  linkPreview?: ChatLinkPreviewAttachment;
   theaterLink?: ChatSmallTheaterLinkAttachment;
   offlineInvitation?: ChatOfflineInvitationAttachment;
   call?: ChatCallAttachment;
@@ -827,10 +894,12 @@ export interface ChatMessage {
   image?: ChatImageAttachment;
   voice?: ChatVoiceAttachment;
   location?: ChatLocationAttachment;
+  mcpResult?: ChatMcpResultAttachment;
   transfer?: ChatTransferAttachment;
   commerce?: ChatCommerceAttachment;
   shopShare?: ChatShopShareAttachment;
   musicListenInvite?: ChatMusicListenInviteAttachment;
+  linkPreview?: ChatLinkPreviewAttachment;
   theaterLink?: ChatSmallTheaterLinkAttachment;
   offlineInvitation?: ChatOfflineInvitationAttachment;
   call?: ChatCallAttachment;
@@ -845,6 +914,7 @@ export interface ChatMessage {
   replyVariantIndex?: number;
   replyVariantState?: 'active' | 'inactive';
   plotChoices?: string[];
+  apiTrace?: ChatApiTrace;
   status?: 'sending' | 'sent' | 'failed';
   readAt?: number | null;
   editedAt?: number;
@@ -1533,7 +1603,7 @@ export interface AppThemeSettings {
   offline: ThemeStyleScopeSettings;
 }
 
-export type McpServerKind = 'custom' | 'xiaohongshu' | 'qq' | 'reality';
+export type McpServerKind = 'custom' | 'xiaohongshu' | 'qq' | 'reality' | 'taobao-search' | 'douyin-search' | 'xiaohongshu-search';
 
 export type McpToolPolicy = 'disabled' | 'read-only' | 'all';
 
@@ -1577,23 +1647,40 @@ export interface McpSettings {
   servers: McpServerConfig[];
 }
 
+export type RealityRecurrenceFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export interface RealityRecurrenceRule {
+  frequency: RealityRecurrenceFrequency;
+  interval: number;
+  weekdays: number[];
+  endAt: number;
+  count: number;
+}
+
 export interface RealityReminder {
   id: string;
   title: string;
   body: string;
   at: number;
   createdAt: number;
+  updatedAt: number;
   completed: boolean;
+  completedAt: number;
+  recurrence: RealityRecurrenceRule | null;
 }
 
 export interface RealityCalendarEvent {
   id: string;
+  systemEventId: string;
   title: string;
   startAt: number;
   endAt: number;
   location: string;
   notes: string;
+  isAllDay: boolean;
   createdAt: number;
+  updatedAt: number;
+  recurrence: RealityRecurrenceRule | null;
 }
 
 export interface RealityMcpSettings {

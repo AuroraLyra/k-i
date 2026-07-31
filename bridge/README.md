@@ -4,11 +4,11 @@ BabyLink Bridge 在用户自己的电脑运行，只连接用户自己登录的 
 
 ## 普通用户流程
 
-1. 在手机 BabyLink → 设置 → MCP 的“电脑助手”中下载 macOS 或 Windows 安装包，并在电脑完成安装。
+1. 在手机 BabyLink → Services → MCP Studio → 连接的“电脑助手”中下载 macOS 或 Windows 安装包，并在电脑完成安装。
 2. 电脑先安装并登录 QQ 的 NapCat/OneBot，或自行选择并登录非官方小红书适配器。
 3. 打开 BabyLink 电脑助手，选择 QQ、小红书或两者，确认适配器本机地址后点击启动。默认 Quick Tunnel 会自动下载 Cloudflare 官方 `cloudflared` 并建立临时 HTTPS 地址；也可以填写自己的固定 HTTPS 地址。
 4. 电脑助手显示“可以扫码配对”后，打开配对与体检页，扫描二维码或复制配对信息。
-5. 手机打开 BabyLink → 设置 → MCP → “连接 QQ 电脑助手”或“连接小红书电脑助手”，粘贴后点击“配对并自动检测”。
+5. 手机打开 BabyLink → Services → MCP Studio → 连接，选择“配对 QQ”或“配对小红书”，粘贴后点击“配对并自动检测”。
 6. 手机显示“连接正常”即完成。以后保持电脑、平台适配器和 Bridge 运行即可；Quick Tunnel 地址会在每次重启后变化，需要重新配对，固定 HTTPS 地址不变时无需重复配对。
 
 普通用户不需要安装 Node.js，也不需要在手机手填 URL、Key、请求头或工具列表。macOS/Windows 安装包必须由管理员构建并发布；未签名的测试包可能被系统安全策略拦截，正式分发应配置 Apple Developer ID 与 Windows 代码签名证书。

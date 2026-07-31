@@ -23,8 +23,7 @@
       <section class="settings-panel">
         <ApiSettingsEditor v-if="activeTab === 'api'" :settings="currentSettings" :open-composer-tick="apiComposerTick" @save="saveSettings" />
         <TtsSettingsEditor v-else-if="activeTab === 'tts'" :settings="currentSettings" @save="saveSettings" />
-        <ImageSettingsEditor v-else-if="activeTab === 'image'" :settings="currentSettings" @save="saveSettings" />
-        <McpSettingsEditor v-else />
+        <ImageSettingsEditor v-else :settings="currentSettings" @save="saveSettings" />
       </section>
     </main>
 
@@ -49,19 +48,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ImagePlus, Network, Plus, SlidersHorizontal, Volume2 } from 'lucide-vue-next';
+import { ImagePlus, Plus, SlidersHorizontal, Volume2 } from 'lucide-vue-next';
 import ChatModelSwitchPanel from '@/components/chat/ChatModelSwitchPanel.vue';
 import ApiSettingsEditor from '@/components/home/ApiSettingsEditor.vue';
 import ImageSettingsEditor from '@/components/settings/ImageSettingsEditor.vue';
 import ImageModelPickerButton from '@/components/settings/ImageModelPickerButton.vue';
-import McpSettingsEditor from '@/components/settings/McpSettingsEditor.vue';
 import TtsModelPickerButton from '@/components/settings/TtsModelPickerButton.vue';
 import TtsSettingsEditor from '@/components/settings/TtsSettingsEditor.vue';
 import { useAppStore } from '@/stores/appStore';
 import type { AppSettings } from '@/types/domain';
 import { normalizeAppSettings } from '@/utils/settings';
 
-type SettingsTab = 'api' | 'tts' | 'image' | 'mcp';
+type SettingsTab = 'api' | 'tts' | 'image';
 
 const tabs = [
   {
@@ -87,14 +85,6 @@ const tabs = [
     title: '图片生成配置',
     longDescription: '生图配置页用于收口图片生成相关参数，让后续在线聊天或线下 RP 的生图触发都能复用同一套配置。',
     icon: ImagePlus
-  },
-  {
-    id: 'mcp' as SettingsTab,
-    label: 'MCP',
-    shortLabel: 'MCP',
-    title: '外部工具与角色绑定',
-    longDescription: '连接用户电脑运行的远程 MCP，让角色按全局或局部范围调用真实平台工具。',
-    icon: Network
   }
 ];
 
@@ -231,7 +221,7 @@ async function saveSettings(nextSettings: AppSettings) {
 
 .settings-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
   padding: 7px calc(8px + var(--safe-right)) calc(9px + var(--safe-bottom)) calc(8px + var(--safe-left));
   border-top: 1px solid rgba(17, 17, 17, 0.05);

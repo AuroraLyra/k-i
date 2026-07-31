@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { getSessionIdentity, requireSession } from './auth.js';
@@ -26,6 +26,7 @@ interface ReleaseSourceTokenRow {
 }
 
 const iosSourceTokenLifetimeMs = 180 * 24 * 60 * 60 * 1000;
+const releaseUploadIdPattern = /^[a-zA-Z0-9_-]{16,80}$/;
 
 export function normalizeReleaseNotes(value: unknown) {
   const source = String(value ?? '').trim();
@@ -47,6 +48,45 @@ export function normalizeReleaseNotes(value: unknown) {
 
 function isAdmin(request: FastifyRequest) {
   return Boolean(config.adminToken && request.headers.authorization === `Bearer ${config.adminToken}`);
+}
+
+function parseReleaseMetadata(request: FastifyRequest, reply: FastifyReply) {
+  const platform = String(request.headers['x-link-platform'] ?? '');
+  const versionCode = Number(request.headers['x-link-version-code'] ?? 0);
+  const versionName = String(request.headers['x-link-version-name'] ?? '').trim().slice(0, 40);
+  const minimumVersionCode = Math.max(1, Number(request.headers['x-link-minimum-version-code'] ?? 1) || 1);
+  const encodedNotes = String(request.headers['x-link-release-notes-base64'] ?? '').trim();
+  const legacyNotes = request.headers['x-link-release-notes'];
+  const notes = encodedNotes
+    ? normalizeReleaseNotes(Buffer.from(encodedNotes, 'base64').toString('utf8'))
+    : normalizeReleaseNotes(legacyNotes);
+  if (!['android', 'ios', 'desktop-macos', 'desktop-windows'].includes(platform) || !Number.isInteger(versionCode) || versionCode < 1 || !versionName) {
+    void reply.code(400).send({ error: 'invalid_release_metadata' });
+    return null;
+  }
+  return { platform, versionCode, versionName, minimumVersionCode, notes };
+}
+
+async function publishReleaseFile(metadata: NonNullable<ReturnType<typeof parseReleaseMetadata>>, sourcePath: string, sha256: string, fileSize: number) {
+  const extensions: Record<string, string> = { android: 'apk', ios: 'ipa', 'desktop-macos': 'dmg', 'desktop-windows': 'exe' };
+  const fileName = `babylink-${metadata.platform}-${metadata.versionCode}.${extensions[metadata.platform]}`;
+  const finalPath = join(config.releaseDir, fileName);
+  await rename(sourcePath, finalPath);
+  const releaseId = randomUUID();
+  await query(`
+    INSERT INTO releases (id, platform, version_code, version_name, minimum_version_code, file_name, sha256, file_size, notes, published)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)
+    ON CONFLICT (platform, version_code) DO UPDATE SET
+      version_name = EXCLUDED.version_name,
+      minimum_version_code = EXCLUDED.minimum_version_code,
+      file_name = EXCLUDED.file_name,
+      sha256 = EXCLUDED.sha256,
+      file_size = EXCLUDED.file_size,
+      notes = EXCLUDED.notes,
+      published = TRUE,
+      created_at = NOW()
+  `, [releaseId, metadata.platform, metadata.versionCode, metadata.versionName, metadata.minimumVersionCode, fileName, sha256, fileSize, metadata.notes]);
+  return { ok: true, platform: metadata.platform, versionCode: metadata.versionCode, versionName: metadata.versionName, sha256, fileSize };
 }
 
 function createDownloadTicket(row: ReleaseRow, qq: string) {
@@ -248,47 +288,76 @@ export async function registerReleaseRoutes(app: FastifyInstance) {
 
   app.put('/api/admin/releases/upload', { bodyLimit: config.uploadBodyLimitBytes }, async (request, reply) => {
     if (!isAdmin(request)) return await reply.code(401).send({ error: 'admin_auth_required' });
-    const platform = String(request.headers['x-link-platform'] ?? '');
-    const versionCode = Number(request.headers['x-link-version-code'] ?? 0);
-    const versionName = String(request.headers['x-link-version-name'] ?? '').trim().slice(0, 40);
-    const minimumVersionCode = Math.max(1, Number(request.headers['x-link-minimum-version-code'] ?? 1) || 1);
-    const encodedNotes = String(request.headers['x-link-release-notes-base64'] ?? '').trim();
-    const legacyNotes = request.headers['x-link-release-notes'];
-    const notes = encodedNotes
-      ? normalizeReleaseNotes(Buffer.from(encodedNotes, 'base64').toString('utf8'))
-      : normalizeReleaseNotes(legacyNotes);
-    if (!['android', 'ios', 'desktop-macos', 'desktop-windows'].includes(platform) || !Number.isInteger(versionCode) || versionCode < 1 || !versionName) {
-      return await reply.code(400).send({ error: 'invalid_release_metadata' });
-    }
+    const metadata = parseReleaseMetadata(request, reply);
+    if (!metadata) return;
     if (!Buffer.isBuffer(request.body) || !request.body.length) return await reply.code(400).send({ error: 'release_file_required' });
 
-    const extensions: Record<string, string> = { android: 'apk', ios: 'ipa', 'desktop-macos': 'dmg', 'desktop-windows': 'exe' };
-    const extension = extensions[platform];
-    const fileName = `babylink-${platform}-${versionCode}.${extension}`;
-    const temporaryPath = join(config.releaseDir, `.${fileName}.${randomUUID()}.tmp`);
-    const finalPath = join(config.releaseDir, fileName);
+    const temporaryPath = join(config.releaseDir, `.release-${randomUUID()}.tmp`);
     try {
       await writeFile(temporaryPath, request.body);
       const sha256 = createHash('sha256').update(request.body).digest('hex');
-      await rename(temporaryPath, finalPath);
-      const releaseId = randomUUID();
-      await query(`
-        INSERT INTO releases (id, platform, version_code, version_name, minimum_version_code, file_name, sha256, file_size, notes, published)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)
-        ON CONFLICT (platform, version_code) DO UPDATE SET
-          version_name = EXCLUDED.version_name,
-          minimum_version_code = EXCLUDED.minimum_version_code,
-          file_name = EXCLUDED.file_name,
-          sha256 = EXCLUDED.sha256,
-          file_size = EXCLUDED.file_size,
-          notes = EXCLUDED.notes,
-          published = TRUE,
-          created_at = NOW()
-      `, [releaseId, platform, versionCode, versionName, minimumVersionCode, fileName, sha256, request.body.byteLength, notes]);
-      return { ok: true, platform, versionCode, versionName, sha256, fileSize: request.body.byteLength };
+      return await publishReleaseFile(metadata, temporaryPath, sha256, request.body.byteLength);
     } catch (error) {
       await unlink(temporaryPath).catch(() => undefined);
       return await reply.code(500).send({ error: 'release_upload_failed', message: error instanceof Error ? error.message : '安装包保存失败。' });
+    }
+  });
+
+  app.put('/api/admin/releases/upload-chunk', { bodyLimit: 16 * 1024 * 1024 }, async (request, reply) => {
+    if (!isAdmin(request)) return await reply.code(401).send({ error: 'admin_auth_required' });
+    const uploadId = String(request.headers['x-link-upload-id'] ?? '');
+    const chunkIndex = Number(request.headers['x-link-chunk-index'] ?? -1);
+    if (!releaseUploadIdPattern.test(uploadId) || !Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex > 10_000) {
+      return await reply.code(400).send({ error: 'invalid_release_chunk' });
+    }
+    if (!Buffer.isBuffer(request.body) || !request.body.length) return await reply.code(400).send({ error: 'release_chunk_required' });
+    const uploadDirectory = join(config.releaseDir, '.uploads', uploadId);
+    await mkdir(uploadDirectory, { recursive: true });
+    const chunkPath = join(uploadDirectory, `${String(chunkIndex).padStart(6, '0')}.part`);
+    await writeFile(chunkPath, request.body);
+    return { ok: true, uploadId, chunkIndex, size: request.body.byteLength };
+  });
+
+  app.post('/api/admin/releases/complete-upload', async (request, reply) => {
+    if (!isAdmin(request)) return await reply.code(401).send({ error: 'admin_auth_required' });
+    const metadata = parseReleaseMetadata(request, reply);
+    if (!metadata) return;
+    const uploadId = String(request.headers['x-link-upload-id'] ?? '');
+    const chunkCount = Number(request.headers['x-link-chunk-count'] ?? 0);
+    const expectedSha256 = String(request.headers['x-link-sha256'] ?? '').toLowerCase();
+    if (!releaseUploadIdPattern.test(uploadId) || !Number.isInteger(chunkCount) || chunkCount < 1 || chunkCount > 10_000 || !/^[0-9a-f]{64}$/.test(expectedSha256)) {
+      return await reply.code(400).send({ error: 'invalid_release_upload' });
+    }
+    const uploadDirectory = join(config.releaseDir, '.uploads', uploadId);
+    const temporaryPath = join(config.releaseDir, `.release-${randomUUID()}.tmp`);
+    try {
+      const chunks = (await readdir(uploadDirectory)).filter((name) => name.endsWith('.part')).sort();
+      if (chunks.length !== chunkCount) return await reply.code(409).send({ error: 'release_chunks_incomplete', received: chunks.length, expected: chunkCount });
+      const hash = createHash('sha256');
+      let fileSize = 0;
+      await writeFile(temporaryPath, Buffer.alloc(0));
+      for (let index = 0; index < chunks.length; index += 1) {
+        const expectedName = `${String(index).padStart(6, '0')}.part`;
+        if (chunks[index] !== expectedName) {
+          await unlink(temporaryPath);
+          return await reply.code(409).send({ error: 'release_chunks_out_of_order' });
+        }
+        const bytes = await readFile(join(uploadDirectory, expectedName));
+        hash.update(bytes);
+        fileSize += bytes.byteLength;
+        await appendFile(temporaryPath, bytes);
+      }
+      const sha256 = hash.digest('hex');
+      if (sha256 !== expectedSha256) {
+        await unlink(temporaryPath);
+        return await reply.code(422).send({ error: 'release_sha256_mismatch', actualSha256: sha256 });
+      }
+      const result = await publishReleaseFile(metadata, temporaryPath, sha256, fileSize);
+      await rm(uploadDirectory, { recursive: true, force: true });
+      return result;
+    } catch (error) {
+      await unlink(temporaryPath).catch(() => undefined);
+      return await reply.code(500).send({ error: 'release_upload_failed', message: error instanceof Error ? error.message : '安装包合并失败。' });
     }
   });
 }

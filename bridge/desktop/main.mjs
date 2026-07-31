@@ -217,7 +217,7 @@ function createMainWindow() {
     title: 'BabyLink 电脑助手',
     backgroundColor: '#f3f5f4',
     webPreferences: {
-      preload: path.join(app.getAppPath(), 'bridge', 'desktop', 'preload.mjs'),
+      preload: path.join(app.getAppPath(), 'bridge', 'desktop', 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true

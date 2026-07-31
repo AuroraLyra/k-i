@@ -8,6 +8,8 @@ const auditButton = document.querySelector('#audit-button');
 const message = document.querySelector('#message');
 const publicUrlField = document.querySelector('#public-url-field');
 let state = { phase: 'stopped', message: '电脑助手尚未启动' };
+const requiredBridgeMethods = ['getConfig', 'start', 'stop', 'openDashboard', 'diagnostics', 'audit', 'onState'];
+const bridgeApiAvailable = bridge && requiredBridgeMethods.every((method) => typeof bridge[method] === 'function');
 
 function value(selector) {
   return document.querySelector(selector)?.value?.trim() || '';
@@ -144,21 +146,28 @@ async function refreshAudit() {
 form.addEventListener('change', (event) => {
   if (event.target?.name === 'tunnelMode') updateTunnelFields();
 });
-form.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  message.classList.remove('error');
-  try {
-    renderState(await bridge.start(readForm()));
-  } catch (error) {
-    renderState({ ...state, phase: 'error', message: error instanceof Error ? error.message : String(error) });
-  }
-});
-stopButton.addEventListener('click', async () => renderState(await bridge.stop()));
-dashboardButton.addEventListener('click', () => bridge.openDashboard());
-diagnosticButton.addEventListener('click', refreshDiagnostics);
-auditButton.addEventListener('click', refreshAudit);
-bridge.onState(renderState);
 
-const initial = await bridge.getConfig();
-applyConfig(initial.config);
-renderState(initial.state);
+if (!bridgeApiAvailable) {
+  renderState({ ...state, phase: 'error', message: '桌面桥接组件加载失败，请更新或重新安装 BabyLink 电脑助手。' });
+  startButton.disabled = true;
+  stopButton.disabled = true;
+} else {
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    message.classList.remove('error');
+    try {
+      renderState(await bridge.start(readForm()));
+    } catch (error) {
+      renderState({ ...state, phase: 'error', message: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  stopButton.addEventListener('click', async () => renderState(await bridge.stop()));
+  dashboardButton.addEventListener('click', () => bridge.openDashboard());
+  diagnosticButton.addEventListener('click', refreshDiagnostics);
+  auditButton.addEventListener('click', refreshAudit);
+  bridge.onState(renderState);
+
+  const initial = await bridge.getConfig();
+  applyConfig(initial.config);
+  renderState(initial.state);
+}

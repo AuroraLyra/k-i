@@ -152,6 +152,7 @@ function memoryMessageSourceSnapshot(message: ChatMessage) {
     commerce: memorySemanticAttachment(message.commerce),
     shopShare: memorySemanticAttachment(message.shopShare),
     musicListenInvite: memorySemanticAttachment(message.musicListenInvite),
+    linkPreview: memorySemanticAttachment(message.linkPreview),
     theaterLink: memorySemanticAttachment(message.theaterLink),
     offlineInvitation: memorySemanticAttachment(message.offlineInvitation),
     call: memorySemanticAttachment(message.call),
@@ -171,6 +172,7 @@ function memoryMessageSourceSnapshot(message: ChatMessage) {
       commerce: memorySemanticAttachment(quote.commerce),
       shopShare: memorySemanticAttachment(quote.shopShare),
       musicListenInvite: memorySemanticAttachment(quote.musicListenInvite),
+      linkPreview: memorySemanticAttachment(quote.linkPreview),
       theaterLink: memorySemanticAttachment(quote.theaterLink),
       offlineInvitation: memorySemanticAttachment(quote.offlineInvitation),
       call: memorySemanticAttachment(quote.call)

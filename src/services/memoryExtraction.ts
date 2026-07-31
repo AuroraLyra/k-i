@@ -338,6 +338,7 @@ function renderMessageContent(message: ChatMessage): string {
   if (message.transfer) parts.push(`[转账：${message.transfer.amount} ${message.transfer.note || ''}]`);
   if (message.commerce) parts.push(`[共同事件：${message.commerce.storeName} ${message.commerce.items.map((item) => item.name).join('、')}]`);
   if (message.musicListenInvite) parts.push(`[一起听：${message.musicListenInvite.track?.name || message.musicListenInvite.note || ''}]`);
+  if (message.linkPreview) parts.push(`[链接分享：${message.linkPreview.title} ${message.linkPreview.description} ${message.linkPreview.url}]`);
   if (message.theaterLink) parts.push(`[分享内容：${message.theaterLink.title} ${message.theaterLink.summary}]`);
   if (message.offlineInvitation) parts.push(`[线下情景：${message.offlineInvitation.prompt || message.offlineInvitation.status || ''}]`);
   if (message.call) parts.push(`[通话：${message.call.status || ''}]`);

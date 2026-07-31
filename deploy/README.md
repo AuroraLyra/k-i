@@ -219,7 +219,7 @@ ADMIN_TOKEN='<admin-token>' node scripts/publish-release.mjs desktop-macos bridg
 ADMIN_TOKEN='<admin-token>' node scripts/publish-release.mjs desktop-windows bridge-dist/BabyLink-Bridge-0.1.0-win-x64.exe 1 0.1.0 1 '电脑助手首个 Windows 版本'
 ```
 
-发布成功后，登录用户会在 BabyLink 设置 → MCP → 电脑助手中看到版本号、文件大小和下载按钮。下载 URL 使用与 APK/IPA 相同的五分钟签名票据；未发布的平台只显示“暂未发布”，不会生成假链接。
+发布成功后，登录用户会在 BabyLink → Services → MCP Studio → 连接的电脑助手区域看到版本号、文件大小和下载按钮。下载 URL 使用与 APK/IPA 相同的五分钟签名票据；未发布的平台只显示“暂未发布”，不会生成假链接。
 
 ## 10. 更新与回滚
 

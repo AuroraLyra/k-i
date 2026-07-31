@@ -168,6 +168,13 @@ function createStartupMessage(message: ChatMessage): ChatMessage {
         content: trimStartupText(message.theaterLink.content, 500)
       }
     } : {}),
+    ...(message.linkPreview ? {
+      linkPreview: {
+        ...message.linkPreview,
+        imageUrl: sanitizeStartupMediaUrl(message.linkPreview.imageUrl)
+      }
+    } : {}),
+    ...(message.mcpResult ? { mcpResult: message.mcpResult } : {}),
     ...(message.status ? { status: message.status } : {}),
     ...(message.readAt !== undefined ? { readAt: message.readAt } : {})
   };

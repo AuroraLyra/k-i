@@ -465,7 +465,13 @@ function setToolEnabled(server: McpServerConfig, toolName: string, event: Event)
 }
 
 function kindLabel(kind: McpServerKind) {
-  return kind === 'xiaohongshu' ? '小红书非官方 MCP' : kind === 'qq' ? 'QQ / NapCat MCP' : kind === 'reality' ? 'Reality MCP · 手机能力' : '自定义 MCP';
+  if (kind === 'xiaohongshu') return '小红书电脑 Bridge';
+  if (kind === 'qq') return 'QQ / NapCat MCP';
+  if (kind === 'reality') return 'Reality MCP · 手机能力';
+  if (kind === 'taobao-search') return '淘宝商品搜索 MCP';
+  if (kind === 'douyin-search') return '抖音视频搜索 MCP';
+  if (kind === 'xiaohongshu-search') return '小红书内容搜索 MCP';
+  return '自定义 MCP';
 }
 
 function policyDescription(policy: McpToolPolicy) {

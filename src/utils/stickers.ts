@@ -125,9 +125,15 @@ function isGenericBinaryMimeType(mimeType: string) {
 }
 
 function createImageDownloadUrl(url: string) {
-  return import.meta.env.DEV && isRemoteImageUrl(url)
-    ? `${imageDownloadPath}?url=${encodeURIComponent(url)}`
-    : url;
+  if (!isRemoteImageUrl(url)) return url;
+  if (typeof window !== 'undefined') {
+    try {
+      if (new URL(url).origin === window.location.origin) return url;
+    } catch {
+      return url;
+    }
+  }
+  return `${imageDownloadPath}?url=${encodeURIComponent(url)}`;
 }
 
 function readBlobAsDataUrl(blob: Blob) {
@@ -153,13 +159,26 @@ export async function localizeStickerImageUrl(imageUrl: string) {
   if (!trimmed || isDataImageUrl(trimmed)) return trimmed;
   if (!isRemoteImageUrl(trimmed) && !isFetchableLocalImageUrl(trimmed)) return trimmed;
 
-  let response: Response;
-  try {
-    response = await fetch(isFetchableLocalImageUrl(trimmed) ? trimmed : createImageDownloadUrl(trimmed), {
-      headers: { Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8' }
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+  const downloadUrl = isFetchableLocalImageUrl(trimmed) ? trimmed : createImageDownloadUrl(trimmed);
+  const candidates = [...new Set([downloadUrl, trimmed])];
+  let response: Response | undefined;
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      const nextResponse = await fetch(candidate, {
+        headers: { Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8' }
+      });
+      response = nextResponse;
+      const contentType = nextResponse.headers.get('content-type')?.split(';')[0]?.trim().toLocaleLowerCase() ?? '';
+      const proxyReturnedHtml = candidate !== trimmed && nextResponse.ok && contentType === 'text/html';
+      if (nextResponse.ok && !proxyReturnedHtml) break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!response) {
+    const message = lastError instanceof Error ? lastError.message : String(lastError ?? '网络请求失败');
     throw new Error(`贴纸图片下载失败，无法本地化：${message}。请改用本地图片导入，或通过可访问的图片代理/图床重新导入。`);
   }
 

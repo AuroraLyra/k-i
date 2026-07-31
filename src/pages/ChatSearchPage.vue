@@ -112,6 +112,7 @@ function searchableMessageText(message: ChatMessage) {
   if (message.location) return [message.location.name, message.location.address, message.location.distance].filter(Boolean).join(' ');
   if (message.transfer) return [message.content, message.transfer.amount, message.transfer.note].filter(Boolean).join(' ');
   if (message.commerce) return [message.content, message.commerce.storeName, message.commerce.totalAmount, message.commerce.items.map((item) => item.name).join(' '), message.commerce.cardMessage].filter(Boolean).join(' ');
+  if (message.linkPreview) return [message.content, message.linkPreview.title, message.linkPreview.description, message.linkPreview.siteName, message.linkPreview.url].filter(Boolean).join(' ');
   if (message.theaterLink) return [message.content, message.theaterLink.title, message.theaterLink.summary, message.theaterLink.content].filter(Boolean).join(' ');
   if (message.offlineInvitation) return [message.content, message.offlineInvitation.prompt].filter(Boolean).join(' ');
   return message.content;

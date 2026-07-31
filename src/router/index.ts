@@ -24,6 +24,7 @@ const ProfilePage = () => import('@/pages/ProfilePage.vue');
 const AddFriendPage = () => import('@/pages/AddFriendPage.vue');
 const ServicesPage = () => import('@/pages/ServicesPlaceholderPage.vue');
 const ServicesUtilityPage = () => import('@/pages/ServicesUtilityPage.vue');
+const McpServicePage = () => import('@/pages/McpServicePage.vue');
 const CloudBackupOAuthCallbackPage = () => import('@/pages/CloudBackupOAuthCallbackPage.vue');
 const ImageModuleSettingsPage = () => import('@/pages/settings/ImageModuleSettingsPage.vue');
 const SettingsPage = () => import('@/pages/settings/SettingsPage.vue');
@@ -50,6 +51,12 @@ export const router = createRouter({
     { path: '/services/backup/oauth/callback', name: 'cloud-backup-oauth-callback', component: CloudBackupOAuthCallbackPage },
     { path: '/services/qq-access', name: 'service-access', component: ServicesUtilityPage, props: { mode: 'access' } },
     { path: '/services/data', name: 'service-data', component: ServicesUtilityPage, props: { mode: 'data' } },
+    { path: '/services/mcp', name: 'service-mcp', redirect: { name: 'service-mcp-overview' } },
+    { path: '/services/mcp/overview', name: 'service-mcp-overview', component: McpServicePage, props: { view: 'overview' } },
+    { path: '/services/mcp/phone', name: 'service-mcp-phone', component: McpServicePage, props: { view: 'phone' } },
+    { path: '/services/mcp/connections', name: 'service-mcp-connections', component: McpServicePage, props: { view: 'connections' } },
+    { path: '/services/mcp/connections/:serverId', name: 'service-mcp-server', component: McpServicePage, props: (route) => ({ view: 'server', serverId: String(route.params.serverId) }) },
+    { path: '/services/mcp/preferences', name: 'service-mcp-preferences', component: McpServicePage, props: { view: 'preferences' } },
     { path: '/stickers', name: 'stickers', component: StickersPage },
     { path: '/favorites', name: 'favorites', component: FavoritesPage },
     { path: '/ringtones', name: 'ringtones', component: RingtoneSettingsPage },
@@ -59,7 +66,12 @@ export const router = createRouter({
     { path: '/world-book/new', name: 'world-book-new', component: WorldBookEditorPage },
     { path: '/world-book/:id/edit', name: 'world-book-edit', component: WorldBookEditorPage },
     { path: '/world-book/:id/delete', redirect: (to) => ({ name: 'world-book-edit', params: { id: String(to.params.id) } }) },
-    { path: '/settings', name: 'settings', component: SettingsPage },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: SettingsPage,
+      beforeEnter: (to) => String(to.query.tab ?? '') === 'mcp' ? { name: 'service-mcp-overview' } : true
+    },
     { path: '/settings/image/:module', name: 'image-module-settings', component: ImageModuleSettingsPage },
     { path: '/chats', redirect: '/home' },
     { path: '/chats/:id/search', name: 'chat-search', component: ChatSearchPage, props: true },

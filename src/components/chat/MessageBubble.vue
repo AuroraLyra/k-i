@@ -8,8 +8,10 @@
       class="avatar-button"
       type="button"
       :aria-hidden="hideAvatar"
+      :aria-label="avatarActionLabel"
       :tabindex="hideAvatar ? -1 : 0"
       @click.stop="handleAvatarClick"
+      @dblclick.prevent.stop
       @contextmenu.prevent.stop="emitAvatarLongPress"
       @pointercancel="cancelAvatarLongPress"
       @pointerdown.stop="startAvatarLongPress"
@@ -20,7 +22,7 @@
       <img class="avatar mini" :src="avatarSource" :alt="avatarAlt" />
       <span v-if="showProfileAlert" class="mind-state-hearts" aria-hidden="true"><Heart /><Heart /><Heart /></span>
     </button>
-    <div class="bubble-wrap" :class="{ 'shop-share-wrap': message.shopShare }">
+    <div class="bubble-wrap" :class="{ 'shop-share-wrap': message.shopShare, 'mcp-result-wrap': message.mcpResult }">
       <span v-if="canQuote" class="swipe-quote-cue" :class="{ visible: swipeOffset > 0, ready: swipeQuoteReady }" aria-hidden="true">
         <Quote :size="16" />
       </span>
@@ -41,7 +43,7 @@
         @selectstart.prevent.stop="suppressNativeSelection"
       >
         <span v-if="authorLabel" class="message-author-label">{{ authorLabel }}</span>
-        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, transfer: message.transfer, commerce: message.commerce, shopShare: message.shopShare, musicListenInvite: message.musicListenInvite, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation, call: message.call, gobang: message.gobang }" :style="bubbleStyle">
+        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, mcpResult: message.mcpResult, transfer: message.transfer, commerce: message.commerce, shopShare: message.shopShare, musicListenInvite: message.musicListenInvite, linkPreview: message.linkPreview, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation, call: message.call, gobang: message.gobang }" :style="bubbleStyle">
           <template v-if="message.call">
             <section class="call-message-card" :class="[`call-message-card--${message.call.status}`, `call-message-card--${message.call.mode}`, `call-message-card--${message.call.direction}`]" aria-label="通话消息">
               <div class="call-message-head">
@@ -200,6 +202,52 @@
               <span v-if="message.shopShare.note" class="shop-share-note">“{{ message.shopShare.note }}”</span>
             </section>
           </template>
+          <template v-else-if="message.mcpResult">
+            <section class="mcp-result-card" aria-label="MCP 联网搜索结果">
+              <header class="mcp-result-head">
+                <span class="mcp-result-mark"><Globe2 :size="15" /></span>
+                <span><small>MCP SEARCH</small><strong>{{ message.mcpResult.serverName }}</strong></span>
+                <em>{{ message.mcpResult.toolName }}</em>
+              </header>
+              <div class="mcp-result-list">
+                <article v-for="(item, index) in message.mcpResult.items" :key="`${item.url || item.title}-${index}`" class="mcp-result-item" :class="{ 'has-image': item.imageUrl && !isBrokenImageSource(item.imageUrl) }">
+                  <img
+                    v-if="item.imageUrl && !isBrokenImageSource(item.imageUrl)"
+                    :src="item.imageUrl"
+                    :alt="item.title"
+                    loading="lazy"
+                    referrerpolicy="no-referrer"
+                    draggable="false"
+                    @error="markBrokenImageSource(item.imageUrl)"
+                  />
+                  <span class="mcp-result-copy">
+                    <small>{{ item.source || mcpResultKindLabel(item.kind) }}</small>
+                    <strong>{{ item.title }}</strong>
+                    <span v-if="item.description" class="mcp-result-description">{{ item.description }}</span>
+                    <span v-if="item.address" class="mcp-result-address">{{ item.address }}</span>
+                    <span v-if="item.price || item.distance || item.eta" class="mcp-result-meta">
+                      <em v-if="item.price" class="price">{{ item.price }}</em>
+                      <em v-if="item.distance">{{ item.distance }}</em>
+                      <em v-if="item.eta">{{ item.eta }}</em>
+                    </span>
+                    <a
+                      v-if="mcpResultItemUrl(item)"
+                      :href="mcpResultItemUrl(item)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      referrerpolicy="no-referrer"
+                      @click.stop
+                      @pointerdown.stop
+                      @pointerup.stop
+                    >
+                      <span>{{ item.url ? '查看原始结果' : '在地图中查看' }}</span><ChevronRight :size="13" />
+                    </a>
+                  </span>
+                </article>
+              </div>
+              <footer>字段直接来自工具结构化响应</footer>
+            </section>
+          </template>
           <template v-else-if="message.musicListenInvite">
             <section class="listen-invite-card" :class="`listen-invite-card--${musicInviteStatus}`" aria-label="一起听邀请">
               <span class="listen-invite-disc" aria-hidden="true">
@@ -216,6 +264,45 @@
                 <button type="button" @click.stop="emit('reject-music-listen-invite')">拒绝</button>
                 <button type="button" @click.stop="emit('accept-music-listen-invite')">同意</button>
               </span>
+            </section>
+          </template>
+          <template v-else-if="message.linkPreview">
+            <section class="chat-link-preview-message" :class="`platform-${message.linkPreview.platform}`" aria-label="链接预览">
+              <p v-if="linkPreviewCaption" class="chat-link-preview-caption">{{ linkPreviewCaption }}</p>
+              <a
+                class="chat-link-preview-card"
+                :href="message.linkPreview.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                referrerpolicy="no-referrer"
+                @click.stop
+                @pointerdown.stop
+                @pointerup.stop
+              >
+                <span class="chat-link-preview-visual">
+                  <img
+                    v-if="message.linkPreview.imageUrl && !isBrokenImageSource(message.linkPreview.imageUrl)"
+                    :src="message.linkPreview.imageUrl"
+                    :alt="message.linkPreview.title"
+                    loading="lazy"
+                    referrerpolicy="no-referrer"
+                    draggable="false"
+                    @error="markBrokenImageSource(message.linkPreview.imageUrl)"
+                  />
+                  <span v-else class="chat-link-preview-placeholder" aria-hidden="true">
+                    <Heart v-if="message.linkPreview.platform === 'xiaohongshu'" :size="24" />
+                    <Play v-else-if="message.linkPreview.platform === 'douyin'" :size="24" fill="currentColor" />
+                    <ShoppingBag v-else-if="message.linkPreview.platform === 'taobao'" :size="24" />
+                    <Globe2 v-else :size="24" />
+                  </span>
+                </span>
+                <span class="chat-link-preview-copy">
+                  <small>{{ linkPreviewPlatformLabel }}</small>
+                  <strong>{{ message.linkPreview.title }}</strong>
+                  <span>{{ message.linkPreview.description }}</span>
+                  <em>{{ linkPreviewHostname }} <ChevronRight :size="12" /></em>
+                </span>
+              </a>
             </section>
           </template>
           <template v-else-if="message.theaterLink">
@@ -340,9 +427,9 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { ChevronRight, DoorOpen, Globe2, Heart, LoaderCircle, Music2, Pause, Play, Quote, X } from 'lucide-vue-next';
+import { ChevronRight, DoorOpen, Globe2, Heart, LoaderCircle, Music2, Pause, Play, Quote, ShoppingBag, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
-import type { CharacterProfile, ChatAppearanceSettings, ChatImageCandidate, ChatMessage, UserProfile } from '@/types/domain';
+import type { CharacterProfile, ChatAppearanceSettings, ChatImageCandidate, ChatMcpResultItem, ChatMessage, UserProfile } from '@/types/domain';
 import { useAppStore } from '@/stores/appStore';
 import { normalizeLooseModelReply, parseModelJsonResponse } from '@/utils/aiResponse';
 import { getCharacterDisplayName } from '@/utils/character';
@@ -371,6 +458,7 @@ const props = withDefaults(defineProps<{
   authorAvatar?: string;
   authorName?: string;
   showAuthorName?: boolean;
+  enableAvatarDoubleAction?: boolean;
 }>(), {
   appearance: () => defaultConversationSettings.appearance,
   canRegenerateImage: false,
@@ -383,12 +471,15 @@ const props = withDefaults(defineProps<{
   selected: false,
   authorAvatar: '',
   authorName: '',
-  showAuthorName: false
+  showAuthorName: false,
+  enableAvatarDoubleAction: false
 });
 
 const emit = defineEmits<{
   'open-profile': [];
   'open-user-profile': [];
+  'open-turn-trace': [message: ChatMessage];
+  'request-reply': [];
   'avatar-long-press': [message: ChatMessage];
   'long-press': [message: ChatMessage];
   'toggle-select': [];
@@ -416,6 +507,7 @@ let longPressTimer: number | undefined;
 let longPressStart: { x: number; y: number } | null = null;
 let avatarLongPressTimer: number | undefined;
 let avatarLongPressStart: { x: number; y: number } | null = null;
+let avatarClickTimer: number | undefined;
 let longPressTriggered = false;
 let suppressingSelection = false;
 let swipeStart: { x: number; y: number; pointerId: number } | null = null;
@@ -510,8 +602,10 @@ const showInlineTranslation = computed(() => props.message.sender === 'char'
   && !props.message.sticker
   && !props.message.voice
   && !props.message.location
+  && !props.message.mcpResult
   && !props.message.commerce
   && !props.message.shopShare
+  && !props.message.linkPreview
   && !props.message.theaterLink
   && !props.message.gobang
   && shouldShowChineseTranslation(displayContent.value, displayTranslation.value));
@@ -519,6 +613,24 @@ const showVoiceTranslation = computed(() => props.message.sender === 'char'
   && props.message.mode === 'online'
   && Boolean(props.message.voice)
   && shouldShowChineseTranslation(props.message.voice?.transcript ?? '', displayTranslation.value));
+const linkPreviewCaption = computed(() => props.message.linkPreview
+  ? props.message.content.replace(/https?:\/\/[^\s<>"']+/i, '').replace(/^[\s，。！？；：、…]+|[\s，。！？；：、…]+$/g, '').trim()
+  : '');
+const linkPreviewPlatformLabel = computed(() => {
+  if (props.message.linkPreview?.platform === 'xiaohongshu') return '小红书 · 分享链接';
+  if (props.message.linkPreview?.platform === 'douyin') return '抖音 · 分享链接';
+  if (props.message.linkPreview?.platform === 'taobao') return '淘宝 · 商品链接';
+  return props.message.linkPreview?.siteName || '网站链接';
+});
+const linkPreviewHostname = computed(() => {
+  const url = props.message.linkPreview?.url;
+  if (!url) return '';
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return props.message.linkPreview?.siteName || '网页';
+  }
+});
 
 const characterDisplayName = computed(() => getCharacterDisplayName(props.character));
 const userDisplayName = computed(() => {
@@ -537,6 +649,11 @@ const showAvatarButton = computed(() => (messageVisualSender.value === 'char' &&
   || (messageVisualSender.value === 'user' && props.appearance.showUserAvatar));
 const avatarSource = computed(() => props.authorAvatar || (messageVisualSender.value === 'user' ? userAvatar.value : props.character.avatar));
 const avatarAlt = computed(() => props.authorName || (messageVisualSender.value === 'user' ? userDisplayName.value : characterDisplayName.value));
+const avatarActionLabel = computed(() => props.enableAvatarDoubleAction
+  ? messageVisualSender.value === 'user'
+    ? `单击查看${avatarAlt.value}主页，双击触发回复`
+    : `单击查看${avatarAlt.value}主页，双击查看本轮 API 记录`
+  : `查看${avatarAlt.value}主页`);
 const authorLabel = computed(() => props.showAuthorName && messageVisualSender.value === 'char' ? avatarAlt.value : '');
 const showProfileAlert = computed(() => props.profileAlert && messageVisualSender.value === 'char');
 const quoteText = computed(() => props.message.quote?.sticker
@@ -555,12 +672,14 @@ const quoteText = computed(() => props.message.quote?.sticker
               ? `${props.message.quote.shopShare.title} · ${props.message.quote.shopShare.storeName}`
               : props.message.quote?.musicListenInvite
               ? `一起听 ${props.message.quote.musicListenInvite.track?.name || props.message.quote.musicListenInvite.status}`
+              : props.message.quote?.linkPreview
+                ? props.message.quote.linkPreview.title
               : props.message.quote?.theaterLink
             ? props.message.quote.theaterLink.title
             : props.message.quote?.call
               ? `${props.message.quote.call.mode === 'video' ? '视频通话' : '语音通话'} ${props.message.quote.call.status}`
   : props.message.quote?.content ?? '');
-const quoteThumbnail = computed(() => props.message.quote?.sticker?.imageUrl ?? props.message.quote?.image?.url ?? props.message.quote?.shopShare?.imageUrl ?? '');
+const quoteThumbnail = computed(() => props.message.quote?.sticker?.imageUrl ?? props.message.quote?.image?.url ?? props.message.quote?.shopShare?.imageUrl ?? props.message.quote?.linkPreview?.imageUrl ?? '');
 const quoteAuthorLabel = computed(() => (props.message.quote?.authorName ? `${props.message.quote.authorName}：` : ''));
 
 function measureQuoteOverflow() {
@@ -579,7 +698,7 @@ function observeQuoteOverflow() {
 }
 
 const bubbleStyle = computed(() => {
-  if (props.message.sticker || props.message.image || props.message.location || props.message.transfer || props.message.commerce || props.message.shopShare || props.message.musicListenInvite || props.message.theaterLink || props.message.offlineInvitation || props.message.call || props.message.gobang) return {};
+  if (props.message.sticker || props.message.image || props.message.location || props.message.mcpResult || props.message.transfer || props.message.commerce || props.message.shopShare || props.message.musicListenInvite || props.message.linkPreview || props.message.theaterLink || props.message.offlineInvitation || props.message.call || props.message.gobang) return {};
   if (props.message.displayStyle === 'narration') {
     return {
       background: props.appearance.narrationBubbleColor,
@@ -646,6 +765,17 @@ const lineLocationMapLabel = computed(() => {
   const match = address.match(/([^市区县]+(?:街|路|巷|道)\d*[^\s,，。]*)/);
   return match?.[1] || lineLocationName.value;
 });
+
+function mcpResultKindLabel(kind: ChatMcpResultItem['kind']) {
+  return kind === 'product' ? '商品结果' : kind === 'place' ? '地点结果' : kind === 'media' ? '内容结果' : kind === 'link' ? '网页结果' : '搜索结果';
+}
+
+function mcpResultItemUrl(item: ChatMcpResultItem) {
+  if (item.url) return item.url;
+  if (item.longitude === undefined || item.latitude === undefined) return '';
+  const position = `${item.longitude},${item.latitude}`;
+  return `https://uri.amap.com/marker?position=${encodeURIComponent(position)}&name=${encodeURIComponent(item.title)}&src=BabyLink`;
+}
 const linePayAmount = computed(() => props.message.transfer?.amount || '0.00');
 const linePayStatus = computed(() => props.message.transfer?.status ?? 'pending');
 const linePayIsReceipt = computed(() => Boolean(props.message.transfer?.responseToMessageId));
@@ -999,8 +1129,29 @@ function suppressClickAfterSwipe(event: MouseEvent) {
 
 function handleAvatarClick() {
   if (props.hideAvatar) return;
-  if (props.selectionMode) emit('toggle-select');
-  else if (messageVisualSender.value === 'user') emit('open-user-profile');
+  if (props.selectionMode) {
+    emit('toggle-select');
+    return;
+  }
+  if (!props.enableAvatarDoubleAction) {
+    emitAvatarPrimaryAction();
+    return;
+  }
+  if (avatarClickTimer !== undefined) {
+    window.clearTimeout(avatarClickTimer);
+    avatarClickTimer = undefined;
+    if (messageVisualSender.value === 'user') emit('request-reply');
+    else emit('open-turn-trace', props.message);
+    return;
+  }
+  avatarClickTimer = window.setTimeout(() => {
+    avatarClickTimer = undefined;
+    emitAvatarPrimaryAction();
+  }, 300);
+}
+
+function emitAvatarPrimaryAction() {
+  if (messageVisualSender.value === 'user') emit('open-user-profile');
   else emit('open-profile');
 }
 
@@ -1206,6 +1357,7 @@ watch([() => props.message.mode, () => props.message.quote, quoteText], async ()
 onMounted(observeQuoteOverflow);
 
 onBeforeUnmount(() => {
+  if (avatarClickTimer !== undefined) window.clearTimeout(avatarClickTimer);
   cancelAvatarLongPress();
   quoteResizeObserver?.disconnect();
   stopVoicePlayback();
@@ -1282,6 +1434,7 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: transparent;
   line-height: 0;
+  touch-action: manipulation;
 }
 
 .message-row.profile-alert .avatar-button {
@@ -1551,6 +1704,7 @@ onBeforeUnmount(() => {
 .bubble.transfer,
 .bubble.commerce,
 .bubble.musicListenInvite,
+.bubble.linkPreview,
 .bubble.theaterLink,
 .bubble.gobang {
   padding: 0;
@@ -1613,6 +1767,14 @@ onBeforeUnmount(() => {
   box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
 }
 
+.bubble.linkPreview {
+  width: min(236px, 70vw);
+  min-width: min(204px, 60vw);
+  background: #ffffff;
+  border: 0;
+  box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
+}
+
 .bubble.theaterLink {
   width: min(222px, 64vw);
   min-width: min(189px, 55vw);
@@ -1660,6 +1822,8 @@ onBeforeUnmount(() => {
 .message-row.char .bubble.commerce,
 .message-row.user .bubble.musicListenInvite,
 .message-row.char .bubble.musicListenInvite,
+.message-row.user .bubble.linkPreview,
+.message-row.char .bubble.linkPreview,
 .message-row.user .bubble.theaterLink,
 .message-row.char .bubble.theaterLink,
 .message-row.user .bubble.gobang,
@@ -1680,6 +1844,8 @@ onBeforeUnmount(() => {
 .message-row.char .bubble.commerce,
 .message-row.user .bubble.musicListenInvite,
 .message-row.char .bubble.musicListenInvite,
+.message-row.user .bubble.linkPreview,
+.message-row.char .bubble.linkPreview,
 .message-row.user .bubble.theaterLink,
 .message-row.char .bubble.theaterLink,
 .message-row.user .bubble.gobang,
@@ -2520,6 +2686,126 @@ onBeforeUnmount(() => {
   line-height: 1.2;
   white-space: nowrap;
 }
+
+.chat-link-preview-message {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(12, 20, 28, 0.08);
+  border-radius: inherit;
+  background: #ffffff;
+  color: #111111;
+}
+
+.chat-link-preview-caption {
+  margin: 0;
+  padding: 9px 10px 3px;
+  color: #22252a;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.chat-link-preview-card {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 9px;
+  min-width: 0;
+  padding: 8px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.chat-link-preview-visual {
+  display: block;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #eef8f2, #f0f2fa);
+}
+
+.chat-link-preview-visual img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-link-preview-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: #4c7a62;
+}
+
+.platform-xiaohongshu .chat-link-preview-placeholder { color: #d74c66; background: linear-gradient(145deg, #fff0f4, #fff9fa); }
+.platform-douyin .chat-link-preview-placeholder { color: #131419; background: linear-gradient(145deg, #ebfbff, #fff0f5); }
+.platform-taobao .chat-link-preview-placeholder { color: #f06422; background: linear-gradient(145deg, #fff1e7, #fff8f3); }
+
+.chat-link-preview-copy {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  align-content: start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.chat-link-preview-copy small {
+  overflow: hidden;
+  color: #4b765f;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platform-xiaohongshu .chat-link-preview-copy small { color: #d64a65; }
+.platform-douyin .chat-link-preview-copy small { color: #31343b; }
+.platform-taobao .chat-link-preview-copy small { color: #e45c1b; }
+
+.chat-link-preview-copy strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #111318;
+  font-size: 11px;
+  font-weight: 930;
+  line-height: 1.28;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.chat-link-preview-copy > span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #656c74;
+  font-size: 8px;
+  font-weight: 620;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.chat-link-preview-copy em {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+  color: #969ca3;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-link-preview-copy em svg { flex: none; }
 
 .transfer-request-card {
   display: grid;
@@ -3485,6 +3771,196 @@ time,
 
 .message-row.user .bubble.shopShare,
 .message-row.char .bubble.shopShare {
+  color: inherit !important;
+}
+
+.bubble.mcpResult {
+  width: min(306px, 78vw);
+  min-width: min(248px, 68vw);
+  max-width: min(306px, 78vw);
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 17px !important;
+  background: transparent !important;
+  box-shadow: 0 12px 30px rgba(29, 47, 43, 0.12) !important;
+}
+
+.mcp-result-card {
+  display: grid;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(51, 91, 79, 0.14);
+  border-radius: 17px;
+  background: linear-gradient(150deg, #f8fffc, #f5f8f6 58%, #edf4f1);
+  color: #31463f;
+}
+
+.mcp-result-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 11px 9px;
+  border-bottom: 1px solid rgba(51, 91, 79, 0.1);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.mcp-result-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  background: #d8eee5;
+  color: #356c5a;
+}
+
+.mcp-result-head > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+}
+
+.mcp-result-head small {
+  color: #759187;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.mcp-result-head strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-result-head > em {
+  max-width: 88px;
+  overflow: hidden;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(53, 108, 90, 0.08);
+  color: #53776b;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-result-list {
+  display: grid;
+  max-height: 430px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.mcp-result-item {
+  display: grid;
+  min-width: 0;
+  padding: 11px;
+  border-bottom: 1px solid rgba(51, 91, 79, 0.09);
+}
+
+.mcp-result-item.has-image {
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.mcp-result-item > img {
+  width: 68px;
+  height: 76px;
+  border-radius: 12px;
+  background: #e7eeeb;
+  object-fit: cover;
+}
+
+.mcp-result-copy {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mcp-result-copy > small {
+  overflow: hidden;
+  color: #769087;
+  font-size: 7px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-result-copy > strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #2e423b;
+  font-size: 12px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.mcp-result-description,
+.mcp-result-address {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #708078;
+  font-size: 8px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.mcp-result-address {
+  color: #597168;
+}
+
+.mcp-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mcp-result-meta em {
+  padding: 3px 5px;
+  border-radius: 6px;
+  background: rgba(53, 108, 90, 0.08);
+  color: #5a766c;
+  font-size: 7px;
+  font-style: normal;
+}
+
+.mcp-result-meta em.price {
+  background: rgba(221, 103, 74, 0.1);
+  color: #b55740;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.mcp-result-copy > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  justify-self: end;
+  margin-top: 2px;
+  color: #356c5a;
+  font-size: 8px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.mcp-result-card > footer {
+  padding: 7px 11px;
+  background: rgba(255, 255, 255, 0.46);
+  color: #82958e;
+  font-size: 7px;
+  text-align: right;
+}
+
+.message-row.user .bubble.mcpResult,
+.message-row.char .bubble.mcpResult {
   color: inherit !important;
 }
 </style>

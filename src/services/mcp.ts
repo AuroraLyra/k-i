@@ -1,9 +1,12 @@
-import type { AppSettings, CharacterProfile, McpServerConfig, McpServerKind, McpToolDefinition } from '@/types/domain';
+import type { AppSettings, CharacterProfile, ChatMcpResultAttachment, McpServerConfig, McpServerKind, McpToolDefinition } from '@/types/domain';
 import { createBuiltinRealityMcpServer, realityMcpTools } from '@/data/realityMcp';
 import { executeRealityMcpTool } from '@/services/realityMcp';
+import { createActiveTimeout, isFetchInterruptedError, waitForActiveNetworkWindow } from '@/utils/activeTimeout';
 import { createId } from '@/utils/id';
+import { createMcpResultAttachment } from '@/utils/mcpResults';
 
 const defaultProtocolVersion = '2025-06-18';
+const mcpProxyPath = '/__mcp-proxy';
 const maxToolResultLength = 12_000;
 const maxToolListPages = 20;
 
@@ -50,6 +53,35 @@ interface McpToolCallResultPayload {
   isError?: boolean;
 }
 
+interface McpTransport {
+  url: string;
+  proxied: boolean;
+  jobUrl: string;
+  jobStatusBaseUrl: string;
+}
+
+interface McpProxyJobStartPayload {
+  jobId?: string;
+}
+
+interface McpProxyJobDonePayload {
+  status?: string;
+  response?: {
+    status?: number;
+    statusText?: string;
+    headers?: {
+      contentType?: string;
+      contentLength?: string;
+      mcpSessionId?: string;
+    };
+    bodyBase64?: string;
+  };
+}
+
+class McpSessionExpiredError extends Error {}
+
+class McpTransportError extends Error {}
+
 export interface McpServerInspection {
   tools: McpToolDefinition[];
   protocolVersion: string;
@@ -68,6 +100,7 @@ export interface McpToolExecutionResult {
   toolName: string;
   text: string;
   isError: boolean;
+  structuredResults?: ChatMcpResultAttachment[];
 }
 
 export interface McpToolExecutionRequest {
@@ -96,6 +129,93 @@ function isPrivateIpv4Hostname(hostname: string) {
     || (first === 192 && second === 168);
 }
 
+function isLoopbackHostname(hostname: string) {
+  return hostname === 'localhost'
+    || hostname.endsWith('.localhost')
+    || /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(hostname)
+    || hostname === '::1'
+    || hostname === '[::1]';
+}
+
+function canUseSameOriginMcpProxy() {
+  return typeof window !== 'undefined' && ['http:', 'https:'].includes(window.location.protocol);
+}
+
+function createMcpTransportUrl(rawUrl: string): McpTransport {
+  const normalizedUrl = normalizeMcpRemoteUrl(rawUrl);
+  const target = new URL(normalizedUrl);
+  const hostname = target.hostname.toLowerCase().replace(/\.$/, '');
+  if (canUseSameOriginMcpProxy() && target.protocol === 'https:' && !isLoopbackHostname(hostname)) {
+    const encodedUrl = encodeURIComponent(normalizedUrl);
+    return {
+      url: `${mcpProxyPath}?url=${encodedUrl}`,
+      proxied: true,
+      jobUrl: `${mcpProxyPath}/jobs?url=${encodedUrl}`,
+      jobStatusBaseUrl: `${mcpProxyPath}/jobs/`
+    };
+  }
+  return { url: normalizedUrl, proxied: false, jobUrl: '', jobStatusBaseUrl: '' };
+}
+
+function decodeBase64Bytes(value: string) {
+  const binary = globalThis.atob(value);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function createMcpProxyJobResponse(payload: McpProxyJobDonePayload) {
+  const responsePayload = payload.response;
+  if (!responsePayload) throw new McpTransportError('MCP 后台作业没有返回响应。');
+  const headers = new Headers();
+  if (responsePayload.headers?.contentType) headers.set('Content-Type', responsePayload.headers.contentType);
+  if (responsePayload.headers?.contentLength) headers.set('Content-Length', responsePayload.headers.contentLength);
+  if (responsePayload.headers?.mcpSessionId) headers.set('Mcp-Session-Id', responsePayload.headers.mcpSessionId);
+  const status = Math.max(100, Math.min(599, Math.round(Number(responsePayload.status) || 502)));
+  const body = decodeBase64Bytes(String(responsePayload.bodyBase64 ?? ''));
+  return new Response([204, 205, 304].includes(status) ? null : body, {
+    status,
+    statusText: String(responsePayload.statusText ?? ''),
+    headers
+  });
+}
+
+async function parseMcpProxyJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+  try {
+    return await response.json() as T;
+  } catch {
+    throw new McpTransportError(fallbackMessage);
+  }
+}
+
+async function fetchMcpProxyJob(transport: McpTransport, init: RequestInit, signal: AbortSignal) {
+  const startResponse = await fetch(transport.jobUrl, {
+    method: 'POST',
+    headers: init.headers,
+    body: init.body,
+    credentials: 'same-origin',
+    cache: 'no-store',
+    signal
+  });
+  if (!startResponse.ok) return startResponse;
+  const startPayload = await parseMcpProxyJson<McpProxyJobStartPayload>(startResponse, 'MCP 后台作业创建失败。');
+  const jobId = String(startPayload.jobId ?? '').trim();
+  if (!jobId) throw new McpTransportError('MCP 后台作业没有返回 ID。');
+
+  while (true) {
+    const resultResponse = await fetch(`${transport.jobStatusBaseUrl}${encodeURIComponent(jobId)}`, {
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      signal
+    });
+    if (resultResponse.status === 202) {
+      await waitForActiveNetworkWindow(600);
+      continue;
+    }
+    if (!resultResponse.ok) return resultResponse;
+    return createMcpProxyJobResponse(await parseMcpProxyJson<McpProxyJobDonePayload>(resultResponse, 'MCP 后台作业返回异常。'));
+  }
+}
+
 export function normalizeMcpRemoteUrl(rawUrl: string) {
   let target: URL;
   try {
@@ -104,10 +224,13 @@ export function normalizeMcpRemoteUrl(rawUrl: string) {
     throw new Error('请输入完整的 MCP 远程地址。');
   }
   const hostname = target.hostname.toLowerCase().replace(/\.$/, '');
-  if (target.protocol !== 'https:') throw new Error('网页、APK 与 IPA 直连 MCP 必须使用 HTTPS。');
+  const loopback = isLoopbackHostname(hostname);
+  if (target.protocol !== 'https:' && !(target.protocol === 'http:' && loopback)) {
+    throw new Error('MCP 必须使用 HTTPS；仅同一台设备上的 localhost、127.0.0.1 或 [::1] 可使用 HTTP。');
+  }
   if (target.username || target.password) throw new Error('请通过请求头配置鉴权，不要把账号密码写在地址中。');
-  if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || isPrivateIpv4Hostname(hostname) || hostname === '::1' || hostname === '[::1]') {
-    throw new Error('请填写用户电脑对外暴露的远程 HTTPS 地址，不能使用 localhost 或局域网地址。');
+  if (!hostname || hostname.endsWith('.local') || (isPrivateIpv4Hostname(hostname) && !loopback)) {
+    throw new Error('请填写公开 HTTPS 地址；局域网地址不可用，本机回环地址除外。');
   }
   target.hash = '';
   return target.href;
@@ -196,29 +319,44 @@ function formatMcpHttpError(status: number, payload: string) {
   return `MCP 请求失败 (${status})。`;
 }
 
+async function waitForMcpRetryOpportunity(delayMs = 800) {
+  await waitForActiveNetworkWindow(delayMs);
+}
+
 class McpHttpSession {
   private requestId = 0;
   private sessionId = '';
   private protocolVersion = defaultProtocolVersion;
   private initialized = false;
+  private readonly transport: McpTransport;
 
-  constructor(private readonly server: McpServerConfig) {}
+  constructor(private readonly server: McpServerConfig) {
+    this.transport = createMcpTransportUrl(server.url);
+  }
 
   private async post(message: Record<string, unknown>, responseId?: number) {
-    const controller = new AbortController();
-    const timer = globalThis.setTimeout(() => controller.abort(), this.server.timeoutMs);
+    const timeout = createActiveTimeout(this.server.timeoutMs);
+    const requestSessionId = this.sessionId;
     try {
-      const response = await fetch(this.server.url, {
+      const requestInit: RequestInit = {
         method: 'POST',
         headers: createRequestHeaders(this.server, this.initialized ? this.protocolVersion : '', this.sessionId),
         body: JSON.stringify(message),
-        signal: controller.signal,
-        credentials: 'omit',
+        signal: timeout.signal,
+        credentials: this.transport.proxied ? 'same-origin' : 'omit',
         cache: 'no-store'
-      });
+      };
+      const response = this.transport.proxied
+        ? await fetchMcpProxyJob(this.transport, requestInit, timeout.signal)
+        : await fetch(this.transport.url, requestInit);
       const responseSessionId = response.headers.get('mcp-session-id')?.trim();
       if (responseSessionId) this.sessionId = responseSessionId;
-      if (!response.ok) throw new Error(formatMcpHttpError(response.status, await response.text()));
+      if (!response.ok) {
+        const payload = await response.text();
+        const message = formatMcpHttpError(response.status, payload);
+        if (requestSessionId && (response.status === 404 || response.status === 410)) throw new McpSessionExpiredError(message);
+        throw new Error(message);
+      }
       if (responseId === undefined) {
         await response.body?.cancel().catch(() => undefined);
         return undefined;
@@ -228,13 +366,17 @@ class McpHttpSession {
       if (rpcResponse.error) throw new Error(`MCP ${rpcResponse.error.code ?? 'error'}：${rpcResponse.error.message || '工具调用失败。'}`);
       return rpcResponse.result;
     } catch (error) {
-      if (controller.signal.aborted) throw new Error(`MCP 连接超时（${Math.round(this.server.timeoutMs / 1000)} 秒）。`);
+      if (timeout.signal.aborted) throw new Error(`MCP 连接超时（${Math.round(this.server.timeoutMs / 1000)} 秒有效运行时间，后台挂起不计时）。`);
+      if (error instanceof McpSessionExpiredError || error instanceof McpTransportError) throw error;
+      if (isFetchInterruptedError(error)) {
+        throw new McpTransportError('MCP 请求在页面后台或切换期间被浏览器中断，已等待页面恢复后重试。');
+      }
       if (error instanceof TypeError) {
-        throw new Error('无法直连 MCP。请确认地址可公网访问、证书有效，并允许当前网站来源的 CORS 请求与 MCP 请求头。');
+        throw new McpTransportError('无法直连 MCP。请确认当前设备能访问该地址；公开地址证书有效；服务允许当前网站来源的 CORS 请求与 MCP 请求头。');
       }
       throw error;
     } finally {
-      globalThis.clearTimeout(timer);
+      timeout.dispose();
     }
   }
 
@@ -282,19 +424,48 @@ class McpHttpSession {
     return await this.request<McpToolCallResultPayload>('tools/call', { name, arguments: args });
   }
 
+  reset() {
+    this.sessionId = '';
+    this.protocolVersion = defaultProtocolVersion;
+    this.initialized = false;
+  }
+
   async close() {
     if (!this.sessionId) return;
+    const controller = new AbortController();
+    const timer = globalThis.setTimeout(() => controller.abort(), Math.min(5_000, this.server.timeoutMs));
     try {
-      await fetch(this.server.url, {
+      await fetch(this.transport.url, {
         method: 'DELETE',
         headers: createRequestHeaders(this.server, this.protocolVersion, this.sessionId),
-        credentials: 'omit',
-        cache: 'no-store'
+        signal: controller.signal,
+        credentials: this.transport.proxied ? 'same-origin' : 'omit',
+        cache: 'no-store',
+        keepalive: true
       });
     } catch {
       return;
+    } finally {
+      globalThis.clearTimeout(timer);
     }
   }
+}
+
+async function openMcpSessionWithRecovery(session: McpHttpSession) {
+  try {
+    return await session.open();
+  } catch (error) {
+    if (!(error instanceof McpTransportError) && !(error instanceof McpSessionExpiredError)) throw error;
+    if (error instanceof McpTransportError) await waitForMcpRetryOpportunity();
+    session.reset();
+    return await session.open();
+  }
+}
+
+async function recoverMcpSession(session: McpHttpSession, error: unknown) {
+  if (error instanceof McpTransportError) await waitForMcpRetryOpportunity();
+  session.reset();
+  return await openMcpSessionWithRecovery(session);
 }
 
 function isLikelyReadOnlyTool(tool: McpRawTool) {
@@ -322,8 +493,13 @@ function normalizeDiscoveredTool(tool: McpRawTool, current?: McpToolDefinition):
 
 export async function inspectMcpServer(server: McpServerConfig): Promise<McpServerInspection> {
   if (server.kind === 'reality') {
+    const currentTools = new Map(server.tools.map((tool) => [tool.name, tool]));
     return {
-      tools: realityMcpTools.map((tool) => ({ ...tool, inputSchema: { ...tool.inputSchema } })),
+      tools: realityMcpTools.map((tool) => ({
+        ...tool,
+        inputSchema: { ...tool.inputSchema },
+        enabled: currentTools.get(tool.name)?.enabled ?? tool.enabled
+      })),
       protocolVersion: 'builtin',
       serverName: 'BabyLink Reality MCP',
       serverVersion: '1.0.0'
@@ -333,8 +509,15 @@ export async function inspectMcpServer(server: McpServerConfig): Promise<McpServ
   const normalizedServer = { ...server, url: normalizedUrl };
   const session = new McpHttpSession(normalizedServer);
   try {
-    const serverInfo = await session.open();
-    const rawTools = await session.listTools();
+    let serverInfo = await openMcpSessionWithRecovery(session);
+    let rawTools: McpRawTool[];
+    try {
+      rawTools = await session.listTools();
+    } catch (error) {
+      if (!(error instanceof McpSessionExpiredError) && !(error instanceof McpTransportError)) throw error;
+      serverInfo = await recoverMcpSession(session, error);
+      rawTools = await session.listTools();
+    }
     const currentTools = new Map(server.tools.map((tool) => [tool.name, tool]));
     const tools = rawTools
       .map((tool) => normalizeDiscoveredTool(tool, currentTools.get(String(tool.name ?? '').trim())))
@@ -371,12 +554,18 @@ function validateMcpToolExecution(server: McpServerConfig, toolName: string) {
 }
 
 function toMcpToolExecutionResult(server: McpServerConfig, toolName: string, result: McpToolCallResultPayload | undefined): McpToolExecutionResult {
+  const structuredResult = result?.isError ? null : createMcpResultAttachment({
+    serverId: server.id,
+    serverName: server.name,
+    toolName
+  }, result ?? {});
   return {
     serverId: server.id,
     serverName: server.name,
     toolName,
     text: formatToolCallResult(result),
-    isError: Boolean(result?.isError)
+    isError: Boolean(result?.isError),
+    ...(structuredResult ? { structuredResults: [structuredResult] } : {})
   };
 }
 
@@ -401,10 +590,25 @@ export async function executeMcpTools(requests: McpToolExecutionRequest[]): Prom
           sessions.set(server.id, session);
         }
         if (!openedServerIds.has(server.id)) {
-          await session.open();
+          await openMcpSessionWithRecovery(session);
           openedServerIds.add(server.id);
         }
-        const result = await session.callTool(toolName, args);
+        let result: McpToolCallResultPayload | undefined;
+        try {
+          result = await session.callTool(toolName, args);
+        } catch (error) {
+          const configuredTool = server.tools.find((tool) => tool.name === toolName);
+          const sessionRejected = error instanceof McpSessionExpiredError;
+          const safeTransportRetry = error instanceof McpTransportError && configuredTool?.write === false;
+          if (!sessionRejected && !safeTransportRetry) {
+            if (error instanceof McpTransportError && configuredTool?.write) {
+              throw new Error('MCP 写入工具执行期间连接中断；为避免重复操作未自动重试，请先确认外部平台是否已经完成。');
+            }
+            throw error;
+          }
+          await recoverMcpSession(session, error);
+          result = await session.callTool(toolName, args);
+        }
         outcomes.push({ ok: true, result: toMcpToolExecutionResult(server, toolName, result) });
       } catch (error) {
         if (session && !openedServerIds.has(server.id)) {
@@ -451,8 +655,10 @@ export function resolveMcpTools(settings: AppSettings | undefined, character: Ch
 
 function inferServerKind(name: string, url: string): McpServerKind {
   const source = `${name} ${url}`.toLowerCase();
-  if (/xiaohongshu|小红书|rednote|xhs/.test(source)) return 'xiaohongshu';
   if (/napcat|onebot|\bqq\b/.test(source)) return 'qq';
+  if (/taobao|taoke|淘宝|天猫|tmall/.test(source)) return 'taobao-search';
+  if (/douyin|抖音/.test(source)) return 'douyin-search';
+  if (/xiaohongshu|小红书|rednote|xhs/.test(source)) return 'xiaohongshu-search';
   return 'custom';
 }
 
@@ -468,10 +674,26 @@ export function createMcpServerTemplate(kind: McpServerKind = 'custom'): McpServ
           name: 'QQ / NapCat MCP',
           description: '在用户电脑运行 NapCat 与 OneBot MCP 适配器，通过反向代理或隧道提供远程 HTTPS Streamable HTTP 地址。'
         }
-      : {
-          name: '自定义 MCP',
-          description: '兼容 MCP Streamable HTTP 的远程工具服务。'
-        };
+      : kind === 'taobao-search'
+        ? {
+            name: '淘宝商品搜索 MCP',
+            description: '真实淘宝联盟物料搜索。可参考 liuliang520530/taoke-mcp 自托管；服务端需保管淘宝联盟 PID、Session 与配置服务凭据，跨设备时仅向 BabyLink 暴露带鉴权的 HTTPS /mcp。'
+          }
+        : kind === 'douyin-search'
+          ? {
+              name: '抖音视频搜索 MCP',
+              description: '真实抖音视频搜索。参考 pazwusimple-netizen/douyin-mcp 自托管，并将默认 stdio 改造或包装为 Streamable HTTP；跨设备时使用带鉴权的 HTTPS，Cookie 只保存在服务端。'
+            }
+          : kind === 'xiaohongshu-search'
+            ? {
+                name: '小红书内容搜索 MCP',
+                description: '真实小红书笔记搜索。参考 xpzouying/xiaohongshu-mcp 自托管；同机可连接回环 HTTP /mcp，跨设备时必须通过 HTTPS 反向代理增加鉴权，登录态只保存在服务端。'
+              }
+            : {
+                name: '自定义 MCP',
+                description: '兼容 MCP Streamable HTTP 的远程工具服务。'
+              };
+  const platformSearch = kind === 'taobao-search' || kind === 'douyin-search' || kind === 'xiaohongshu-search';
   return {
     id: createId('mcp'),
     name: metadata.name,
@@ -485,7 +707,7 @@ export function createMcpServerTemplate(kind: McpServerKind = 'custom'): McpServ
     enabled: true,
     globalEnabled: true,
     toolPolicy: 'read-only',
-    timeoutMs: 45_000,
+    timeoutMs: platformSearch ? 120_000 : 45_000,
     tools: [],
     protocolVersion: '',
     serverName: '',
@@ -507,7 +729,7 @@ function importEntriesFromRecord(value: Record<string, unknown>) {
 
 export function importMcpServers(payload: string) {
   const trimmedPayload = payload.trim();
-  if (/^https:\/\//i.test(trimmedPayload)) {
+  if (/^https?:\/\//i.test(trimmedPayload)) {
     const server = createMcpServerTemplate();
     server.url = normalizeMcpRemoteUrl(trimmedPayload);
     return [server];
@@ -532,7 +754,12 @@ export function importMcpServers(payload: string) {
     if (!url) continue;
     const normalizedUrl = normalizeMcpRemoteUrl(url);
     const name = String(entry.name ?? fallbackName).trim() || 'MCP Server';
-    const importedKind = entry.kind === 'qq' || entry.kind === 'xiaohongshu' || entry.kind === 'custom'
+    const importedKind = entry.kind === 'qq'
+      || entry.kind === 'xiaohongshu'
+      || entry.kind === 'taobao-search'
+      || entry.kind === 'douyin-search'
+      || entry.kind === 'xiaohongshu-search'
+      || entry.kind === 'custom'
       ? entry.kind
       : inferServerKind(name, normalizedUrl);
     const server = createMcpServerTemplate(importedKind);

@@ -75,7 +75,11 @@ export function isPrivateAddress(address: string) {
   return true;
 }
 
-export async function validatePublicUrl(rawUrl: string, protocols: Array<'http:' | 'https:'> = ['https:']) {
+export async function validatePublicUrl(
+  rawUrl: string,
+  protocols: Array<'http:' | 'https:'> = ['https:'],
+  allowInsecureHttp = config.allowInsecureUpstreams
+) {
   let target: URL;
   try {
     target = new URL(rawUrl);
@@ -86,7 +90,7 @@ export async function validatePublicUrl(rawUrl: string, protocols: Array<'http:'
   if (!protocols.includes(target.protocol as 'http:' | 'https:')) throw new Error('目标地址协议不受支持。');
   if (target.username || target.password) throw new Error('目标地址不能直接包含账号或密码。');
   if (target.hostname === 'localhost' || target.hostname.endsWith('.localhost')) throw new Error('不允许访问本机地址。');
-  if (target.protocol === 'http:' && !config.allowInsecureUpstreams) throw new Error('生产环境仅允许 HTTPS 上游。');
+  if (target.protocol === 'http:' && !allowInsecureHttp) throw new Error('生产环境仅允许 HTTPS 上游。');
 
   const addresses = await lookup(target.hostname, { all: true, verbatim: true });
   if (!addresses.length || addresses.some(({ address }) => isPrivateAddress(address))) {

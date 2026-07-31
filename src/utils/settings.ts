@@ -1,4 +1,4 @@
-import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, CloudBackupProvider, CloudBackupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, McpServerConfig, McpServerKind, McpSettings, McpToolDefinition, McpToolPolicy, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RealityCalendarEvent, RealityMcpSettings, RealityReminder, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, CloudBackupProvider, CloudBackupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, McpServerConfig, McpServerKind, McpSettings, McpToolDefinition, McpToolPolicy, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RealityCalendarEvent, RealityMcpSettings, RealityRecurrenceRule, RealityReminder, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
 import { createBuiltinRealityMcpServer } from '@/data/realityMcp';
 import { createId } from './id';
 import { normalizeGlobalThemeScale } from './themeScale';
@@ -250,7 +250,14 @@ function normalizeMcpApiKeyHeader(value: unknown) {
 }
 
 function normalizeMcpServerKind(value: unknown): McpServerKind {
-  return value === 'xiaohongshu' || value === 'qq' || value === 'reality' ? value : 'custom';
+  return value === 'xiaohongshu'
+    || value === 'qq'
+    || value === 'reality'
+    || value === 'taobao-search'
+    || value === 'douyin-search'
+    || value === 'xiaohongshu-search'
+    ? value
+    : 'custom';
 }
 
 function normalizeMcpToolPolicy(value: unknown): McpToolPolicy {
@@ -340,13 +347,34 @@ function normalizeRealityReminder(value: unknown): RealityReminder | null {
   const title = String(source.title ?? '').trim();
   const at = Number(source.at);
   if (!id || !title || !Number.isFinite(at) || at <= 0) return null;
+  const createdAt = Math.max(0, Number(source.createdAt) || Date.now());
   return {
     id,
     title,
     body: String(source.body ?? '').trim(),
     at,
-    createdAt: Math.max(0, Number(source.createdAt) || Date.now()),
-    completed: Boolean(source.completed)
+    createdAt,
+    updatedAt: Math.max(createdAt, Number(source.updatedAt) || createdAt),
+    completed: Boolean(source.completed),
+    completedAt: Math.max(0, Number(source.completedAt) || 0),
+    recurrence: normalizeRealityRecurrence(source.recurrence)
+  };
+}
+
+function normalizeRealityRecurrence(value: unknown): RealityRecurrenceRule | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const source = value as Partial<RealityRecurrenceRule>;
+  const frequency = String(source.frequency ?? '');
+  if (!['daily', 'weekly', 'monthly', 'yearly'].includes(frequency)) return null;
+  const weekdays = Array.isArray(source.weekdays)
+    ? [...new Set(source.weekdays.map(Number).filter((day) => Number.isInteger(day) && day >= 1 && day <= 7))]
+    : [];
+  return {
+    frequency: frequency as RealityRecurrenceRule['frequency'],
+    interval: Math.min(365, Math.max(1, Math.round(Number(source.interval) || 1))),
+    weekdays,
+    endAt: Math.max(0, Number(source.endAt) || 0),
+    count: Math.min(999, Math.max(0, Math.round(Number(source.count) || 0)))
   };
 }
 
@@ -358,14 +386,19 @@ function normalizeRealityCalendarEvent(value: unknown): RealityCalendarEvent | n
   const startAt = Number(source.startAt);
   if (!id || !title || !Number.isFinite(startAt) || startAt <= 0) return null;
   const rawEndAt = Number(source.endAt);
+  const createdAt = Math.max(0, Number(source.createdAt) || Date.now());
   return {
     id,
+    systemEventId: String(source.systemEventId ?? source.id ?? '').trim(),
     title,
     startAt,
     endAt: Number.isFinite(rawEndAt) && rawEndAt > startAt ? rawEndAt : startAt + 60 * 60_000,
     location: String(source.location ?? '').trim(),
     notes: String(source.notes ?? '').trim(),
-    createdAt: Math.max(0, Number(source.createdAt) || Date.now())
+    isAllDay: Boolean(source.isAllDay),
+    createdAt,
+    updatedAt: Math.max(createdAt, Number(source.updatedAt) || createdAt),
+    recurrence: normalizeRealityRecurrence(source.recurrence)
   };
 }
 

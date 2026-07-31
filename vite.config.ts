@@ -1,4 +1,5 @@
 import { fileURLToPath, URL } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
@@ -6,12 +7,37 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 const base = process.env.BASE_PATH || '/';
 const textProxyPath = '/__text-proxy';
+const webPageProxyPath = '/__web-page-proxy';
 const imageProxyPath = '/__image-proxy';
+const mcpProxyPath = '/__mcp-proxy';
 const openAiImageGeneratePath = '/__openai-image-generate';
 const openAiModelsPath = '/__openai-models';
 const imageDownloadPath = '/__image-download';
 const assetDownloadPath = '/__asset-download';
 const appServerProxyTarget = process.env.LINK_SERVER_PROXY_TARGET || 'http://127.0.0.1:3000';
+const mcpProxyJobTtlMs = 15 * 60 * 1000;
+
+interface DevMcpProxyJobResponse {
+  status: number;
+  statusText: string;
+  headers: {
+    contentType?: string;
+    contentLength?: string;
+    mcpSessionId?: string;
+  };
+  bodyBase64: string;
+}
+
+type DevMcpProxyJob = {
+  createdAt: number;
+  updatedAt: number;
+} & (
+  | { status: 'pending' }
+  | { status: 'done'; response: DevMcpProxyJobResponse }
+  | { status: 'error'; error: string }
+);
+
+const devMcpProxyJobs = new Map<string, DevMcpProxyJob>();
 
 async function readRequestBody(request: IncomingMessage) {
   const chunks: Buffer[] = [];
@@ -37,6 +63,70 @@ function sendJson(response: ServerResponse, statusCode: number, payload: unknown
   response.statusCode = statusCode;
   response.setHeader('Content-Type', 'application/json; charset=utf-8');
   response.end(JSON.stringify(payload));
+}
+
+function sweepDevMcpProxyJobs() {
+  const expiredBefore = Date.now() - mcpProxyJobTtlMs;
+  for (const [jobId, job] of devMcpProxyJobs) {
+    if (job.updatedAt < expiredBefore) devMcpProxyJobs.delete(jobId);
+  }
+}
+
+function createDevMcpProxyHeaders(request: IncomingMessage) {
+  const headers = new Headers();
+  const skippedHeaders = new Set(['host', 'connection', 'content-length', 'cookie', 'origin', 'referer', 'accept-encoding']);
+  for (const [name, value] of Object.entries(request.headers)) {
+    const normalizedName = name.toLowerCase();
+    if (skippedHeaders.has(normalizedName) || normalizedName.startsWith('sec-') || normalizedName.startsWith('proxy-')) continue;
+    if (Array.isArray(value)) headers.set(name, value.join(', '));
+    else if (typeof value === 'string' && value) headers.set(name, value);
+  }
+  headers.set('Accept', headers.get('Accept') || 'application/json, text/event-stream');
+  return headers;
+}
+
+function createDevMcpJobResponse(status: number, statusText: string, payload: Buffer, headers: DevMcpProxyJobResponse['headers'] = {}): DevMcpProxyJobResponse {
+  return {
+    status,
+    statusText,
+    headers: {
+      ...headers,
+      contentLength: String(payload.byteLength)
+    },
+    bodyBase64: payload.toString('base64')
+  };
+}
+
+async function resolveDevMcpProxyResponse(upstreamResponse: Response): Promise<DevMcpProxyJobResponse> {
+  const body = Buffer.from(await upstreamResponse.arrayBuffer());
+  return createDevMcpJobResponse(upstreamResponse.status, upstreamResponse.statusText, body, {
+    contentType: upstreamResponse.headers.get('content-type') || undefined,
+    contentLength: upstreamResponse.headers.get('content-length') || undefined,
+    mcpSessionId: upstreamResponse.headers.get('mcp-session-id') || undefined
+  });
+}
+
+async function startDevMcpProxyJob(targetUrl: URL, request: IncomingMessage) {
+  sweepDevMcpProxyJobs();
+  const jobId = randomUUID();
+  const headers = createDevMcpProxyHeaders(request);
+  const body = await readRequestBody(request);
+  const now = Date.now();
+  devMcpProxyJobs.set(jobId, { status: 'pending', createdAt: now, updatedAt: now });
+  void (async () => {
+    try {
+      const upstreamResponse = await fetch(targetUrl, {
+        method: 'POST',
+        headers,
+        body,
+        redirect: 'manual'
+      });
+      devMcpProxyJobs.set(jobId, { status: 'done', response: await resolveDevMcpProxyResponse(upstreamResponse), createdAt: now, updatedAt: Date.now() });
+    } catch (error) {
+      devMcpProxyJobs.set(jobId, { status: 'error', error: error instanceof Error ? error.message : String(error), createdAt: now, updatedAt: Date.now() });
+    }
+  })();
+  return jobId;
 }
 
 function createProxyErrorPayload(message: string, code = 'proxy_request_failed') {
@@ -111,6 +201,155 @@ function registerTextProxyMiddleware(middlewares: LinkProxyMiddlewares) {
       const message = error instanceof Error ? error.message : String(error);
       response.setHeader('X-Link-Proxy-Error', 'upstream_unreachable');
       sendProxyError(response, 502, `OpenAI-compatible text proxy request failed: ${message}`);
+    }
+  });
+}
+
+function registerMcpProxyMiddleware(middlewares: LinkProxyMiddlewares) {
+  middlewares.use(`${mcpProxyPath}/jobs`, async (request, response) => {
+    const requestUrl = new URL(request.url ?? '', 'http://localhost');
+    const jobPathPrefix = `${mcpProxyPath}/jobs/`;
+    const jobId = requestUrl.pathname.startsWith(jobPathPrefix)
+      ? decodeURIComponent(requestUrl.pathname.slice(jobPathPrefix.length).split('/')[0] ?? '')
+      : '';
+
+    if (request.method === 'POST' && requestUrl.pathname === `${mcpProxyPath}/jobs`) {
+      const target = requestUrl.searchParams.get('url')?.trim() ?? '';
+      let targetUrl: URL;
+      try {
+        targetUrl = new URL(target);
+      } catch {
+        sendJson(response, 400, createProxyErrorPayload('MCP proxy target URL is invalid.', 'invalid_target'));
+        return;
+      }
+      if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+        sendJson(response, 400, createProxyErrorPayload('MCP proxy target URL must use http or https.', 'invalid_target_protocol'));
+        return;
+      }
+      sendJson(response, 202, { jobId: await startDevMcpProxyJob(targetUrl, request) });
+      return;
+    }
+
+    if (request.method !== 'GET' || !jobId) {
+      sendJson(response, 405, createProxyErrorPayload('MCP proxy jobs only support POST and GET requests.', 'method_not_allowed'));
+      return;
+    }
+    sweepDevMcpProxyJobs();
+    const job = devMcpProxyJobs.get(jobId);
+    if (!job) {
+      sendJson(response, 404, createProxyErrorPayload('MCP proxy job was not found.', 'job_not_found'));
+      return;
+    }
+    if (job.status === 'pending') {
+      sendJson(response, 202, { status: 'pending' });
+      return;
+    }
+    if (job.status === 'error') {
+      devMcpProxyJobs.delete(jobId);
+      sendJson(response, 502, createProxyErrorPayload(job.error, 'job_failed'));
+      return;
+    }
+    devMcpProxyJobs.delete(jobId);
+    sendJson(response, 200, { status: 'done', response: job.response });
+  });
+
+  middlewares.use(mcpProxyPath, async (request, response) => {
+    if (request.method === 'OPTIONS') {
+      response.statusCode = 204;
+      response.end();
+      return;
+    }
+
+    const method = (request.method ?? 'POST').toUpperCase();
+    if (!['POST', 'DELETE'].includes(method)) {
+      sendProxyError(response, 405, 'MCP proxy only supports POST and DELETE requests.');
+      return;
+    }
+
+    const requestUrl = new URL(request.url ?? '', 'http://localhost');
+    const target = requestUrl.searchParams.get('url')?.trim() ?? '';
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(target);
+    } catch {
+      sendProxyError(response, 400, 'MCP proxy target URL is invalid.');
+      return;
+    }
+    if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+      sendProxyError(response, 400, 'MCP proxy target URL must use http or https.');
+      return;
+    }
+
+    try {
+      const upstreamResponse = await fetch(targetUrl, {
+        method,
+        headers: createDevMcpProxyHeaders(request),
+        redirect: 'manual',
+        ...(method === 'POST' ? { body: await readRequestBody(request) } : {})
+      });
+
+      response.statusCode = upstreamResponse.status;
+      response.statusMessage = upstreamResponse.statusText;
+      response.setHeader('Cache-Control', 'no-store');
+      response.setHeader('X-Link-Proxy-Target-Host', targetUrl.host);
+      const upstreamContentType = upstreamResponse.headers.get('content-type');
+      const upstreamSessionId = upstreamResponse.headers.get('mcp-session-id');
+      if (upstreamContentType) response.setHeader('Content-Type', upstreamContentType);
+      if (upstreamSessionId) response.setHeader('Mcp-Session-Id', upstreamSessionId);
+      response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      response.setHeader('X-Link-Proxy-Error', 'upstream_unreachable');
+      sendProxyError(response, 502, `MCP proxy request failed: ${message}`);
+    }
+  });
+}
+
+function registerWebPageProxyMiddleware(middlewares: LinkProxyMiddlewares) {
+  middlewares.use(webPageProxyPath, async (request, response) => {
+    if (request.method !== 'GET') {
+      sendProxyError(response, 405, 'Web page proxy only supports GET requests.');
+      return;
+    }
+
+    const requestUrl = new URL(request.url ?? '', 'http://localhost');
+    const target = requestUrl.searchParams.get('url')?.trim() ?? '';
+    let targetUrl: URL;
+    try {
+      targetUrl = new URL(target);
+    } catch {
+      sendProxyError(response, 400, 'Web page proxy target URL is invalid.');
+      return;
+    }
+
+    if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+      sendProxyError(response, 400, 'Web page proxy target URL must use http or https.');
+      return;
+    }
+
+    try {
+      const upstreamResponse = await fetch(targetUrl, {
+        headers: {
+          Accept: 'text/html,application/xhtml+xml;q=0.9,text/plain;q=0.5',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.6',
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36 BabyLink/1.0'
+        }
+      });
+      const body = Buffer.from(await upstreamResponse.arrayBuffer());
+      if (body.byteLength > 5 * 1024 * 1024) {
+        sendProxyError(response, 413, 'Web page exceeds the 5 MB response limit.');
+        return;
+      }
+      response.statusCode = upstreamResponse.status;
+      response.statusMessage = upstreamResponse.statusText;
+      response.setHeader('Cache-Control', 'no-store');
+      response.setHeader('X-Link-Proxy-Final-Url', upstreamResponse.url || targetUrl.href);
+      const upstreamContentType = upstreamResponse.headers.get('content-type');
+      if (upstreamContentType) response.setHeader('Content-Type', upstreamContentType);
+      response.end(body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendProxyError(response, 502, `Web page proxy request failed: ${message}`);
     }
   });
 }
@@ -269,7 +508,9 @@ function registerAssetDownloadMiddleware(middlewares: LinkProxyMiddlewares) {
 }
 
 function registerOpenAiCompatibleMiddlewares(middlewares: LinkProxyMiddlewares) {
+  registerMcpProxyMiddleware(middlewares);
   registerTextProxyMiddleware(middlewares);
+  registerWebPageProxyMiddleware(middlewares);
   registerImageProxyMiddleware(middlewares);
   registerImageDownloadMiddleware(middlewares);
   registerAssetDownloadMiddleware(middlewares);

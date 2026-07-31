@@ -21,7 +21,7 @@
 
       <div class="services-section-title">
         <span>Daily services</span>
-        <small>5 spaces</small>
+        <small>6 spaces</small>
       </div>
 
       <section class="services-grid" aria-label="Services 功能列表">
@@ -75,6 +75,17 @@
           </span>
           <ChevronRight class="service-arrow" :size="17" />
         </button>
+
+        <button class="service-card tone-mcp" type="button" @click="openService('service-mcp-overview')">
+          <span class="service-icon"><Network :size="22" stroke-width="1.8" /></span>
+          <span class="service-copy">
+            <small>Connected life</small>
+            <strong>MCP Studio</strong>
+            <em>手机能力、联网搜索与外部连接</em>
+          </span>
+          <span class="service-dot" aria-hidden="true"></span>
+          <ChevronRight class="service-arrow" :size="17" />
+        </button>
       </section>
 
       <p class="services-footnote">Your story stays private, tidy and close.</p>
@@ -84,9 +95,9 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
-import { BatteryCharging, ChevronRight, CloudUpload, Database, KeyRound, RefreshCw, Sparkles } from 'lucide-vue-next';
+import { BatteryCharging, ChevronRight, CloudUpload, Database, KeyRound, Network, RefreshCw, Sparkles } from 'lucide-vue-next';
 
-type ServiceRouteName = 'service-keepalive' | 'service-update' | 'service-backup' | 'service-access' | 'service-data';
+type ServiceRouteName = 'service-keepalive' | 'service-update' | 'service-backup' | 'service-access' | 'service-data' | 'service-mcp-overview';
 
 const router = useRouter();
 
@@ -226,6 +237,22 @@ function openService(name: ServiceRouteName) {
 .tone-lilac { background: linear-gradient(145deg, rgba(251, 248, 255, 0.97), rgba(235, 228, 249, 0.9)); }
 .tone-blue { background: linear-gradient(145deg, rgba(248, 251, 255, 0.97), rgba(226, 237, 250, 0.92)); }
 .tone-cream { background: linear-gradient(145deg, rgba(255, 253, 247, 0.97), rgba(247, 239, 218, 0.92)); }
+.tone-mcp {
+  background:
+    radial-gradient(circle at 100% 0, rgba(206, 241, 223, 0.82), transparent 44%),
+    linear-gradient(145deg, rgba(255, 249, 252, 0.98), rgba(241, 231, 248, 0.9));
+}
+
+.service-dot {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #65bd86;
+  box-shadow: 0 0 0 5px rgba(101, 189, 134, 0.12);
+}
 
 .service-icon {
   display: grid;

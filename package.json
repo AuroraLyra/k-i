@@ -18,13 +18,16 @@
     "bridge:desktop:dist": "electron-builder",
     "test:memory": "tsx --tsconfig tsconfig.app.json scripts/memory-regression.ts",
     "start": "node server-dist/index.js",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "test:mcp-results": "tsx --tsconfig tsconfig.app.json scripts/mcp-results-regression.ts",
+    "test:link-preview": "tsx --tsconfig tsconfig.app.json scripts/link-preview-regression.ts"
   },
   "dependencies": {
     "@capacitor-community/contacts": "^8.0.0",
     "@capacitor/android": "^8.4.2",
     "@capacitor/app": "^8.1.1",
     "@capacitor/app-launcher": "^8.0.1",
+    "@capacitor/clipboard": "^8.0.1",
     "@capacitor/core": "^8.4.2",
     "@capacitor/device": "^8.0.3",
     "@capacitor/filesystem": "^8.1.2",
@@ -40,6 +43,7 @@
     "@fastify/rate-limit": "^11.1.0",
     "@fastify/static": "^10.1.0",
     "@fastify/websocket": "^11.3.0",
+    "@mozilla/readability": "^0.6.0",
     "@tanstack/vue-virtual": "^3.13.35",
     "fastify": "^5.10.0",
     "fflate": "^0.8.3",

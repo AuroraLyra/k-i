@@ -46,6 +46,7 @@
               :selection-mode="selectionMode"
               :selected="isMessageSelected(onlineMessageEntries[virtualRow.index].message)"
               :can-quote="canQuoteMessage(onlineMessageEntries[virtualRow.index].message)"
+              enable-avatar-double-action
               @apply-image="applyChatImageCandidate"
               @accept-music-listen-invite="acceptMusicListenInvite(onlineMessageEntries[virtualRow.index].message)"
               @accept-call="acceptCallMessage(onlineMessageEntries[virtualRow.index].message)"
@@ -57,9 +58,11 @@
               @open-card-detail="openCardDetail"
               @open-gobang="openGobangMessage"
               @open-profile="openCharacterProfile"
+              @open-turn-trace="openTurnApiTrace"
               @open-user-profile="openUserProfile"
               @quote-message="quoteMessage"
               @regenerate-image="regenerateChatImage"
+              @request-reply="requestReplyFromUserAvatar"
               @reject-music-listen-invite="rejectMusicListenInvite(onlineMessageEntries[virtualRow.index].message)"
               @reject-call="rejectCallMessage(onlineMessageEntries[virtualRow.index].message)"
               @reject-gobang="rejectGobangInvitation(onlineMessageEntries[virtualRow.index].message)"
@@ -784,6 +787,12 @@
       />
     </AppModal>
     <ChatModelSwitchPanel v-model="showModelSwitch" :conversation-id="props.id" />
+    <ChatTurnTraceModal
+      v-model="showTurnTrace"
+      :trace="selectedTurnTrace"
+      :character-name="characterDisplayName"
+      :character-avatar="character.avatar"
+    />
 
   </section>
   <section v-else class="screen no-tabs empty-state">会话不存在</section>
@@ -798,6 +807,7 @@ import { Mic, MicOff, Minimize, Phone, PhoneOff, RefreshCw, Video, VideoOff, Vol
 import AppModal from '@/components/common/AppModal.vue';
 import ChatHeader from '@/components/chat/ChatHeader.vue';
 import ChatModelSwitchPanel from '@/components/chat/ChatModelSwitchPanel.vue';
+import ChatTurnTraceModal from '@/components/chat/ChatTurnTraceModal.vue';
 import CharacterProfileSheet from '@/components/chat/CharacterProfileSheet.vue';
 import MessageBubble from '@/components/chat/MessageBubble.vue';
 import MessageComposer from '@/components/chat/MessageComposer.vue';
@@ -808,7 +818,7 @@ import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import { generateImageByProvider } from '@/services/ai';
 import { purgeFriendData } from '@/services/friendDeletion';
 import { synthesizeSpeech } from '@/services/tts';
-import type { AppSettings, CharacterImageProfile, CharacterProfile, ChatCallMode, ChatCallStatus, ChatImageAttachment, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatTransferStatus, ChatVoiceAttachment, ImageProviderType, Sticker, UserProfile } from '@/types/domain';
+import type { AppSettings, CharacterImageProfile, CharacterProfile, ChatApiTrace, ChatCallMode, ChatCallStatus, ChatImageAttachment, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatTransferStatus, ChatVoiceAttachment, ImageProviderType, Sticker, UserProfile } from '@/types/domain';
 import { getCharacterAiName, getCharacterDisplayName, getFriendRelationship } from '@/utils/character';
 import { collectCharacterPhotoImages, createCharacterPhotoRecord, normalizeCharacterPhotoRecords, normalizeHiddenSourcePhotoKeys } from '@/utils/characterPhotos';
 import { readChatImageFile } from '@/utils/imageFile';
@@ -953,6 +963,8 @@ const showUserProfile = ref(false);
 const showActionMenu = ref(false);
 const showRegeneratePrompt = ref(false);
 const showModelSwitch = ref(false);
+const showTurnTrace = ref(false);
+const selectedTurnTrace = ref<ChatApiTrace | null>(null);
 const showStickers = ref(false);
 const stickerPanelHeight = ref(0);
 const showImagePanel = ref(false);
@@ -1270,7 +1282,7 @@ const activeMessageIsSynthetic = computed(() => Boolean(activeMessage.value?.id.
 const activeMessageTransferIsReceipt = computed(() => Boolean(activeMessage.value?.transfer?.responseToMessageId));
 const canRecallActiveMessage = computed(() => Boolean(activeMessage.value && activeMessage.value.sender === 'user' && !activeMessageIsSynthetic.value));
 const canQuoteActiveMessage = computed(() => Boolean(activeMessage.value && canQuoteMessage(activeMessage.value)));
-const canEditActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value && !activeMessageTransferIsReceipt.value && !activeMessage.value.musicListenInvite && !activeMessage.value.theaterLink && !activeMessage.value.call && !activeMessage.value.gobang));
+const canEditActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value && !activeMessageTransferIsReceipt.value && !activeMessage.value.musicListenInvite && !activeMessage.value.linkPreview && !activeMessage.value.theaterLink && !activeMessage.value.call && !activeMessage.value.gobang));
 const canFavoriteActiveMessage = computed(() => Boolean(activeMessage.value && !activeMessageIsSynthetic.value && store.canFavoriteMessage(activeMessage.value)));
 const isActiveMessageFavorited = computed(() => Boolean(activeMessage.value && store.isMessageFavorited(activeMessage.value.id)));
 const favoriteActionLabel = computed(() => {
@@ -2013,6 +2025,14 @@ async function sendAndReply(content: string) {
     blockedInteraction,
     replyInstruction: relationshipInstruction
   });
+}
+
+async function requestReplyFromUserAvatar() {
+  if (currentConversationReplying.value) {
+    store.showConfigAlert('正在生成回复，请等待当前生成完成。', '正在生成');
+    return;
+  }
+  await sendAndReply('');
 }
 
 async function sendStickerSuggestion(sticker: Sticker) {
@@ -2801,7 +2821,7 @@ function isCallSubtitleMessage(message: ChatMessage) {
   if (!message.callId || message.call || message.contextOnly) return false;
   if (message.displayStyle === 'narration') return true;
   if (message.sender !== 'user' && message.sender !== 'char') return false;
-  if (message.sticker || message.image || message.location || message.transfer || message.commerce || message.shopShare || message.musicListenInvite || message.theaterLink || message.offlineInvitation) return false;
+  if (message.sticker || message.image || message.location || message.transfer || message.commerce || message.shopShare || message.musicListenInvite || message.linkPreview || message.theaterLink || message.offlineInvitation) return false;
   return Boolean(message.voice?.transcript.trim() || message.content.trim());
 }
 
@@ -3510,6 +3530,7 @@ function messageActionText(message: ChatMessage) {
   if (message.transfer) return `${message.transfer.responseToMessageId ? '[转账回执]' : '[转账]'} ¥${message.transfer.amount} · ${message.transfer.status === 'pending' ? '待处理' : message.transfer.status === 'accepted' ? '已接收' : '已拒绝'}`;
   if (message.commerce) return `[${message.commerce.kind === 'takeout' ? '外卖' : message.commerce.kind === 'gift' ? '礼物' : '购物'}] ${message.commerce.storeName} · ${message.commerce.items.map((item) => item.name).join('、')} · ¥${message.commerce.totalAmount}`;
   if (message.shopShare) return `[商城${message.shopShare.kind === 'character-pick' ? '共同挑选' : '分享'}] ${message.shopShare.title} · ${message.shopShare.storeName}${message.shopShare.note ? ` · ${message.shopShare.note}` : ''}`;
+  if (message.linkPreview) return `[链接] ${message.linkPreview.title} · ${message.linkPreview.description} · ${message.linkPreview.url}`;
   if (message.theaterLink) return `[网站链接] ${message.theaterLink.title} · ${message.theaterLink.summary} · ${message.theaterLink.url}`;
   if (message.call) return `[${message.call.mode === 'video' ? '视频通话' : '语音通话'}] ${message.call.status}`;
   return message.content;
@@ -3733,6 +3754,14 @@ async function saveEditedMessage() {
 function openUserProfile() {
   showActionMenu.value = false;
   showUserProfile.value = true;
+}
+
+function openTurnApiTrace(message: ChatMessage) {
+  const batchTrace = message.replyBatchId
+    ? store.messagesForConversation(props.id).find((entry) => entry.replyBatchId === message.replyBatchId && entry.apiTrace)?.apiTrace
+    : undefined;
+  selectedTurnTrace.value = message.apiTrace ?? batchTrace ?? null;
+  showTurnTrace.value = true;
 }
 
 function openCoupleSpace() {
