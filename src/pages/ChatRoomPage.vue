@@ -4162,6 +4162,7 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 80;
   display: flex;
+  height: var(--app-height);
   overflow: hidden;
   background: #111111;
   color: #ffffff;
@@ -4175,8 +4176,7 @@ onBeforeUnmount(() => {
   z-index: 0;
   pointer-events: none;
   width: 100vw;
-  height: 100vh;
-  height: 100dvh;
+  height: var(--app-height);
   transform: translateZ(0) scale(1.01);
   transform-origin: center;
 }
@@ -4186,8 +4186,7 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 0;
   width: 100vw;
-  height: 100vh;
-  height: 100dvh;
+  height: var(--app-height);
   object-fit: cover;
   object-position: center;
   pointer-events: none;
@@ -4203,8 +4202,7 @@ onBeforeUnmount(() => {
   z-index: 1;
   pointer-events: none;
   width: 100vw;
-  height: 100vh;
-  height: 100dvh;
+  height: var(--app-height);
   background: linear-gradient(180deg, rgba(0, 0, 0, 0.44), rgba(0, 0, 0, 0.28) 42%, rgba(0, 0, 0, 0.58));
 }
 

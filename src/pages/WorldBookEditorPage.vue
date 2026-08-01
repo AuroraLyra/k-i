@@ -1727,8 +1727,7 @@ textarea {
   z-index: 90;
   display: grid;
   place-items: center;
-  height: 100vh;
-  height: 100dvh;
+  height: var(--app-height);
   padding: max(18px, var(--safe-top)) calc(16px + var(--safe-right)) max(18px, calc(16px + var(--safe-bottom))) calc(16px + var(--safe-left));
   background: rgba(49, 39, 35, 0.4);
   backdrop-filter: blur(15px);

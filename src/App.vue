@@ -280,11 +280,13 @@ function setAppFontFamily(fontFamilyStack: string) {
 
 function applyGlobalThemeScale() {
   if (typeof document === 'undefined') return;
-  const scale = normalizeGlobalThemeScale(globalThemeSettings.value.scale);
   const root = document.documentElement;
+  const isIOSPwa = root.classList.contains('is-ios-pwa');
+  const scale = normalizeGlobalThemeScale(globalThemeSettings.value.scale);
+  root.classList.toggle('is-ios-pwa-scaled', isIOSPwa && scale !== 1);
   root.style.setProperty('--app-display-scale', scale.toFixed(3));
   legacyGlobalScaleVariableNames.forEach((name) => root.style.removeProperty(name));
-  document.body.style.setProperty('zoom', scale.toFixed(3));
+  document.body.style.setProperty('zoom', isIOSPwa ? '1' : scale.toFixed(3));
 }
 
 function applyThemeFonts() {

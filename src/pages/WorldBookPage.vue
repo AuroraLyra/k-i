@@ -492,8 +492,7 @@ async function importWorldBookFiles(event: Event) {
   z-index: 90;
   display: grid;
   place-items: center;
-  height: 100vh;
-  height: 100dvh;
+  height: var(--app-height);
   padding: max(18px, var(--safe-top)) calc(16px + var(--safe-right)) max(18px, calc(16px + var(--safe-bottom))) calc(16px + var(--safe-left));
   background: rgba(49, 39, 35, 0.38);
   backdrop-filter: blur(15px);
@@ -505,7 +504,7 @@ async function importWorldBookFiles(event: Event) {
   justify-items: center;
   gap: 9px;
   width: min(100%, 370px);
-  max-height: min(680px, calc(100dvh - 36px - var(--safe-top) - var(--safe-bottom)));
+  max-height: min(680px, calc(var(--app-height) - 36px - var(--safe-top) - var(--safe-bottom)));
   padding: 28px 20px 20px;
   overflow-y: auto;
   border: 1px solid rgba(255, 255, 255, 0.65);

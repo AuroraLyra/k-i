@@ -40,6 +40,13 @@
     .status { min-height: 22px; margin: 2px 0 0; color: #647168; font-size: 13px; line-height: 1.55; text-align: center; }
     .status.error { color: #c63e3e; }
     .status.success { color: #078843; }
+    .rights-notice { display: grid; gap: 11px; padding: 18px; border: 1px solid rgba(178, 55, 55, .2); border-radius: 22px; background: linear-gradient(145deg, rgba(255, 247, 247, .98), rgba(255, 239, 239, .92)); box-shadow: 0 16px 34px rgba(151, 49, 49, .1); }
+    .rights-notice h3 { margin: 0; color: #9e2929; font-size: 16px; letter-spacing: -.02em; }
+    .rights-notice p { margin: 0; color: #6e4949; font-size: 12px; line-height: 1.75; }
+    .rights-notice strong { color: #a42626; }
+    .rights-notice ul { display: grid; gap: 7px; margin: 0; padding-left: 18px; color: #704949; font-size: 12px; line-height: 1.7; }
+    .rights-notice li::marker { color: #c33c3c; }
+    .rights-notice .evidence { padding-top: 10px; border-top: 1px solid rgba(178, 55, 55, .14); }
     .privacy { margin: 0 10px; color: #78847d; font-size: 11px; line-height: 1.6; text-align: center; }
     .spinner { display: inline-block; width: 12px; height: 12px; margin-right: 7px; border: 2px solid rgba(8,139,68,.2); border-top-color: #078b44; border-radius: 50%; vertical-align: -2px; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -50,7 +57,7 @@
   <main class="shell">
     <header class="brand">
       <img class="logo" src="/link-icon.png" alt="" width="52" height="52" />
-      <div><h1>BabyLink</h1><p>仅向指定 QQ 群成员开放</p></div>
+      <div><h1>BabyLink</h1><p>仅向少量港澳地区人员开放</p></div>
     </header>
 
     <section class="card">
@@ -75,6 +82,18 @@
       </div>
 
       <p id="status" class="status"></p>
+    </section>
+    <section class="rights-notice" aria-labelledby="rights-title">
+      <h3 id="rights-title">严正声明：禁止倒卖本站访问入口</h3>
+      <p>本站为个人学习、独立开发项目，仅面向少量获准人员免费开放，所有内容仅用于学习交流，访问范围仅限港澳地区。<strong>本人从未授权任何个人、团体或闲鱼卖家以任何形式收费出售、转卖、代发本站访问链接或网站入口。</strong></p>
+      <p>如发现有人未经本人许可获取本站访问地址，在闲鱼等平台上架商品并收费牟利，我方将立即固定商品页面、沟通记录、交易订单、付款凭证、链接流转及相关账号信息等证据，并向闲鱼平台发起侵权投诉，申请立即下架侵权商品、封禁违规链接及限制相关账号。情节严重或拒不停止的，我方将依法追究侵权责任，要求停止侵害、赔偿损失及承担合理维权费用；必要时将通过诉讼、律师调查令或法院调查取证等合法程序，申请平台披露侵权主体及交易所涉个人信息，用于民事起诉。</p>
+      <p>本站页面设计、交互结构、功能逻辑、原创文案及相关汇编成果均由本人独立创作，依法享有完整著作权。<strong>任何复制、改包、冒充原版、私发入口、付费代搭建或借本站名义牟利的行为，均不因获取到链接而获得授权。</strong></p>
+      <ul>
+        <li>欢迎提交侵权商品完整录屏，需尽量包含商品标题、卖家账号、商品编号、页面链接与录制时间。</li>
+        <li>请同时保留购买侵权商品的交易订单、付款记录、聊天记录及侵权方公开资料截图。</li>
+        <li>相关附件证据可随时提交给本站管理者，用于核验、投诉下架与后续维权。</li>
+      </ul>
+      <p class="evidence"><strong>请勿购买所谓“本站入口”或“访问链接”。</strong>任何收费售卖行为均未获授权，购买造成的损失由交易双方自行承担。</p>
     </section>
     <p class="privacy">服务器仅保存 QQ、群成员状态、设备会话和安全审计；聊天、角色和备份数据仍保存在你的设备及你选择的云盘中。</p>
   </main>

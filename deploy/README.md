@@ -202,7 +202,7 @@ npx cap sync ios
 ADMIN_TOKEN='<admin-token>' node scripts/publish-release.mjs ios path/to/BabyLink.ipa 2 1.1.0 1 '更新说明'
 ```
 
-仓库 Actions 中的 `Build unsigned iOS IPA` 可在 macOS runner 生成不含 Apple 证书或描述文件的 IPA 和相对路径 SHA-256 清单。工作流会先对 App 与嵌套框架执行 ad-hoc 完整性签名并验证 arm64 架构，避免部分外部签名工具漏签动态框架后导致启动即退出；安装前仍必须由 AltStore、SideStore、Sideloadly 等工具使用用户自己的 Apple ID 重新签名。
+仓库 Actions 中的 `Build unsigned iOS IPA` 可在 macOS runner 生成不含 Apple 证书、描述文件或任何旧嵌套签名的 IPA 和相对路径 SHA-256 清单，并使用无资源叉的干净 ZIP 结构。万能签、AltStore、SideStore、Sideloadly 等工具必须对 App、Frameworks 和其他嵌入式代码使用用户自己的 Apple ID 重新签名；不要仅重签主程序。
 
 用户可在 BabyLink 的 Update 页面复制受保护的 AltStore/SideStore Source。更新源使用长期随机令牌，不暴露 QQ 或登录 Cookie；每次刷新 Source 和下载 IPA 时，服务器都会重新检查账号状态与授权群成员资格。外部签名工具会展示新版本并执行覆盖安装，用户也可继续手动下载 IPA。
 

@@ -3299,7 +3299,7 @@ function playNeighbor(direction: -1 | 1) {
 
   .player-panel,
   .player-stage {
-    min-height: calc(100dvh - var(--tab-height) - var(--safe-bottom));
+    min-height: calc(var(--app-height) - var(--tab-height) - var(--safe-bottom));
   }
 
   .song-summary {

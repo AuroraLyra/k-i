@@ -77,7 +77,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.oauth-callback-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: linear-gradient(155deg, #fff8fb, #eef7f2); color: #151515; }
+.oauth-callback-page { min-height: var(--app-height); display: grid; place-items: center; padding: 24px; background: linear-gradient(155deg, #fff8fb, #eef7f2); color: #151515; }
 .oauth-callback-card { width: min(360px, 100%); padding: 28px; border-radius: 24px; background: rgba(255,255,255,.92); text-align: center; box-shadow: 0 22px 60px rgba(31,42,36,.12); }
 .oauth-mark { display: grid; place-items: center; width: 54px; height: 54px; margin: 0 auto 14px; border-radius: 18px; background: #e5f5ec; color: #177044; font-size: 28px; }
 h1 { margin: 0 0 9px; font-size: 20px; }

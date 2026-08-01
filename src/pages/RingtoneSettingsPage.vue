@@ -229,10 +229,15 @@
               </button>
             </div>
 
+            <label v-if="nativeReleaseStatus.platform === 'ios' && iosUpdateSource" class="native-release-source">
+              <span>更新源地址</span>
+              <input :value="iosUpdateSource.url" readonly inputmode="none" aria-label="iOS 更新源地址" @focus="selectIosUpdateSource" @click="selectIosUpdateSource" />
+            </label>
+
             <p class="native-release-tip">
-              {{ nativeReleaseStatus.platform === 'ios' ? '将更新源添加到 AltStore 或 SideStore 后，可在外部签名工具中看到新版本并覆盖安装。' : 'BabyLink 会先校验 APK 的 SHA-256、包名、版本号与签名证书，再交给 Android 系统确认覆盖安装。' }}
+              {{ nativeReleaseStatus.platform === 'ios' ? 'AltStore 或 SideStore 可添加更新源；万能签请直接下载 IPA 后导入并签名安装。' : 'BabyLink 会先校验 APK 的 SHA-256、包名、版本号与签名证书，再交给 Android 系统确认覆盖安装。' }}
             </p>
-            <button v-if="nativeReleaseStatus.platform === 'ios' && nativeReleaseStatus.release" class="native-release-manual" type="button" :disabled="nativeReleaseBusy" @click="downloadIosRelease">仍需手动安装？下载 IPA</button>
+            <button v-if="nativeReleaseStatus.platform === 'ios' && nativeReleaseStatus.release" class="native-release-manual" type="button" :disabled="nativeReleaseBusy" @click="downloadIosRelease">万能签：下载 IPA</button>
           </article>
         </section>
 
@@ -340,7 +345,8 @@ import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, type Pro
 import { useRoute, useRouter } from 'vue-router';
 import { AlertCircle, BatteryCharging, BellRing, CheckCircle2, Clapperboard, Cloud, Download, Globe2, LoaderCircle, MessageCircle, Music2, Phone, Power, RadioTower, RefreshCw, RotateCcw, ShieldCheck, Smartphone, Undo2, Upload, UsersRound, Volume2, VolumeX } from 'lucide-vue-next';
 import { checkForAppUpdate, getAppUpdateStatus, installDownloadedAppUpdate, refreshAppUpdateStatus, subscribeAppUpdateStatus, type AppUpdateStatus } from '@/services/appUpdate';
-import { checkNativeRelease, createInitialNativeReleaseStatus, fetchIosUpdateSourceLink, installNativeRelease, openNativeReleaseDownload, type NativeReleaseStatus } from '@/services/nativeRelease';
+import { writeClipboardText } from '@/services/clipboard';
+import { checkNativeRelease, createInitialNativeReleaseStatus, fetchIosUpdateSourceLink, installNativeRelease, openNativeReleaseDownload, type IosUpdateSourceLink, type NativeReleaseStatus } from '@/services/nativeRelease';
 import { getKeepAliveStatus, requestKeepAliveNotificationPermission, requestNativeKeepAliveBatteryAccess, startKeepAlive, stopKeepAlive, subscribeKeepAliveStatus, type KeepAliveRuntimeStatus } from '@/services/keepAlive';
 import { useAppStore } from '@/stores/appStore';
 import type { AppKeepAliveSettings, AppRingtoneSettings, RingtoneAsset, RingtoneEventType } from '@/types/domain';
@@ -414,6 +420,7 @@ const appUpdateStatus = ref<AppUpdateStatus>(getAppUpdateStatus());
 const appUpdateBusy = ref(false);
 const nativeReleaseStatus = ref<NativeReleaseStatus>(createInitialNativeReleaseStatus());
 const nativeReleaseBusy = ref(false);
+const iosUpdateSource = ref<IosUpdateSourceLink | null>(null);
 const ringtoneScopeTab = ref<RingtoneScopeTab>('global');
 let unsubscribeKeepAliveStatus: (() => void) | null = null;
 let unsubscribeAppUpdateStatus: (() => void) | null = null;
@@ -596,25 +603,26 @@ async function runNativeReleaseCheck() {
   nativeReleaseStatus.value = { ...nativeReleaseStatus.value, phase: 'checking', message: '正在检查受保护的安装包版本…' };
   try {
     nativeReleaseStatus.value = await checkNativeRelease();
+    if (nativeReleaseStatus.value.platform === 'ios') {
+      try {
+        await loadIosUpdateSource();
+      } catch {
+        iosUpdateSource.value = null;
+      }
+    }
   } finally {
     nativeReleaseBusy.value = false;
   }
 }
 
-async function copyText(value: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-  const textarea = document.createElement('textarea');
-  textarea.value = value;
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  document.body.append(textarea);
-  textarea.select();
-  const copied = document.execCommand('copy');
-  textarea.remove();
-  if (!copied) throw new Error('无法复制更新源，请检查系统剪贴板权限。');
+async function loadIosUpdateSource() {
+  if (iosUpdateSource.value && iosUpdateSource.value.expiresAt > Date.now() + 60_000) return iosUpdateSource.value;
+  iosUpdateSource.value = await fetchIosUpdateSourceLink();
+  return iosUpdateSource.value;
+}
+
+function selectIosUpdateSource(event: Event) {
+  if (event.currentTarget instanceof HTMLInputElement) event.currentTarget.select();
 }
 
 async function runNativeReleaseAction() {
@@ -627,10 +635,14 @@ async function runNativeReleaseAction() {
   };
   try {
     if (nativeReleaseStatus.value.platform === 'ios') {
-      const source = await fetchIosUpdateSourceLink();
-      await copyText(source.url);
+      const source = await loadIosUpdateSource();
       const expiry = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric' }).format(source.expiresAt);
-      nativeReleaseStatus.value = { ...nativeReleaseStatus.value, phase: 'available', message: `更新源已复制，有效期至 ${expiry}。` };
+      try {
+        await writeClipboardText(source.url);
+        nativeReleaseStatus.value = { ...nativeReleaseStatus.value, phase: 'available', message: `更新源已复制，有效期至 ${expiry}。` };
+      } catch {
+        nativeReleaseStatus.value = { ...nativeReleaseStatus.value, phase: 'available', message: `自动复制失败，已在下方显示更新源；请长按复制。有效期至 ${expiry}。` };
+      }
       return;
     }
     const release = nativeReleaseStatus.value.release;
@@ -1617,6 +1629,31 @@ async function resetCharacter(characterId: string, eventType: RingtoneEventType)
 .native-release-tip {
   color: var(--muted);
   font-size: 11px;
+}
+
+.native-release-source {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.native-release-source > span {
+  color: #58635d;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.native-release-source input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #315a45;
+  font-size: 11px;
+  line-height: 1.35;
+  box-shadow: inset 0 0 0 1px rgba(44, 111, 75, 0.12);
 }
 
 .native-release-manual {

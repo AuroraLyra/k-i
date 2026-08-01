@@ -60,17 +60,53 @@ jobs:
         run: |
           app="$RUNNER_TEMP/BabyLinkDerivedData/Build/Products/Release-iphoneos/App.app"
           test -d "$app"
-          find "$app/Frameworks" -type d -name '*.framework' -maxdepth 1 -print0 | while IFS= read -r -d '' framework; do
-            codesign --force --sign - --timestamp=none "$framework"
+          find "$app" -name embedded.mobileprovision -delete
+          find "$app" -type d -name _CodeSignature -prune -exec rm -rf {} +
+          xattr -cr "$app"
+          find "$app" \( -type d \( -name '*.app' -o -name '*.appex' -o -name '*.framework' -o -name '*.bundle' \) -o -type f -perm -111 \) -print0 | while IFS= read -r -d '' code; do
+            codesign --remove-signature "$code" 2>/dev/null || true
           done
-          codesign --force --sign - --timestamp=none "$app"
-          codesign --verify --deep --strict --verbose=2 "$app"
+          find "$app" -type d -name _CodeSignature -prune -exec rm -rf {} +
           executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
           lipo "$app/$executable_name" -verify_arch arm64
-          mkdir -p build/Payload
-          cp -R "$app" build/Payload/BabyLink.app
+          staging="$RUNNER_TEMP/BabyLinkIpa"
+          rm -rf "$staging"
+          mkdir -p "$staging/Payload" build
+          COPYFILE_DISABLE=1 ditto --noqtn --norsrc "$app" "$staging/Payload/BabyLink.app"
+          find "$staging" \( -name '.DS_Store' -o -name '._*' -o -name embedded.mobileprovision \) -delete
+          xattr -cr "$staging/Payload/BabyLink.app"
+          find "$staging/Payload" -type d -name _CodeSignature -prune -exec rm -rf {} +
+          find "$staging/Payload" -type f -print0 | while IFS= read -r -d '' code; do
+            if file -b "$code" | grep -q 'Mach-O'; then
+              codesign --remove-signature "$code" 2>/dev/null || true
+            fi
+          done
+          find "$staging/Payload" -depth -type d \( -name '*.app' -o -name '*.appex' -o -name '*.framework' -o -name '*.bundle' -o -name '*.xpc' \) -print0 | while IFS= read -r -d '' code; do
+            codesign --remove-signature "$code" 2>/dev/null || true
+          done
+          find "$staging/Payload" -type d -name _CodeSignature -prune -exec rm -rf {} +
           output="BabyLink-unsigned-$VERSION_NAME.ipa"
-          (cd build && ditto -c -k --sequesterRsrc --keepParent Payload "$output")
+          rm -f "build/$output" "build/$output.sha256"
+          (cd "$staging" && COPYFILE_DISABLE=1 /usr/bin/zip -qry -X "$GITHUB_WORKSPACE/build/$output" Payload)
+          unzip -tq "build/$output"
+          test "$(unzip -Z1 "build/$output" | grep -Ec '^Payload/[^/]+\.app/$')" = 1
+          if unzip -Z1 "build/$output" | grep -Eq '(^|/)(__MACOSX|\.DS_Store|\._|embedded\.mobileprovision)'; then
+            echo 'IPA contains signing or macOS metadata that can break external re-signers.' >&2
+            exit 1
+          fi
+          if find "$staging/Payload" -type d -name _CodeSignature -print -quit | grep -q .; then
+            echo 'IPA still contains a nested code signature.' >&2
+            exit 1
+          fi
+          find "$staging/Payload" -type f -print0 | while IFS= read -r -d '' code; do
+            if ! file -b "$code" | grep -q 'Mach-O'; then
+              continue
+            fi
+            if codesign -dvvv "$code" 2>&1 | grep -Eq '^(Signature|CodeDirectory)='; then
+              echo "IPA still contains a Mach-O signature on $code." >&2
+              exit 1
+            fi
+          done
           (cd build && shasum -a 256 "$output" | tee "$output.sha256")
 
       - name: Upload IPA artifact

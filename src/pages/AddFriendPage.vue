@@ -160,7 +160,11 @@ async function joinGroup(candidate: GroupDiscoveryCandidate) {
 .add-page {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
   height: 100%;
+  overflow: hidden;
   padding-bottom: 0;
   background:
     radial-gradient(circle at 8% 0%, rgba(255, 218, 227, 0.58), transparent 30%),
@@ -217,9 +221,11 @@ async function joinGroup(candidate: GroupDiscoveryCandidate) {
 .add-main {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   width: 100%;
-  max-width: 720px;
+  max-width: min(100%, 720px);
   margin: 0 auto;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -229,7 +235,12 @@ async function joinGroup(candidate: GroupDiscoveryCandidate) {
 .add-tabs {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
   gap: 4px;
+  overflow: hidden;
   padding: 8px calc(12px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(12px + var(--safe-left));
   border-top: 1px solid rgba(17, 17, 17, 0.05);
   background: rgba(255, 255, 255, 0.96);

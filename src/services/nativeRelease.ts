@@ -55,7 +55,7 @@ function detectedPlatform(): NativeReleasePlatform | '' {
   if (capacitorPlatform === 'android' || capacitorPlatform === 'ios') return capacitorPlatform;
   if (/Android/i.test(navigator.userAgent)) return 'android';
   if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return 'ios';
-  return '';
+  return 'ios';
 }
 
 function configuredVersion(platform: NativeReleasePlatform) {

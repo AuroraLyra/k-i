@@ -131,17 +131,22 @@ onMounted(async () => {
 
 <style scoped>
 .wallet-page {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
   background:
     radial-gradient(circle at 92% 0%, rgba(225, 211, 221, 0.62), transparent 28%),
     linear-gradient(180deg, #fbf8f5 0%, #f7f5f2 48%, #f0f4f1 100%);
 }
 
 .wallet-header {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 68px;
-  padding: 13px 18px 7px;
+  min-height: calc(68px + var(--safe-top));
+  padding: calc(13px + var(--safe-top)) calc(18px + var(--safe-right)) 7px calc(18px + var(--safe-left));
 }
 
 .wallet-header div { display: grid; gap: 2px; }
@@ -150,8 +155,10 @@ onMounted(async () => {
 .wallet-header button { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 15px; background: rgba(255,255,255,.76); color: #51494b; box-shadow: 0 10px 26px rgba(65,52,56,.08); }
 
 .wallet-content {
-  height: calc(var(--app-height) - 68px - var(--safe-bottom));
-  padding: 8px 15px 34px;
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  padding: 8px 15px calc(34px + var(--safe-bottom));
   overflow-y: auto;
   overscroll-behavior: contain;
 }

@@ -857,7 +857,7 @@ async function exportSelectedThemes() {
 .profile-theme-page {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: var(--app-height);
   background: #f6f8f7;
   color: #111111;
 }

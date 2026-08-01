@@ -42,8 +42,7 @@
         enterkeyhint="send"
         :placeholder="placeholder"
         :disabled="effectiveInputDisabled"
-        @pointerdown="handleInputPointerDown"
-        @touchstart="handleInputPointerDown"
+        @pointerdown="prepareInputFocus"
         @keydown.enter="handleEnterKey"
         @focus="handleFocus"
         @blur="handleBlur"
@@ -184,15 +183,8 @@ function queueInputResize() {
   });
 }
 
-function shouldPreventNativeInputFocusScroll() {
-  return document.documentElement.classList.contains('is-ios');
-}
-
-function handleInputPointerDown(event: Event) {
+function prepareInputFocus() {
   emit('prepare-focus');
-  if (!shouldPreventNativeInputFocusScroll()) return;
-  event.preventDefault();
-  focusInput();
 }
 
 function handleFocus() {

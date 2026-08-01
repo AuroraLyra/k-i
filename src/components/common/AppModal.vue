@@ -45,8 +45,6 @@ defineEmits<{
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  height: 100vh;
-  height: 100dvh;
   height: var(--app-height);
   overflow: hidden;
   padding: max(8px, var(--safe-top)) calc(8px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(8px + var(--safe-left));
@@ -81,7 +79,6 @@ defineEmits<{
   display: flex;
   flex-direction: column;
   width: min(100%, 452px);
-  max-height: min(680px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px));
   max-height: min(680px, calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 16px));
   overflow: hidden;
   border-radius: 14px 14px 0 0;
@@ -100,7 +97,6 @@ defineEmits<{
 }
 
 .modal-panel-fixed {
-  height: min(540px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px));
   height: min(540px, calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 16px));
 }
 
@@ -133,7 +129,6 @@ defineEmits<{
 }
 
 .modal-panel-profile {
-  max-height: min(760px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px));
   max-height: min(760px, calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 16px));
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 18px 18px 0 0;
@@ -164,7 +159,6 @@ defineEmits<{
 }
 
 .modal-panel-ins {
-  max-height: min(740px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px));
   max-height: min(740px, calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 16px));
   border: 1px solid rgba(255, 255, 255, 0.84);
   border-radius: 22px 22px 0 0;
@@ -198,7 +192,6 @@ defineEmits<{
 
 .modal-panel-profile-ins {
   width: min(100%, 364px);
-  max-height: min(720px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 36px));
   max-height: min(720px, calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 36px));
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 28px;
@@ -220,7 +213,6 @@ defineEmits<{
 }
 
 .modal-panel-profile-theme {
-  max-height: min(780px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px));
   max-height: min(780px, calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 16px));
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 30px 30px 0 0;
@@ -232,7 +224,6 @@ defineEmits<{
 }
 
 .modal-panel-profile-theme.modal-panel-fixed {
-  height: min(650px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px));
   height: min(650px, calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 16px));
 }
 

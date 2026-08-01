@@ -76,11 +76,18 @@ html.is-link-fullscreen {
   --safe-left: calc(max(env(safe-area-inset-left, 0px), var(--link-cutout-left)) / var(--app-display-scale));
 }
 
+html.is-ios.keyboard-open {
+  --safe-bottom: 0px;
+  min-height: calc(var(--app-viewport-height) + var(--visual-viewport-raw-offset-top));
+  height: calc(var(--app-viewport-height) + var(--visual-viewport-raw-offset-top));
+}
+
 body {
   min-width: calc(320px / var(--app-display-scale));
   min-height: var(--app-height);
   height: var(--app-height);
   overflow: hidden;
+  background: var(--surface);
   font-family: var(--app-current-font-family);
   font-size: var(--compact-page-font-size);
   zoom: var(--app-display-scale);
@@ -88,14 +95,55 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-html.is-native-app.keyboard-open body {
+html.is-ios.keyboard-open body {
+  position: relative;
+  top: var(--visual-viewport-offset-top);
   transform: translateZ(0);
+}
+
+html.is-ios-pwa {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+html.is-ios-pwa body,
+html.is-ios-pwa #app {
+  min-height: var(--app-height);
+  height: var(--app-height);
+  overflow-x: hidden;
+}
+
+html.is-ios-pwa body {
+  width: 100%;
+}
+
+html.is-ios-pwa.is-ios-pwa-scaled body {
+  width: calc(100% / var(--app-display-scale));
+  max-width: none;
+  transform: scale(var(--app-display-scale));
+  transform-origin: top left;
+}
+
+html.is-ios-pwa.keyboard-open {
+  min-height: var(--app-viewport-height);
+  height: var(--app-viewport-height);
+}
+
+html.is-ios-pwa.keyboard-open body {
+  position: static;
+  top: auto;
+  transform: none;
+}
+
+html.is-ios-pwa.is-ios-pwa-scaled.keyboard-open body {
+  transform: scale(var(--app-display-scale));
 }
 
 #app {
   position: relative;
   min-height: var(--app-height);
   height: var(--app-height);
+  background: var(--surface);
   isolation: isolate;
 }
 
@@ -154,6 +202,8 @@ input,
 textarea,
 select {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   border: 0;
   outline: 0;
   background: transparent;
@@ -215,6 +265,7 @@ a {
 .screen {
   min-height: 0;
   height: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   background: var(--surface);
@@ -414,6 +465,12 @@ a {
 
   #app .mobile-shell :is(button, a, [role='button'], input, textarea, select) {
     touch-action: manipulation;
+  }
+
+  html.is-ios #app .mobile-shell .composer-input textarea {
+    touch-action: auto;
+    -webkit-user-select: text;
+    user-select: text;
   }
 
   #app .mobile-shell .screen .top-title {
