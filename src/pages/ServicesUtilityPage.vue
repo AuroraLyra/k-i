@@ -85,8 +85,8 @@ const pageMeta = {
   data: {
     title: 'Data',
     kicker: 'Local storage',
-    heading: '轻量整理本地空间',
-    description: '查看数据组成、保护浏览器存储，并精准清理图片与贴纸缓存。',
+    heading: '给本地空间留一点呼吸',
+    description: '概览、空间、整理与守护，轻松打理聊天、媒体和离线资源。',
     icon: Database
   },
   access: {

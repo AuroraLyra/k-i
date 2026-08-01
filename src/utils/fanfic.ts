@@ -3,7 +3,7 @@ import type { AppSettings, CharacterProfile, FanficBook, FanficStoryBible, UserP
 const defaultPalette = ['#f2d7d9', '#dce7de', '#f8f1e4'];
 
 export function getFanficTextModelOverride(settings?: AppSettings) {
-  return settings?.modelOverrides.theater?.trim() ?? '';
+  return settings?.modelOverrides.content?.trim() ?? '';
 }
 
 function uniqueStrings(values: unknown, limit = 12) {

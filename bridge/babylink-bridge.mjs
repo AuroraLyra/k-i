@@ -450,6 +450,41 @@ async function douyinAction(toolName, args) {
   });
 }
 
+function businessFailure(result) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return '';
+  if (result.ok === false || result.success === false || result.status === 'failed' || result.status === 'error') {
+    return String(result.message || result.error || result.reason || 'adapter_business_failed');
+  }
+  if (typeof result.retcode === 'number' && result.retcode !== 0) {
+    return `${String(result.msg || result.message || 'onebot_failed')}: retcode ${result.retcode}`;
+  }
+  return '';
+}
+
+function businessReceipt(result) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return '';
+  const record = result;
+  const nested = record.data && typeof record.data === 'object' && !Array.isArray(record.data) ? record.data : {};
+  for (const key of ['message_id', 'messageId', 'operation_id', 'operationId', 'receipt', 'id']) {
+    const value = record[key] ?? nested[key];
+    if (typeof value === 'string' || typeof value === 'number') {
+      const receipt = String(value).trim();
+      if (receipt) return receipt;
+    }
+  }
+  return '';
+}
+
+function normalizeToolOutcome(tool, result) {
+  const failure = businessFailure(result);
+  if (failure) throw new Error(failure);
+  const receipt = businessReceipt(result);
+  if (!tool.readOnlyHint && !receipt) {
+    return { completed: false, unknown: true, receipt: '', result };
+  }
+  return { completed: true, ...(receipt ? { receipt } : {}), result };
+}
+
 async function qqMediaAction(scope, args) {
   const targetKey = scope === 'private' ? 'user_id' : 'group_id';
   const target = args[targetKey];
@@ -501,8 +536,9 @@ async function callTool(name, args) {
   }
   try {
     const result = await callToolUnsafe(name, args);
-    auditToolCall(tool, args, guard, { ok: true });
-    return result;
+    const outcome = normalizeToolOutcome(tool, result);
+    auditToolCall(tool, args, guard, outcome.completed ? { ok: true } : { ok: false, error: 'write_receipt_missing' });
+    return outcome;
   } catch (error) {
     auditToolCall(tool, args, guard, { ok: false, error: error instanceof Error ? error.message : String(error) });
     throw error;
@@ -640,7 +676,11 @@ function handleMcp(request, response, body) {
     return callTool(name, args).then((result) => json(response, 200, {
       jsonrpc: '2.0',
       id,
-      result: { content: [{ type: 'text', text: JSON.stringify(result) }] }
+      result: {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+        structuredContent: result,
+        isError: result.completed === false && result.unknown !== true
+      }
     })).catch((error) => json(response, 200, {
       jsonrpc: '2.0',
       id,

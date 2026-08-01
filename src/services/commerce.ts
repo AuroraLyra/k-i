@@ -13,8 +13,8 @@ const catalogTransactionTypes = new Set<CommerceCatalogTransactionType>(['income
 const positiveTransactionTypes = new Set<CommerceCatalogTransactionType>(['income', 'refund']);
 const fallbackPalette: [string, string] = ['#eadde1', '#e1e8e2'];
 
-function commerceTextModelOverride(settings?: AppSettings, modelOverride = '') {
-  return modelOverride.trim() || settings?.modelOverrides.theater?.trim() || '';
+function commerceTextModelOverride(settings?: AppSettings) {
+  return settings?.modelOverrides.content?.trim() || '';
 }
 
 export interface CommerceCatalogProductDraft {
@@ -201,7 +201,6 @@ ${JSON.stringify(economyContext, null, 2)}
 async function requestCommerceJson<T>(input: {
   settings?: AppSettings;
   prompt: string;
-  modelOverride?: string;
   temperature: number;
   maxTokens: number;
   errorLabel: string;
@@ -215,7 +214,7 @@ async function requestCommerceJson<T>(input: {
     const response = await requestTextGeneration(
       input.settings,
       prompt,
-      commerceTextModelOverride(input.settings, input.modelOverride),
+      commerceTextModelOverride(input.settings),
       {
         temperature: attempt === 0 ? input.temperature : Math.min(input.temperature, 0.68),
         maxTokens: Math.min(8192, input.maxTokens + attempt * 1200),
@@ -359,14 +358,12 @@ export async function generateCharacterCommerceCatalog(input: {
   character: CharacterProfile;
   user?: UserProfile | null;
   settings?: AppSettings;
-  modelOverride?: string;
   currentWallet?: WalletAccount | null;
   recentTransactions?: WalletTransaction[];
 }) {
   return await requestCommerceJson({
     settings: input.settings,
     prompt: buildCharacterCatalogPrompt(input.character, input.user, input.currentWallet, input.recentTransactions),
-    modelOverride: input.modelOverride,
     temperature: 0.85,
     maxTokens: 4600,
     errorLabel: '商城模型',
@@ -379,7 +376,6 @@ export async function chooseCharacterCommerceProduct(input: {
   user?: UserProfile | null;
   products: ShopProduct[];
   settings?: AppSettings;
-  modelOverride?: string;
 }): Promise<CharacterCommercePickResult> {
   const candidates = input.products.slice(0, 40).map((product) => ({
     id: product.id,
@@ -407,7 +403,6 @@ ${JSON.stringify(candidates, null, 2)}
   return await requestCommerceJson({
     settings: input.settings,
     prompt,
-    modelOverride: input.modelOverride,
     temperature: 0.75,
     maxTokens: 500,
     errorLabel: '角色选品模型',

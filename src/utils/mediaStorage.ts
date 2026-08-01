@@ -460,6 +460,21 @@ function collectMediaLocators(value: unknown, locators: Set<string>) {
   Object.values(value).forEach((entry) => collectMediaLocators(entry, locators));
 }
 
+function collectMediaSources(value: unknown, sources: Set<string>) {
+  if (typeof value === 'string') {
+    const source = objectUrlSourceMap.get(value) ?? value;
+    if (parseStoredMediaLocator(source)) sources.add(source);
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  if (value instanceof Date || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return;
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectMediaSources(entry, sources));
+    return;
+  }
+  Object.values(value).forEach((entry) => collectMediaSources(entry, sources));
+}
+
 async function pruneCacheMedia(liveLocators: Set<string>) {
   if (typeof caches === 'undefined') return;
   const cache = await caches.open(linkMediaCacheName);
@@ -565,6 +580,22 @@ export function collectStoredMediaLocators(value: unknown) {
   const locators = new Set<string>();
   collectMediaLocators(value, locators);
   return locators;
+}
+
+export async function inspectStoredMediaHealth(value: unknown) {
+  const sources = new Set<string>();
+  collectMediaSources(value, sources);
+  let available = 0;
+  let missing = 0;
+
+  for (const source of sources) {
+    const locator = parseStoredMediaLocator(source);
+    if (!locator) continue;
+    if (await readStoredMediaBlob(locator, source)) available += 1;
+    else missing += 1;
+  }
+
+  return { expected: sources.size, available, missing };
 }
 
 export async function pruneStoredMediaCache(liveLocators: Set<string>) {

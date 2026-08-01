@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import { deleteEntity, loadSnapshot, putEntity } from '@/data/db';
+import { deleteEntity, loadSnapshot, pruneUnusedStoredMediaCache, putEntity } from '@/data/db';
 import type { AppSnapshot } from '@/types/domain';
 import type { RoleContentDraft, RoleOperationAuditEntry, RoleOperationPolicy, RoleOutboundTask, RoleSocialAccount, UserSocialAccount } from '@/types/roleOperations';
 
@@ -153,6 +153,34 @@ export const useRoleOperationsStore = defineStore('role-operations', () => {
     ]);
   }
 
+  async function clearAllRoleOperationsData() {
+    await ensureReady();
+    const entries = {
+      accounts: [...accounts.value],
+      userAccounts: [...userAccounts.value],
+      drafts: [...drafts.value],
+      tasks: [...tasks.value],
+      policies: [...policies.value],
+      audits: [...audits.value]
+    };
+    accounts.value = [];
+    userAccounts.value = [];
+    drafts.value = [];
+    tasks.value = [];
+    policies.value = [];
+    audits.value = [];
+    await Promise.all([
+      ...entries.accounts.map((entry) => deleteEntity('roleSocialAccounts', entry.id)),
+      ...entries.userAccounts.map((entry) => deleteEntity('userSocialAccounts', entry.id)),
+      ...entries.drafts.map((entry) => deleteEntity('roleContentDrafts', entry.id)),
+      ...entries.tasks.map((entry) => deleteEntity('roleOutboundTasks', entry.id)),
+      ...entries.policies.map((entry) => deleteEntity('roleOperationPolicies', entry.characterId)),
+      ...entries.audits.map((entry) => deleteEntity('roleOperationAudits', entry.id))
+    ]);
+    await pruneUnusedStoredMediaCache();
+    return entries.accounts.length + entries.userAccounts.length + entries.drafts.length + entries.tasks.length + entries.policies.length + entries.audits.length;
+  }
+
   return {
     ready,
     accounts,
@@ -180,6 +208,7 @@ export const useRoleOperationsStore = defineStore('role-operations', () => {
     deleteTask,
     savePolicy,
     saveAudit,
-    removeCharacterData
+    removeCharacterData,
+    clearAllRoleOperationsData
   };
 });

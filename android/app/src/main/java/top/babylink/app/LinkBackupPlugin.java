@@ -94,7 +94,8 @@ public class LinkBackupPlugin extends Plugin {
 
     private void beginArchiveData(PluginCall call) {
         String fileName = sanitizeFileName(call.getString("fileName", "link-backup.zip"));
-        long totalBytes = call.getLong("totalBytes", 0L);
+        Object totalBytesValue = call.getData().opt("totalBytes");
+        long totalBytes = totalBytesValue instanceof Number ? ((Number) totalBytesValue).longValue() : 0L;
         if (totalBytes <= 0 || totalBytes > MAX_ARCHIVE_BYTES) {
             call.reject("备份大小无效或超过 1GB。");
             return;
@@ -220,12 +221,22 @@ public class LinkBackupPlugin extends Plugin {
         getBridge().execute(() -> {
             try {
                 byte[] bytes = Base64.decode(dataUrl.substring(commaIndex + 1), Base64.DEFAULT);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) saveWithMediaStore(bytes, fileName);
-                else saveLegacy(bytes, fileName);
-                getActivity().runOnUiThread(() -> Toast.makeText(getContext(), "备份已保存到下载目录", Toast.LENGTH_SHORT).show());
+                String actualFileName;
+                String location;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    actualFileName = saveWithMediaStore(bytes, fileName);
+                    location = Environment.DIRECTORY_DOWNLOADS + "/BabyLink/" + actualFileName;
+                } else {
+                    File backupFile = saveLegacy(bytes, fileName);
+                    actualFileName = backupFile.getName();
+                    location = backupFile.getAbsolutePath();
+                }
+                String toastLocation = location;
+                getActivity().runOnUiThread(() -> Toast.makeText(getContext(), "备份已保存到 " + toastLocation, Toast.LENGTH_LONG).show());
                 JSObject result = new JSObject();
                 result.put("saved", true);
-                result.put("fileName", fileName);
+                result.put("fileName", actualFileName);
+                result.put("location", location);
                 call.resolve(result);
             } catch (IllegalArgumentException error) {
                 call.reject("备份数据无法解码。", error);
@@ -263,30 +274,42 @@ public class LinkBackupPlugin extends Plugin {
 
     private String completeSession(ArchiveSession session) throws Exception {
         if (session.uri != null) {
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.Downloads.IS_PENDING, 0);
-            if (getContext().getContentResolver().update(session.uri, values, null, null) <= 0) {
-                throw new IOException("系统未确认备份文件写入完成。");
-            }
-            return queryDisplayName(session.uri, session.requestedFileName);
+            return publishMediaStoreArchive(session.uri, session.requestedFileName, session.expectedBytes);
         }
         if (session.partialFile == null || session.finalFile == null || !session.partialFile.renameTo(session.finalFile)) {
             throw new IOException("无法完成备份文件写入。");
+        }
+        if (!session.finalFile.isFile() || session.finalFile.length() != session.expectedBytes) {
+            throw new IOException("系统未确认备份文件写入完成。");
         }
         MediaScannerConnection.scanFile(getContext(), new String[] { session.finalFile.getAbsolutePath() }, new String[] { "application/zip" }, null);
         return session.finalFile.getName();
     }
 
-    private String queryDisplayName(Uri uri, String fallback) {
-        try (Cursor cursor = getContext().getContentResolver().query(uri, new String[] { MediaStore.Downloads.DISPLAY_NAME }, null, null, null)) {
+    private String publishMediaStoreArchive(Uri uri, String fallbackFileName, long expectedBytes) throws IOException {
+        ContentResolver resolver = getContext().getContentResolver();
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Downloads.IS_PENDING, 0);
+        if (resolver.update(uri, values, null, null) <= 0) {
+            throw new IOException("系统未确认备份文件写入完成。");
+        }
+        try (Cursor cursor = resolver.query(uri, new String[] {
+            MediaStore.Downloads.DISPLAY_NAME,
+            MediaStore.Downloads.SIZE,
+            MediaStore.Downloads.IS_PENDING
+        }, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 String displayName = cursor.getString(0);
-                if (displayName != null && !displayName.isEmpty()) return displayName;
+                long actualBytes = cursor.getLong(1);
+                int pending = cursor.getInt(2);
+                if (pending == 0 && actualBytes == expectedBytes) {
+                    return displayName == null || displayName.isEmpty() ? fallbackFileName : displayName;
+                }
             }
-        } catch (Exception ignored) {
-            return fallback;
+        } catch (Exception error) {
+            throw new IOException("无法验证系统备份文件。", error);
         }
-        return fallback;
+        throw new IOException("系统未确认备份文件已完整写入。");
     }
 
     private String archiveLocation(ArchiveSession session) {
@@ -303,7 +326,7 @@ public class LinkBackupPlugin extends Plugin {
         if (session.partialFile != null && session.partialFile.exists()) session.partialFile.delete();
     }
 
-    private void saveWithMediaStore(byte[] bytes, String fileName) throws Exception {
+    private String saveWithMediaStore(byte[] bytes, String fileName) throws Exception {
         ContentResolver resolver = getContext().getContentResolver();
         ContentValues values = new ContentValues();
         values.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
@@ -317,9 +340,7 @@ public class LinkBackupPlugin extends Plugin {
                 if (output == null) throw new IllegalStateException("无法打开系统备份文件。");
                 output.write(bytes);
             }
-            values.clear();
-            values.put(MediaStore.Downloads.IS_PENDING, 0);
-            resolver.update(uri, values, null, null);
+            return publishMediaStoreArchive(uri, fileName, bytes.length);
         } catch (Exception error) {
             resolver.delete(uri, null, null);
             throw error;
@@ -327,14 +348,18 @@ public class LinkBackupPlugin extends Plugin {
     }
 
     @SuppressWarnings("deprecation")
-    private void saveLegacy(byte[] bytes, String fileName) throws Exception {
+    private File saveLegacy(byte[] bytes, String fileName) throws Exception {
         File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "BabyLink");
         if (!directory.exists() && !directory.mkdirs()) throw new IllegalStateException("无法创建备份目录。");
         File backupFile = uniqueFile(directory, fileName);
         try (FileOutputStream output = new FileOutputStream(backupFile)) {
             output.write(bytes);
         }
+        if (!backupFile.isFile() || backupFile.length() != bytes.length) {
+            throw new IOException("系统未确认备份文件写入完成。");
+        }
         MediaScannerConnection.scanFile(getContext(), new String[] { backupFile.getAbsolutePath() }, new String[] { "application/zip" }, null);
+        return backupFile;
     }
 
     private static File uniqueFile(File directory, String fileName) {

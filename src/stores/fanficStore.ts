@@ -617,6 +617,34 @@ export const useFanficStore = defineStore('fanfic', () => {
     return relatedBooks.length + relatedChapters.length + relatedComments.length + relatedJobs.length;
   }
 
+  async function clearAllFanficData() {
+    await hydrate();
+    const entries = {
+      books: [...books.value],
+      chapters: [...chapters.value],
+      comments: [...comments.value],
+      topics: topics.value.filter((topic) => topic.source !== 'built-in'),
+      jobs: [...jobs.value]
+    };
+    books.value = [];
+    chapters.value = [];
+    comments.value = [];
+    topics.value = topics.value.filter((topic) => topic.source === 'built-in');
+    jobs.value = [];
+    generatingBookIds.value = [];
+    generatingHotspotKeys.value = [];
+    await Promise.all([
+      ...entries.books.map((entry) => deleteEntity('fanficBooks', entry.id)),
+      ...entries.chapters.map((entry) => deleteEntity('fanficChapters', entry.id)),
+      ...entries.comments.map((entry) => deleteEntity('fanficComments', entry.id)),
+      ...entries.topics.map((entry) => deleteEntity('fanficTopics', entry.id)),
+      ...entries.jobs.map((entry) => deleteEntity('fanficGenerationJobs', entry.id))
+    ]);
+    await pruneUnusedStoredMediaCache();
+    persistStartupState();
+    return entries.books.length + entries.chapters.length + entries.comments.length + entries.topics.length + entries.jobs.length;
+  }
+
   return {
     ready,
     books,
@@ -653,6 +681,7 @@ export const useFanficStore = defineStore('fanfic', () => {
     updateReadingProgress,
     dismissJob,
     deleteBook,
-    deleteCharacterFanficData
+    deleteCharacterFanficData,
+    clearAllFanficData
   };
 });

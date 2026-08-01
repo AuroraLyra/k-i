@@ -358,6 +358,8 @@ async function exportBackup() {
     const omittedHint = backup.omittedLocalMedia ? ` 已跳过 ${backup.omittedLocalMedia} 个此前丢失的本地媒体文件。` : '';
     setLocalFeedback(saved.method === 'browser-download'
       ? `已创建浏览器下载任务，请到“${saved.location}”确认文件。${omittedHint}`
+      : saved.method === 'native-share'
+        ? `已打开系统保存或分享面板；请选择“保存到设备/文件”并确认。关闭或取消面板不会生成本地备份。${omittedHint}`
       : `备份已写入“${saved.location}”。${omittedHint}`);
   } catch (error) {
     setLocalFeedback(error instanceof Error ? error.message : '导出失败。', 'error');

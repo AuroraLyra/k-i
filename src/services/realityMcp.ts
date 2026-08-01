@@ -2,27 +2,23 @@ import { AppLauncher } from '@capacitor/app-launcher';
 import { Clipboard } from '@capacitor/clipboard';
 import { Capacitor } from '@capacitor/core';
 import { Contacts, EmailType, PhoneType } from '@capacitor-community/contacts';
-import { CapacitorCalendar, type CreateEventOptions, type ModifyEventOptions } from '@ebarooni/capacitor-calendar';
+import { CapacitorCalendar, type CalendarEvent, type CreateEventOptions, type ModifyEventOptions, type Reminder } from '@ebarooni/capacitor-calendar';
 import { Device } from '@capacitor/device';
 import { Geolocation } from '@capacitor/geolocation';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { LocalNotifications, type Schedule } from '@capacitor/local-notifications';
+import { Share } from '@capacitor/share';
 import { Readability } from '@mozilla/readability';
-import { loadSnapshot, putEntity } from '@/data/db';
-import type { AppSettings, McpServerConfig, RealityCalendarEvent, RealityMemo, RealityMcpSettings, RealityRecurrenceRule, RealityReminder } from '@/types/domain';
+import type { AppSettings, McpServerConfig, RealityRecurrenceRule } from '@/types/domain';
 import { createActiveTimeout, isFetchInterruptedError, waitForActiveNetworkWindow } from '@/utils/activeTimeout';
-import { createId } from '@/utils/id';
-import { normalizeAppSettings } from '@/utils/settings';
 import { synthesizeSpeech } from '@/services/tts';
 import { androidNotificationInboxAvailable, androidRealityAvailable, clearAndroidNotificationInbox, getAndroidAppUsage, getAndroidAppUsageAccess, getAndroidNotificationInbox, getAndroidNotificationInboxAccess, openAndroidAppSettings, openAndroidAppUsageSettings, openAndroidNotificationInboxSettings, openAndroidSystemWeather, setAndroidSystemAlarm } from '@/services/nativeReality';
-import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 
 export interface RealityMcpExecutionRequest {
   server: McpServerConfig;
   toolName: string;
   args: Record<string, unknown>;
   settings?: AppSettings;
-  persistSettings?: (settings: AppSettings) => Promise<void>;
 }
 
 export interface RealityMcpExecutionResult {
@@ -33,7 +29,15 @@ export interface RealityMcpExecutionResult {
   isError: boolean;
 }
 
-const webReminderTimers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
+export type RealityPermissionId = 'notifications' | 'calendar' | 'contacts' | 'location' | 'appUsage' | 'notificationInbox' | 'appSettings';
+
+export interface RealityPermissionStatus {
+  id: RealityPermissionId;
+  label: string;
+  status: 'granted' | 'denied' | 'prompt' | 'available' | 'unsupported' | 'unknown';
+  detail: string;
+  actionLabel: string;
+}
 
 function textArg(args: Record<string, unknown>, key: string, fallback = '') {
   return String(args[key] ?? fallback).trim();
@@ -121,17 +125,8 @@ function nativeContactsAvailable() {
   return Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('Contacts');
 }
 
-async function persistRealitySettings(request: RealityMcpExecutionRequest, realityMcpSettings: RealityMcpSettings) {
-  const currentSettings = request.settings
-    ? normalizeAppSettings(request.settings)
-    : normalizeAppSettings((await loadSnapshot()).settings);
-  const nextSettings = normalizeAppSettings({ ...currentSettings, realityMcpSettings });
-  if (request.persistSettings) {
-    await request.persistSettings(nextSettings);
-    return nextSettings;
-  }
-  await putEntity('settings', nextSettings, 'main');
-  return nextSettings;
+function nativeShareAvailable() {
+  return Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('Share');
 }
 
 async function getPermissionState() {
@@ -176,6 +171,80 @@ async function getPermissionState() {
     result.notificationInbox = 'unsupported';
   }
   return result;
+}
+
+function normalizePermissionStatus(value: string | undefined): RealityPermissionStatus['status'] {
+  if (value === 'granted' || value === 'limited') return 'granted';
+  if (value === 'denied' || value === 'prompt') return value;
+  return value === 'unsupported' ? 'unsupported' : 'unknown';
+}
+
+export async function getRealityMcpPermissionStatus(): Promise<RealityPermissionStatus[]> {
+  const [notification, contacts, location, appUsage, notificationInbox] = await Promise.all([
+    nativeNotificationsAvailable()
+      ? LocalNotifications.checkPermissions().then((result) => normalizePermissionStatus(result.display)).catch(() => 'unknown' as const)
+      : Promise.resolve('unsupported' as const),
+    nativeContactsAvailable()
+      ? Contacts.checkPermissions().then((result) => normalizePermissionStatus(result.contacts)).catch(() => 'unknown' as const)
+      : Promise.resolve('unsupported' as const),
+    nativeLocationAvailable()
+      ? Geolocation.checkPermissions().then((result) => normalizePermissionStatus(result.location)).catch(() => 'unknown' as const)
+      : Promise.resolve('unsupported' as const),
+    androidRealityAvailable()
+      ? getAndroidAppUsageAccess().then((result) => result.granted ? 'granted' as const : 'denied' as const).catch(() => 'unknown' as const)
+      : Promise.resolve('unsupported' as const),
+    androidNotificationInboxAvailable()
+      ? getAndroidNotificationInboxAccess().then((result) => result.granted ? 'granted' as const : 'denied' as const).catch(() => 'unknown' as const)
+      : Promise.resolve('unsupported' as const)
+  ]);
+  return [
+    { id: 'notifications', label: '系统通知', status: notification, detail: '用于发送设备通知和系统提示。', actionLabel: '授权通知' },
+    { id: 'calendar', label: '系统日历', status: nativeCalendarAvailable() ? 'available' : 'unsupported', detail: '用于真实日程和 Android 系统日历提醒；点击后由系统请求权限。', actionLabel: '授权日历' },
+    { id: 'contacts', label: '系统通讯录', status: contacts, detail: '用于读取、选择和创建手机联系人。', actionLabel: '授权通讯录' },
+    { id: 'location', label: '当前位置', status: location, detail: '用于定位、天气、地点和路线。', actionLabel: '授权位置' },
+    { id: 'appUsage', label: '使用情况访问', status: appUsage, detail: 'Android 特殊权限，用于读取真实 App 使用时长。', actionLabel: '打开系统设置' },
+    { id: 'notificationInbox', label: '通知使用权', status: notificationInbox, detail: 'Android 特殊权限，用于读取系统通知摘要。', actionLabel: '打开系统设置' },
+    { id: 'appSettings', label: 'BabyLink 应用权限页', status: androidRealityAvailable() ? 'available' : 'unsupported', detail: '打开 Android 系统中的 BabyLink 权限与通知设置。', actionLabel: '打开应用设置' }
+  ];
+}
+
+export async function requestRealityMcpPermission(id: RealityPermissionId) {
+  if (id === 'notifications') {
+    if (!nativeNotificationsAvailable()) return { unsupported: true, permission: id };
+    const result = await LocalNotifications.requestPermissions();
+    return { permission: id, granted: result.display === 'granted' };
+  }
+  if (id === 'calendar') {
+    await ensureCalendarPermission(false);
+    return { permission: id, granted: true };
+  }
+  if (id === 'contacts') {
+    await ensureContactsPermission();
+    return { permission: id, granted: true };
+  }
+  if (id === 'location') {
+    if (!nativeLocationAvailable()) return { unsupported: true, permission: id };
+    const result = await Geolocation.requestPermissions({ permissions: ['location'] });
+    return { permission: id, granted: result.location === 'granted' };
+  }
+  if (id === 'appUsage') {
+    const result = await openAndroidAppUsageSettings();
+    return { permission: id, ...result, awaitingUser: !result.granted };
+  }
+  if (id === 'notificationInbox') {
+    const result = await openAndroidNotificationInboxSettings();
+    return { permission: id, ...result, awaitingUser: !result.granted };
+  }
+  const result = await openAndroidAppSettings();
+  return { permission: id, ...result, awaitingUser: true };
+}
+
+export async function requestAllRealityMcpPermissions() {
+  const permissionIds: RealityPermissionId[] = ['notifications', 'calendar', 'contacts', 'location'];
+  const results = await Promise.allSettled(permissionIds.map((id) => requestRealityMcpPermission(id)));
+  return results.map((result, index) => result.status === 'fulfilled'
+    ? result.value
+    : { permission: permissionIds[index], granted: false, error: result.reason instanceof Error ? result.reason.message : '系统没有完成授权。' });
 }
 
 function appUsageCategory(packageName: string, appName: string) {
@@ -226,24 +295,6 @@ async function compositeRealitySource(request: RealityMcpExecutionRequest, toolN
   }
 }
 
-async function showBrowserNotification(title: string, body: string) {
-  if (typeof Notification === 'undefined') return false;
-  if (Notification.permission === 'default') {
-    try {
-      await Notification.requestPermission();
-    } catch {
-      return false;
-    }
-  }
-  if (Notification.permission !== 'granted') return false;
-  try {
-    new Notification(title, { body, tag: `babylink-reality-${Date.now()}` });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function ensureNotificationPermission() {
   const permission = await LocalNotifications.checkPermissions();
   const granted = permission.display === 'granted'
@@ -253,119 +304,114 @@ async function ensureNotificationPermission() {
 }
 
 async function notifyDevice(title: string, body: string, at?: number) {
-  if (nativeNotificationsAvailable()) {
-    await ensureNotificationPermission();
-    await LocalNotifications.schedule({
-      notifications: [{
-        id: notificationId(`${title}:${body}:${at ?? Date.now()}`),
-        title,
-        body,
-        ...(at && at > Date.now() ? { schedule: { at: new Date(at), allowWhileIdle: true } } : {})
-      }]
-    });
-    return { delivered: true, platform: Capacitor.getPlatform(), scheduledAt: at ?? Date.now() };
+  if (!nativeNotificationsAvailable()) {
+    return {
+      unsupported: true,
+      completed: false,
+      reason: '发送系统通知需要在 Android 或 iOS BabyLink App 中调用原生通知服务。'
+    };
   }
+  const scheduledAt = at ?? Date.now();
+  const id = notificationId(`${title}:${body}:${scheduledAt}`);
+  await ensureNotificationPermission();
+  await LocalNotifications.schedule({
+    notifications: [{
+      id,
+      title,
+      body,
+      ...(at && at > Date.now() ? { schedule: { at: new Date(at), allowWhileIdle: true } } : {})
+    }]
+  });
+  return {
+    initiated: true,
+    systemApp: 'notifications',
+    notificationId: id,
+    receipt: String(id),
+    scheduledAt,
+    ...(at && at > Date.now() ? { scheduled: true } : { scheduled: false })
+  };
+}
 
-  if (at && at > Date.now()) {
-    const delay = Math.min(at - Date.now(), 2_147_000_000);
-    globalThis.setTimeout(() => void showBrowserNotification(title, body), delay);
-    return { delivered: true, platform: 'web', scheduledAt: at, persistent: false };
+const systemReminderMarker = '[BabyLink 系统提醒]';
+
+function systemReminderNotes(body: string) {
+  return `${systemReminderMarker}\n${body}`;
+}
+
+function isSystemReminderEvent(event: CalendarEvent) {
+  return String(event.description ?? '').includes(systemReminderMarker);
+}
+
+function reminderRecurrence(rule: RealityRecurrenceRule | null) {
+  if (!rule) return undefined;
+  return {
+    frequency: rule.frequency,
+    interval: rule.interval,
+    ...(rule.endAt ? { end: rule.endAt } : {})
+  };
+}
+
+async function ensureRemindersPermission() {
+  if (Capacitor.getPlatform() === 'ios') {
+    if (!nativeCalendarAvailable()) throw new Error('系统提醒事项仅支持 Android 或 iOS App。');
+    const permission = await CapacitorCalendar.requestFullRemindersAccess();
+    if (permission.result !== 'granted') throw new Error('系统提醒事项权限没有开启。');
+    return;
   }
-  return { delivered: await showBrowserNotification(title, body), platform: 'web', scheduledAt: Date.now() };
+  await ensureCalendarPermission(true);
 }
 
-function nextRecurringAt(at: number, recurrence: RealityRecurrenceRule, after = Date.now()) {
-  let next = at;
-  for (let index = 0; next <= after && index < 10_000; index += 1) {
-    const date = new Date(next);
-    if (recurrence.frequency === 'daily') date.setDate(date.getDate() + recurrence.interval);
-    if (recurrence.frequency === 'weekly') date.setDate(date.getDate() + recurrence.interval * 7);
-    if (recurrence.frequency === 'monthly') date.setMonth(date.getMonth() + recurrence.interval);
-    if (recurrence.frequency === 'yearly') date.setFullYear(date.getFullYear() + recurrence.interval);
-    next = date.getTime();
+async function findSystemCalendarEvent(eventId: string) {
+  const now = Date.now();
+  const result = await CapacitorCalendar.listEventsInRange({
+    from: now - 366 * 24 * 60 * 60_000,
+    to: now + 366 * 24 * 60 * 60_000
+  });
+  return result.result.find((event) => event.id === eventId) ?? null;
+}
+
+function formatSystemReminder(reminder: Reminder) {
+  const at = reminder.dueDate ?? reminder.startDate ?? 0;
+  return {
+    id: reminder.id,
+    title: String(reminder.title ?? ''),
+    body: String(reminder.notes ?? ''),
+    at,
+    atText: at ? formatDate(at) : '',
+    completed: reminder.isCompleted,
+    status: reminder.isCompleted ? 'completed' : 'pending',
+    systemApp: 'reminders',
+    alerts: reminder.alerts
+  };
+}
+
+function formatCalendarReminder(event: CalendarEvent) {
+  return {
+    id: event.id,
+    title: event.title,
+    body: String(event.description ?? '').replace(systemReminderMarker, '').trim(),
+    at: event.startDate,
+    atText: formatDate(event.startDate),
+    completed: false,
+    status: event.startDate >= Date.now() ? 'pending' : 'expired',
+    systemApp: 'calendar',
+    alerts: event.alerts
+  };
+}
+
+async function listSystemReminders() {
+  await ensureRemindersPermission();
+  if (Capacitor.getPlatform() === 'ios') {
+    const lists = await CapacitorCalendar.getRemindersLists();
+    const result = await CapacitorCalendar.getRemindersFromLists({ listIds: lists.result.map((list) => list.id) });
+    return result.result.map(formatSystemReminder);
   }
-  if ((recurrence.endAt && next > recurrence.endAt) || next <= after) return 0;
-  return next;
-}
-
-function reminderNextAt(reminder: RealityReminder, after = Date.now()) {
-  if (reminder.at > after) return reminder.at;
-  return reminder.recurrence ? nextRecurringAt(reminder.at, reminder.recurrence, after) : 0;
-}
-
-function reminderSchedule(reminder: RealityReminder): Schedule {
-  if (!reminder.recurrence) return { at: new Date(reminder.at), allowWhileIdle: true };
-  const date = new Date(reminder.at);
-  const time = { hour: date.getHours(), minute: date.getMinutes() };
-  if (reminder.recurrence.frequency === 'daily') return { on: time, allowWhileIdle: true };
-  if (reminder.recurrence.frequency === 'weekly') return { on: { ...time, weekday: date.getDay() + 1 }, allowWhileIdle: true };
-  if (reminder.recurrence.frequency === 'monthly') return { on: { ...time, day: date.getDate() }, allowWhileIdle: true };
-  return { on: { ...time, month: date.getMonth() + 1, day: date.getDate() }, allowWhileIdle: true };
-}
-
-async function cancelReminderDelivery(reminder: RealityReminder) {
-  const timer = webReminderTimers.get(reminder.id);
-  if (timer) {
-    globalThis.clearTimeout(timer);
-    webReminderTimers.delete(reminder.id);
-  }
-  if (!nativeNotificationsAvailable()) return;
-  const ids = [...new Set([
-    notificationId(reminder.id),
-    notificationId(`${reminder.title}:${reminder.body}:${reminder.at}`)
-  ])];
-  await LocalNotifications.cancel({ notifications: ids.map((id) => ({ id })) }).catch(() => undefined);
-}
-
-async function scheduleReminderDelivery(reminder: RealityReminder) {
-  if (reminder.completed) return { scheduled: false, reason: 'completed' };
-  const nextAt = reminderNextAt(reminder, Date.now() - 1);
-  if (!nextAt) return { scheduled: false, reason: 'expired' };
-  if (nativeNotificationsAvailable()) {
-    await ensureNotificationPermission();
-    await LocalNotifications.schedule({
-      notifications: [{
-        id: notificationId(reminder.id),
-        title: reminder.title,
-        body: reminder.body,
-        schedule: reminderSchedule({ ...reminder, at: nextAt })
-      }]
-    });
-    return { scheduled: true, platform: Capacitor.getPlatform(), at: nextAt, repeating: Boolean(reminder.recurrence) };
-  }
-  scheduleWebReminder({ ...reminder, at: nextAt });
-  return { scheduled: true, platform: 'web', at: nextAt, repeating: Boolean(reminder.recurrence), persistent: false };
-}
-
-function scheduleWebReminder(reminder: RealityReminder) {
-  if (nativeNotificationsAvailable() || reminder.completed) return;
-  const nextAt = reminderNextAt(reminder, Date.now() - 1);
-  if (!nextAt) return;
-  const existingTimer = webReminderTimers.get(reminder.id);
-  if (existingTimer) globalThis.clearTimeout(existingTimer);
-  const delay = nextAt - Date.now();
-  const timer = globalThis.setTimeout(() => {
-    webReminderTimers.delete(reminder.id);
-    if (nextAt - Date.now() > 0) {
-      scheduleWebReminder({ ...reminder, at: nextAt });
-      return;
-    }
-    void showBrowserNotification(reminder.title, reminder.body);
-    if (reminder.recurrence) scheduleWebReminder({ ...reminder, at: nextRecurringAt(nextAt, reminder.recurrence) });
-  }, Math.min(delay, 2_147_000_000));
-  webReminderTimers.set(reminder.id, timer);
-}
-
-export function scheduleRealityReminders(settings?: AppSettings) {
-  if (nativeNotificationsAvailable()) return;
-  const reminders = normalizeAppSettings(settings).realityMcpSettings.reminders;
-  const activeIds = new Set(reminders.filter((reminder) => !reminder.completed).map((reminder) => reminder.id));
-  for (const [id, timer] of webReminderTimers) {
-    if (activeIds.has(id)) continue;
-    globalThis.clearTimeout(timer);
-    webReminderTimers.delete(id);
-  }
-  reminders.forEach(scheduleWebReminder);
+  const now = Date.now();
+  const result = await CapacitorCalendar.listEventsInRange({
+    from: now - 366 * 24 * 60 * 60_000,
+    to: now + 366 * 24 * 60 * 60_000
+  });
+  return result.result.filter(isSystemReminderEvent).map(formatCalendarReminder);
 }
 
 async function getCurrentLocation() {
@@ -419,16 +465,18 @@ async function openExternalUrl(url: string, fallbackUrl = '') {
   if (!protocols.includes(target.protocol) || (fallback && !['https:', 'http:'].includes(fallback.protocol))) {
     throw new Error('现实服务链接协议不受支持。');
   }
-  if (nativeAppLauncherAvailable()) {
-    const canOpen = await AppLauncher.canOpenUrl({ url: target.href }).catch(() => ({ value: false }));
-    const destination = canOpen.value || !fallback ? target.href : fallback.href;
-    const result = await AppLauncher.openUrl({ url: destination });
-    if (!result.completed) throw new Error('设备没有完成应用跳转。');
-    return { opened: true, url: destination, usedFallback: destination !== target.href, platform: Capacitor.getPlatform() };
+  if (!nativeAppLauncherAvailable()) {
+    return {
+      unsupported: true,
+      opened: false,
+      reason: '打开手机软件需要在 Android 或 iOS BabyLink App 中调用原生应用跳转。'
+    };
   }
-  const destination = fallback?.href ?? target.href;
-  if (typeof window !== 'undefined') window.open(destination, '_blank', 'noopener,noreferrer');
-  return { opened: true, url: destination, usedFallback: Boolean(fallback), platform: 'web' };
+  const canOpen = await AppLauncher.canOpenUrl({ url: target.href }).catch(() => ({ value: false }));
+  const destination = canOpen.value || !fallback ? target.href : fallback.href;
+  const result = await AppLauncher.openUrl({ url: destination });
+  if (!result.completed) throw new Error('设备没有完成应用跳转。');
+  return { opened: true, url: destination, usedFallback: destination !== target.href, platform: Capacitor.getPlatform() };
 }
 
 async function ensureContactsPermission() {
@@ -781,24 +829,17 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
       const parsedCover = new URL(coverUrl);
       if (parsedCover.protocol !== 'https:') throw new Error('歌曲封面必须使用 HTTPS。');
     }
-    const track = {
-      id: `${textArg(args, 'source', 'mcp')}:${id}`,
-      platformId: id,
-      source: textArg(args, 'source', 'mcp'),
-      name,
-      artists: textArg(args, 'artist') ? [textArg(args, 'artist')] : [],
-      album: textArg(args, 'album'),
-      picId: coverUrl,
-      lyricId: id,
-      coverUrl,
-      audioUrl: audioUrl.href,
-      duration: Math.max(0, numberArg(args, 'durationMs') ?? 0),
-      addedAt: Date.now(),
-      updatedAt: Date.now()
-    };
-    const player = useMusicPlayerStore();
-    player.setPlaybackQueue([...player.playbackQueue, track]);
-    return JSON.stringify({ queued: true, track, queueLength: player.playbackQueue.length, note: '已加入 BabyLink 队列，未修改外部平台歌单。' });
+    if (!nativeShareAvailable()) {
+      return JSON.stringify({ unsupported: true, completed: false, reason: '发送音乐到本机 App 需要在 Android 或 iOS App 中打开系统分享面板。' });
+    }
+    const artist = textArg(args, 'artist');
+    await Share.share({
+      title: name,
+      text: [name, artist, textArg(args, 'album')].filter(Boolean).join(' · '),
+      url: audioUrl.href,
+      dialogTitle: '选择本机音乐 App 打开'
+    });
+    return JSON.stringify({ initiated: true, awaitingUser: true, systemApp: 'share-sheet', title: name, audioUrl: audioUrl.href, note: '请选择手机中的音乐 App；BabyLink 不再写入自己的播放队列。' });
   }
 
   if (toolName === 'notify_user') {
@@ -852,26 +893,32 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
       : parsedAt;
     if (!Number.isFinite(at) || at <= Date.now()) throw new Error('提醒时间必须是未来时间。');
     if (at > Date.now() + 366 * 24 * 60 * 60_000) throw new Error('提醒时间不能超过一年。');
-    const now = Date.now();
-    const reminder: RealityReminder = {
-      id: createId('reminder'),
+    const recurrence = parseRecurrence(args);
+    await ensureRemindersPermission();
+    if (Capacitor.getPlatform() === 'ios') {
+      const result = await CapacitorCalendar.createReminder({
+        title,
+        notes: body,
+        startDate: at,
+        dueDate: at,
+        alerts: [0],
+        recurrence: reminderRecurrence(recurrence)
+      });
+      const reminderId = String(result.id ?? '').trim();
+      if (!reminderId) throw new Error('系统提醒事项没有返回可验证的 ID。');
+      return JSON.stringify({ completed: true, systemApp: 'reminders', reminderId, receipt: reminderId, title, body, at, atText: formatDate(at), recurrence });
+    }
+    const result = await CapacitorCalendar.createEvent({
       title,
-      body,
-      at,
-      createdAt: now,
-      updatedAt: now,
-      completed: false,
-      completedAt: 0,
-      recurrence: parseRecurrence(args)
-    };
-    const current = normalizeAppSettings(request.settings).realityMcpSettings;
-    const realityMcpSettings = {
-      ...current,
-      reminders: [...current.reminders.filter((entry) => entry.id !== reminder.id), reminder]
-    };
-    await persistRealitySettings(request, realityMcpSettings);
-    const notification = await scheduleReminderDelivery(reminder);
-    return JSON.stringify({ reminderId: reminder.id, title, body, at, atText: formatDate(at), recurrence: reminder.recurrence, notification });
+      startDate: at,
+      endDate: at + 5 * 60_000,
+      description: systemReminderNotes(body),
+      alerts: [0],
+      recurrence: calendarRecurrence(recurrence)
+    });
+    const reminderId = String(result.id ?? '').trim();
+    if (!reminderId) throw new Error('系统日历没有返回可验证的提醒 ID。');
+    return JSON.stringify({ completed: true, systemApp: 'calendar', reminderId, receipt: reminderId, title, body, at, atText: formatDate(at), recurrence });
   }
 
   if (toolName === 'list_reminders') {
@@ -886,98 +933,115 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
       from = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime();
       to = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 1).getTime();
     }
-    const reminders = normalizeAppSettings(request.settings).realityMcpSettings.reminders
-      .map((entry) => ({ entry, nextAt: reminderNextAt(entry) || entry.at }))
-      .filter(({ entry, nextAt }) => (includeCompleted || !entry.completed)
-        && (includeExpired || entry.completed || nextAt >= Date.now())
-        && (!Number.isFinite(from) || nextAt >= from)
-        && (!Number.isFinite(to) || nextAt < to))
-      .map(({ entry, nextAt }) => ({
-        ...entry,
-        at: nextAt,
-        atText: formatDate(nextAt),
-        status: entry.completed ? 'completed' : nextAt >= Date.now() ? 'pending' : 'expired'
-      }));
-    return JSON.stringify({ reminders });
+    const reminders = (await listSystemReminders())
+      .filter((reminder) => (includeCompleted || !reminder.completed)
+        && (includeExpired || reminder.completed || reminder.at >= Date.now())
+        && (!Number.isFinite(from) || reminder.at >= from)
+        && (!Number.isFinite(to) || reminder.at < to));
+    return JSON.stringify({ completed: true, systemApp: Capacitor.getPlatform() === 'ios' ? 'reminders' : 'calendar', reminders });
   }
 
   if (toolName === 'update_reminder') {
     const reminderId = textArg(args, 'reminderId');
-    const current = normalizeAppSettings(request.settings).realityMcpSettings;
-    const reminder = current.reminders.find((entry) => entry.id === reminderId);
-    if (!reminder) throw new Error('没有找到这个提醒。');
+    if (!reminderId) throw new Error('提醒 ID 不能为空。');
     const delayMinutes = numberArg(args, 'delayMinutes');
     const parsedAt = Date.parse(textArg(args, 'at'));
+    await ensureRemindersPermission();
+    if (Capacitor.getPlatform() === 'ios') {
+      const existing = (await CapacitorCalendar.getReminderById({ id: reminderId })).result;
+      if (!existing) throw new Error('系统提醒事项中没有找到这个提醒。');
+      const candidateAt = delayMinutes !== undefined
+        ? Date.now() + Math.max(1, delayMinutes) * 60_000
+        : hasArg(args, 'at') ? parsedAt : existing.dueDate ?? existing.startDate;
+      const at = Number(candidateAt);
+      if (!Number.isFinite(at) || at <= Date.now()) throw new Error('提醒时间必须是未来时间。');
+      const title = hasArg(args, 'title') ? textArg(args, 'title') : String(existing.title ?? '');
+      if (!title) throw new Error('提醒标题不能为空。');
+      await CapacitorCalendar.modifyReminder({
+        id: reminderId,
+        title,
+        notes: hasArg(args, 'body') ? textArg(args, 'body') : String(existing.notes ?? ''),
+        startDate: at,
+        dueDate: at,
+        ...(hasArg(args, 'repeat') ? { recurrence: reminderRecurrence(parseRecurrence(args)) } : {})
+      });
+      return JSON.stringify({ completed: true, updated: true, systemApp: 'reminders', reminderId, receipt: reminderId, title, at, atText: formatDate(at) });
+    }
+    const existing = await findSystemCalendarEvent(reminderId);
+    if (!existing || !isSystemReminderEvent(existing)) throw new Error('系统日历中没有找到这个提醒。');
     const at = delayMinutes !== undefined
-      ? Date.now() + Math.max(0, delayMinutes) * 60_000
-      : hasArg(args, 'at') ? parsedAt : reminder.at;
+      ? Date.now() + Math.max(1, delayMinutes) * 60_000
+      : hasArg(args, 'at') ? parsedAt : existing.startDate;
     if (!Number.isFinite(at) || at <= Date.now()) throw new Error('提醒时间必须是未来时间。');
-    const title = hasArg(args, 'title') ? textArg(args, 'title') : reminder.title;
+    const title = hasArg(args, 'title') ? textArg(args, 'title') : existing.title;
     if (!title) throw new Error('提醒标题不能为空。');
-    const scheduleChanged = hasArg(args, 'at') || delayMinutes !== undefined || hasArg(args, 'repeat');
-    const updated: RealityReminder = {
-      ...reminder,
+    const body = hasArg(args, 'body') ? textArg(args, 'body') : String(existing.description ?? '').replace(systemReminderMarker, '').trim();
+    await CapacitorCalendar.modifyEvent({
+      id: reminderId,
       title,
-      body: hasArg(args, 'body') ? textArg(args, 'body') : reminder.body,
-      at,
-      updatedAt: Date.now(),
-      completed: scheduleChanged ? false : reminder.completed,
-      completedAt: scheduleChanged ? 0 : reminder.completedAt,
-      recurrence: parseRecurrence(args, reminder.recurrence)
-    };
-    await cancelReminderDelivery(reminder);
-    await persistRealitySettings(request, {
-      ...current,
-      reminders: current.reminders.map((entry) => entry.id === reminder.id ? updated : entry)
+      startDate: at,
+      endDate: at + Math.max(60_000, existing.endDate - existing.startDate),
+      description: systemReminderNotes(body),
+      ...(hasArg(args, 'repeat') && parseRecurrence(args) ? { recurrence: calendarRecurrence(parseRecurrence(args)) } : {})
     });
-    const notification = await scheduleReminderDelivery(updated);
-    return JSON.stringify({ updated: true, reminderId, title: updated.title, at: updated.at, atText: formatDate(updated.at), recurrence: updated.recurrence, notification });
+    return JSON.stringify({ completed: true, updated: true, systemApp: 'calendar', reminderId, receipt: reminderId, title, at, atText: formatDate(at) });
   }
 
   if (toolName === 'complete_reminder') {
     const reminderId = textArg(args, 'reminderId');
-    const current = normalizeAppSettings(request.settings).realityMcpSettings;
-    const reminder = current.reminders.find((entry) => entry.id === reminderId);
-    if (!reminder) throw new Error('没有找到这个提醒。');
-    await cancelReminderDelivery(reminder);
-    const completedAt = Date.now();
-    await persistRealitySettings(request, {
-      ...current,
-      reminders: current.reminders.map((entry) => entry.id === reminder.id
-        ? { ...entry, completed: true, completedAt, updatedAt: completedAt }
-        : entry)
-    });
-    return JSON.stringify({ completed: true, reminderId, completedAt, completedAtText: formatDate(completedAt) });
+    if (!reminderId) throw new Error('提醒 ID 不能为空。');
+    await ensureRemindersPermission();
+    if (Capacitor.getPlatform() === 'ios') {
+      const existing = (await CapacitorCalendar.getReminderById({ id: reminderId })).result;
+      if (!existing) throw new Error('系统提醒事项中没有找到这个提醒。');
+      const completedAt = Date.now();
+      await CapacitorCalendar.modifyReminder({ id: reminderId, isCompleted: true, completionDate: completedAt });
+      return JSON.stringify({ completed: true, systemApp: 'reminders', reminderId, receipt: reminderId, completedAt, completedAtText: formatDate(completedAt) });
+    }
+    const existing = await findSystemCalendarEvent(reminderId);
+    if (!existing || !isSystemReminderEvent(existing)) throw new Error('系统日历中没有找到这个提醒。');
+    await CapacitorCalendar.deleteEvent({ id: reminderId });
+    return JSON.stringify({ completed: true, systemApp: 'calendar', reminderId, receipt: reminderId, removedFromCalendar: true });
   }
 
   if (toolName === 'snooze_reminder') {
     const reminderId = textArg(args, 'reminderId');
-    const current = normalizeAppSettings(request.settings).realityMcpSettings;
-    const reminder = current.reminders.find((entry) => entry.id === reminderId);
-    if (!reminder) throw new Error('没有找到这个提醒。');
+    if (!reminderId) throw new Error('提醒 ID 不能为空。');
     const parsedAt = Date.parse(textArg(args, 'at'));
     const delayMinutes = Math.max(1, numberArg(args, 'delayMinutes') ?? 10);
     const at = hasArg(args, 'at') ? parsedAt : Date.now() + delayMinutes * 60_000;
     if (!Number.isFinite(at) || at <= Date.now()) throw new Error('稍后提醒时间必须是未来时间。');
-    const updated: RealityReminder = { ...reminder, at, completed: false, completedAt: 0, updatedAt: Date.now() };
-    await cancelReminderDelivery(reminder);
-    await persistRealitySettings(request, {
-      ...current,
-      reminders: current.reminders.map((entry) => entry.id === reminder.id ? updated : entry)
+    await ensureRemindersPermission();
+    if (Capacitor.getPlatform() === 'ios') {
+      const existing = (await CapacitorCalendar.getReminderById({ id: reminderId })).result;
+      if (!existing) throw new Error('系统提醒事项中没有找到这个提醒。');
+      await CapacitorCalendar.modifyReminder({ id: reminderId, isCompleted: false, startDate: at, dueDate: at });
+      return JSON.stringify({ completed: true, snoozed: true, systemApp: 'reminders', reminderId, receipt: reminderId, at, atText: formatDate(at) });
+    }
+    const existing = await findSystemCalendarEvent(reminderId);
+    if (!existing || !isSystemReminderEvent(existing)) throw new Error('系统日历中没有找到这个提醒。');
+    await CapacitorCalendar.modifyEvent({
+      id: reminderId,
+      startDate: at,
+      endDate: at + Math.max(60_000, existing.endDate - existing.startDate)
     });
-    const notification = await scheduleReminderDelivery(updated);
-    return JSON.stringify({ snoozed: true, reminderId, at, atText: formatDate(at), notification });
+    return JSON.stringify({ completed: true, snoozed: true, systemApp: 'calendar', reminderId, receipt: reminderId, at, atText: formatDate(at) });
   }
 
   if (toolName === 'cancel_reminder') {
     const reminderId = textArg(args, 'reminderId');
     if (!reminderId) throw new Error('提醒 ID 不能为空。');
-    const current = normalizeAppSettings(request.settings).realityMcpSettings;
-    const reminder = current.reminders.find((entry) => entry.id === reminderId);
-    if (!reminder) throw new Error('没有找到这个提醒。');
-    await cancelReminderDelivery(reminder);
-    await persistRealitySettings(request, { ...current, reminders: current.reminders.filter((entry) => entry.id !== reminderId) });
-    return JSON.stringify({ cancelled: true, reminderId });
+    await ensureRemindersPermission();
+    if (Capacitor.getPlatform() === 'ios') {
+      const existing = (await CapacitorCalendar.getReminderById({ id: reminderId })).result;
+      if (!existing) throw new Error('系统提醒事项中没有找到这个提醒。');
+      await CapacitorCalendar.deleteReminder({ id: reminderId });
+      return JSON.stringify({ completed: true, cancelled: true, systemApp: 'reminders', reminderId, receipt: reminderId });
+    }
+    const existing = await findSystemCalendarEvent(reminderId);
+    if (!existing || !isSystemReminderEvent(existing)) throw new Error('系统日历中没有找到这个提醒。');
+    await CapacitorCalendar.deleteEvent({ id: reminderId });
+    return JSON.stringify({ completed: true, cancelled: true, systemApp: 'calendar', reminderId, receipt: reminderId });
   }
 
   if (toolName === 'create_calendar_event') {
@@ -1002,27 +1066,15 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
       isAllDay,
       recurrence: calendarRecurrence(recurrence)
     });
-    const now = Date.now();
-    const event: RealityCalendarEvent = {
-      id: createId('calendar'),
-      systemEventId: String(result.id ?? '').trim(),
-      title,
-      startAt: startDate,
-      endAt: endDate,
-      location,
-      notes,
-      isAllDay,
-      createdAt: now,
-      updatedAt: now,
-      recurrence
-    };
-    const current = normalizeAppSettings(request.settings).realityMcpSettings;
-    await persistRealitySettings(request, { ...current, calendarEvents: [...current.calendarEvents, event] });
+    const systemEventId = String(result.id ?? '').trim();
+    if (!systemEventId) throw new Error('系统日历没有返回可验证的事件 ID。');
     return JSON.stringify({
       created: true,
+      completed: true,
       systemApp: 'calendar',
-      eventId: event.id,
-      systemEventId: event.systemEventId,
+      eventId: systemEventId,
+      systemEventId,
+      receipt: systemEventId,
       title,
       startAt: startDate,
       startAtText: formatDate(startDate),
@@ -1064,41 +1116,40 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
     if (!eventId) throw new Error('日程 ID 不能为空。');
     const changedKeys = ['title', 'startAt', 'endAt', 'location', 'notes', 'isAllDay', 'repeat'];
     if (!changedKeys.some((key) => hasArg(args, key))) throw new Error('至少需要提供一项日程修改内容。');
-    const current = normalizeAppSettings(request.settings).realityMcpSettings;
-    const existing = current.calendarEvents.find((event) => event.id === eventId || event.systemEventId === eventId);
-    const systemEventId = existing?.systemEventId || eventId;
-    if (!systemEventId) throw new Error('这个日程没有可用的系统事件 ID。');
-    const title = hasArg(args, 'title') ? textArg(args, 'title') : existing?.title;
+    const existing = await findSystemCalendarEvent(eventId);
+    if (!existing) throw new Error('系统日历中没有找到这个日程。');
+    const title = hasArg(args, 'title') ? textArg(args, 'title') : existing.title;
     if (hasArg(args, 'title') && !title) throw new Error('日程标题不能为空。');
     const parsedStartAt = Date.parse(textArg(args, 'startAt'));
     const parsedEndAt = Date.parse(textArg(args, 'endAt'));
-    const startAt = hasArg(args, 'startAt') ? parsedStartAt : existing?.startAt;
-    const endAt = hasArg(args, 'endAt') ? parsedEndAt : existing?.endAt;
+    const startAt = hasArg(args, 'startAt') ? parsedStartAt : existing.startDate;
+    const endAt = hasArg(args, 'endAt') ? parsedEndAt : existing.endDate;
     if (hasArg(args, 'startAt') && !Number.isFinite(startAt)) throw new Error('日程开始时间无效。');
     if (hasArg(args, 'endAt') && !Number.isFinite(endAt)) throw new Error('日程结束时间无效。');
     if (startAt !== undefined && endAt !== undefined && endAt <= startAt) throw new Error('日程结束时间必须晚于开始时间。');
-    const recurrence = parseRecurrence(args, existing?.recurrence ?? null);
+    const recurrence = parseRecurrence(args);
     if (recurrence?.endAt && startAt !== undefined && recurrence.endAt <= startAt) throw new Error('日程重复结束时间必须晚于开始时间。');
-    const nextIsAllDay = hasArg(args, 'isAllDay') ? booleanArg(args, 'isAllDay') : existing?.isAllDay ?? false;
+    const nextIsAllDay = hasArg(args, 'isAllDay') ? booleanArg(args, 'isAllDay') : existing.isAllDay;
     if (hasArg(args, 'startAt') && startAt !== undefined && calendarStartIsInPast(startAt, nextIsAllDay)) {
       throw new Error('日程开始时间不能早于当前现实时间，请使用未来日期。');
     }
     await ensureCalendarPermission(false);
-    let nextSystemEventId = systemEventId;
     if (hasArg(args, 'repeat') && !recurrence) {
-      if (!existing) throw new Error('清除外部重复日程时，需要先由 BabyLink 创建或保存该日程。');
-      await CapacitorCalendar.deleteEvent({ id: systemEventId });
+      await CapacitorCalendar.deleteEvent({ id: eventId });
       const recreated = await CapacitorCalendar.createEvent({
-        title: title ?? existing.title,
-        startDate: startAt ?? existing.startAt,
-        endDate: endAt ?? existing.endAt,
-        location: hasArg(args, 'location') ? textArg(args, 'location') : existing.location,
-        description: hasArg(args, 'notes') ? textArg(args, 'notes') : existing.notes,
-        isAllDay: hasArg(args, 'isAllDay') ? booleanArg(args, 'isAllDay') : existing.isAllDay
+        title,
+        startDate: startAt,
+        endDate: endAt,
+        location: hasArg(args, 'location') ? textArg(args, 'location') : String(existing.location ?? ''),
+        description: hasArg(args, 'notes') ? textArg(args, 'notes') : String(existing.description ?? ''),
+        isAllDay: nextIsAllDay,
+        alerts: existing.alerts
       });
-      nextSystemEventId = String(recreated.id ?? '').trim();
+      const systemEventId = String(recreated.id ?? '').trim();
+      if (!systemEventId) throw new Error('系统日历没有返回重建日程的事件 ID。');
+      return JSON.stringify({ completed: true, updated: true, eventId: systemEventId, systemEventId, receipt: systemEventId, recurrence: null });
     } else {
-      const options: ModifyEventOptions = { id: systemEventId };
+      const options: ModifyEventOptions = { id: eventId };
       if (title !== undefined) options.title = title;
       if (startAt !== undefined && hasArg(args, 'startAt')) options.startDate = startAt;
       if (endAt !== undefined && hasArg(args, 'endAt')) options.endDate = endAt;
@@ -1108,40 +1159,17 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
       if (hasArg(args, 'repeat') && recurrence) options.recurrence = calendarRecurrence(recurrence);
       await CapacitorCalendar.modifyEvent(options);
     }
-    if (existing) {
-      const updated: RealityCalendarEvent = {
-        ...existing,
-        systemEventId: nextSystemEventId,
-        title: title ?? existing.title,
-        startAt: startAt ?? existing.startAt,
-        endAt: endAt ?? existing.endAt,
-        location: hasArg(args, 'location') ? textArg(args, 'location') : existing.location,
-        notes: hasArg(args, 'notes') ? textArg(args, 'notes') : existing.notes,
-        isAllDay: hasArg(args, 'isAllDay') ? booleanArg(args, 'isAllDay') : existing.isAllDay,
-        updatedAt: Date.now(),
-        recurrence
-      };
-      await persistRealitySettings(request, {
-        ...current,
-        calendarEvents: current.calendarEvents.map((event) => event.id === existing.id ? updated : event)
-      });
-    }
-    return JSON.stringify({ updated: true, eventId: existing?.id ?? eventId, systemEventId: nextSystemEventId, recurrence });
+    return JSON.stringify({ completed: true, updated: true, eventId, systemEventId: eventId, receipt: eventId, recurrence: hasArg(args, 'repeat') ? recurrence : undefined });
   }
 
   if (toolName === 'delete_calendar_event') {
     const eventId = textArg(args, 'eventId');
     if (!eventId) throw new Error('日程 ID 不能为空。');
-    const current = normalizeAppSettings(request.settings).realityMcpSettings;
-    const existing = current.calendarEvents.find((event) => event.id === eventId || event.systemEventId === eventId);
-    const systemEventId = existing?.systemEventId || eventId;
     await ensureCalendarPermission(false);
-    await CapacitorCalendar.deleteEvent({ id: systemEventId });
-    await persistRealitySettings(request, {
-      ...current,
-      calendarEvents: current.calendarEvents.filter((event) => event.id !== eventId && event.systemEventId !== eventId)
-    });
-    return JSON.stringify({ deleted: true, eventId: existing?.id ?? eventId, systemEventId });
+    const existing = await findSystemCalendarEvent(eventId);
+    if (!existing) throw new Error('系统日历中没有找到这个日程。');
+    await CapacitorCalendar.deleteEvent({ id: eventId });
+    return JSON.stringify({ completed: true, deleted: true, eventId, systemEventId: eventId, receipt: eventId });
   }
 
   if (toolName === 'check_calendar_conflicts') {
@@ -1201,31 +1229,15 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
     if (!content) throw new Error('备忘录正文不能为空。');
     const title = textArg(args, 'title', content.slice(0, 24));
     if (content.length > 100_000) throw new Error('备忘录正文不能超过 100000 个字符。');
-    const now = Date.now();
-    const memo: RealityMemo = {
-      id: createId('memo'),
-      title,
-      content,
-      createdAt: now,
-      updatedAt: now
-    };
-    const current = normalizeAppSettings(request.settings).realityMcpSettings;
-    await persistRealitySettings(request, {
-      ...current,
-      memos: [memo, ...current.memos.filter((entry) => entry.id !== memo.id)]
-    });
-    return JSON.stringify({ saved: true, storage: 'babylink-local', memoId: memo.id, title, content, updatedAt: now });
+    if (!nativeShareAvailable()) {
+      return JSON.stringify({ unsupported: true, completed: false, reason: '写入外部备忘录需要在 Android 或 iOS App 中打开系统分享面板。' });
+    }
+    await Share.share({ title, text: content, dialogTitle: '选择本机备忘录 App 保存' });
+    return JSON.stringify({ initiated: true, awaitingUser: true, systemApp: 'share-sheet', title, content, note: '请选择手机中的备忘录或笔记 App 并在该 App 内完成保存；BabyLink 不保存此备忘录副本。' });
   }
 
   if (toolName === 'list_memos') {
-    const query = textArg(args, 'query').toLocaleLowerCase('zh-CN');
-    const limit = Math.min(100, Math.max(1, Math.round(numberArg(args, 'limit') ?? 50)));
-    const memos = normalizeAppSettings(request.settings).realityMcpSettings.memos
-      .filter((memo) => !query || `${memo.title}\n${memo.content}`.toLocaleLowerCase('zh-CN').includes(query))
-      .sort((left, right) => right.updatedAt - left.updatedAt)
-      .slice(0, limit)
-      .map((memo) => ({ ...memo, updatedAtText: formatDate(memo.updatedAt) }));
-    return JSON.stringify({ query, memos });
+    return JSON.stringify({ unsupported: true, completed: false, reason: 'Android 和 iOS 没有可读取所有第三方备忘录 App 的通用系统接口。请直接在目标备忘录 App 中查看；BabyLink 不再保存备忘录副本。' });
   }
 
   if (toolName === 'pick_contact') {
@@ -1257,7 +1269,9 @@ async function executeRealityTool(request: RealityMcpExecutionRequest): Promise<
       phones: phone ? [{ type: PhoneType.Mobile, number: phone, isPrimary: true }] : [],
       emails: email ? [{ type: EmailType.Home, address: email, isPrimary: true }] : []
     } });
-    return JSON.stringify({ created: true, contactId: result.contactId, name: [textArg(args, 'familyName'), givenName].filter(Boolean).join(' ') });
+    const contactId = String(result.contactId ?? '').trim();
+    if (!contactId) throw new Error('系统通讯录没有返回可验证的联系人 ID。');
+    return JSON.stringify({ created: true, completed: true, systemApp: 'contacts', contactId, receipt: contactId, name: [textArg(args, 'familyName'), givenName].filter(Boolean).join(' ') });
   }
 
   if (toolName === 'set_alarm') {

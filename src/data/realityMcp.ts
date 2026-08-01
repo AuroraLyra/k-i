@@ -175,8 +175,8 @@ export const realityMcpTools: McpToolDefinition[] = [
   },
   {
     name: 'add_music_to_queue',
-    title: '加入一起听队列',
-    description: '把音乐 MCP 返回的歌曲与试听地址加入 BabyLink 当前播放队列；不会修改外部平台歌单。',
+    title: '发送到本机音乐 App',
+    description: '打开 Android/iOS 系统分享面板，把歌曲和试听地址交给用户选择的本机音乐 App。不会写入 BabyLink 播放队列或外部平台歌单。',
     inputSchema: objectSchema({
       id: stringProperty('平台歌曲 ID'),
       name: stringProperty('歌曲名'),
@@ -221,7 +221,7 @@ export const realityMcpTools: McpToolDefinition[] = [
   {
     name: 'set_reminder',
     title: '设置提醒',
-    description: '仅在用户明确说“提醒我、通知我、闹钟、定时”时创建未来系统提醒；“备忘录、备忘、便签、笔记”绝对不要使用此工具。',
+    description: '仅在用户明确说“提醒我、通知我、定时”时创建未来系统提醒：iOS 写入系统提醒事项，Android 写入带系统提醒的日历事件；“闹钟”必须使用 set_alarm，“备忘录、备忘、便签、笔记”绝对不要使用此工具。',
     inputSchema: objectSchema({
       title: stringProperty('提醒标题'),
       body: stringProperty('提醒内容'),
@@ -235,7 +235,7 @@ export const realityMcpTools: McpToolDefinition[] = [
   {
     name: 'list_reminders',
     title: '查看提醒',
-    description: '仅查看提醒和通知任务；用户说“读取备忘录、查看备忘、便签或笔记”时绝对不要使用此工具，应使用 list_memos。',
+    description: '读取 iOS 系统提醒事项或 Android 系统日历中的 BabyLink 系统提醒；用户说“读取备忘录、查看备忘、便签或笔记”时不要使用此工具，第三方备忘录没有通用读取接口。',
     inputSchema: objectSchema({
       date: stringProperty('按本地日期查询，格式 YYYY-MM-DD'),
       from: stringProperty('ISO 8601 起始时间'),
@@ -249,7 +249,7 @@ export const realityMcpTools: McpToolDefinition[] = [
   {
     name: 'update_reminder',
     title: '编辑提醒',
-    description: '修改 BabyLink 提醒的标题、内容、时间或重复方式，并同步系统通知。',
+    description: '修改真实系统提醒事项或 Android 系统日历提醒，必须使用之前返回的系统提醒 ID。',
     inputSchema: objectSchema({
       reminderId: stringProperty('提醒 ID'),
       title: stringProperty('新标题，可省略'),
@@ -264,7 +264,7 @@ export const realityMcpTools: McpToolDefinition[] = [
   {
     name: 'complete_reminder',
     title: '完成提醒',
-    description: '将一个提醒标记为已完成，并取消对应的系统通知。',
+    description: '在 iOS 中完成系统提醒事项；在 Android 中移除对应的系统日历提醒事件。',
     inputSchema: objectSchema({ reminderId: stringProperty('提醒 ID') }, ['reminderId']),
     enabled: true,
     write: true
@@ -272,7 +272,7 @@ export const realityMcpTools: McpToolDefinition[] = [
   {
     name: 'snooze_reminder',
     title: '稍后提醒',
-    description: '把提醒推迟指定分钟数或推迟到指定时间，并重新安排系统通知。',
+    description: '推迟真实系统提醒事项或 Android 系统日历提醒，必须使用之前返回的系统提醒 ID。',
     inputSchema: objectSchema({
       reminderId: stringProperty('提醒 ID'),
       delayMinutes: numberProperty('推迟分钟数，默认 10 分钟'),
@@ -284,7 +284,7 @@ export const realityMcpTools: McpToolDefinition[] = [
   {
     name: 'cancel_reminder',
     title: '取消提醒',
-    description: '取消一个由 BabyLink 创建的设备提醒。',
+    description: '删除真实系统提醒事项或 Android 系统日历提醒，必须使用之前返回的系统提醒 ID。',
     inputSchema: objectSchema({ reminderId: stringProperty('提醒 ID') }, ['reminderId']),
     enabled: true,
     write: true
@@ -368,8 +368,8 @@ export const realityMcpTools: McpToolDefinition[] = [
   },
   {
     name: 'create_memo',
-    title: '直接写入备忘录',
-    description: '把标题和正文直接保存到 BabyLink 应用内备忘录。不会打开分享面板，不需要用户选择 App，不需要提醒时间、日程或通知；用户说“写入备忘录、记到备忘、保存便签”时只能使用此工具。',
+    title: '发送到本机备忘录 App',
+    description: '打开 Android/iOS 系统分享面板，把标题和正文交给用户选择的本机备忘录或笔记 App 保存。必须等待用户在目标 App 中确认；不会写入 BabyLink 本地备忘录。',
     inputSchema: objectSchema({
       title: stringProperty('备忘录标题'),
       content: stringProperty('备忘录正文')
@@ -379,8 +379,8 @@ export const realityMcpTools: McpToolDefinition[] = [
   },
   {
     name: 'list_memos',
-    title: '读取备忘录',
-    description: '直接读取 BabyLink 应用内已保存的备忘录，可按关键词筛选。用户说“读取、查看、搜索备忘录/备忘/便签/笔记”时使用此工具，绝对不要改用 list_reminders。',
+    title: '说明备忘录读取限制',
+    description: 'Android 和 iOS 没有读取所有第三方备忘录 App 的通用系统接口。不要调用此工具来伪造读取结果；应请用户直接在目标备忘录 App 中查看。',
     inputSchema: objectSchema({
       query: stringProperty('可选关键词；省略则读取最近备忘录'),
       limit: { type: 'number', minimum: 1, maximum: 100, description: '最多返回条数，默认 50' }

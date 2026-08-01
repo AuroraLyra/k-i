@@ -19,6 +19,7 @@
     "test:memory": "tsx --tsconfig tsconfig.app.json scripts/memory-regression.ts",
     "start": "node server-dist/index.js",
     "preview": "vite preview --host 0.0.0.0",
+    "test:mcp-access": "tsx --tsconfig tsconfig.app.json scripts/mcp-access-regression.ts",
     "test:mcp-results": "tsx --tsconfig tsconfig.app.json scripts/mcp-results-regression.ts",
     "test:link-preview": "tsx --tsconfig tsconfig.app.json scripts/link-preview-regression.ts",
     "test:role-operations": "tsx --tsconfig tsconfig.app.json scripts/role-operations-regression.ts"
@@ -46,6 +47,7 @@
     "@fastify/websocket": "^11.3.0",
     "@mozilla/readability": "^0.6.0",
     "@tanstack/vue-virtual": "^3.13.35",
+    "ajv": "^8.20.0",
     "fastify": "^5.10.0",
     "fflate": "^0.8.3",
     "idb": "^8.0.0",

@@ -13,7 +13,7 @@
     <section class="mcp-detail-facts">
       <span><strong>{{ enabledTools }}</strong><small>启用工具</small></span>
       <span><strong>{{ server.globalEnabled ? 'ON' : 'LOCAL' }}</strong><small>应用范围</small></span>
-      <span><strong>{{ policyShort }}</strong><small>角色权限</small></span>
+      <span><strong>{{ policyShortLabel(server.toolPolicy) }}</strong><small>角色策略</small></span>
     </section>
 
     <section class="mcp-detail-card">
@@ -27,9 +27,11 @@
         <span class="mcp-switch"><input :checked="server.globalEnabled" :disabled="!server.enabled" type="checkbox" @change="emit('set-global', server, checked($event))"><i></i></span>
       </label>
       <label class="mcp-setting-row policy">
-        <span><strong>角色权限</strong><small>{{ policyDescription }}</small></span>
-        <select :value="server.toolPolicy" :disabled="!server.enabled || isBuiltin" @change="emit('set-policy', server, ($event.target as HTMLSelectElement).value as McpToolPolicy)">
-          <option value="disabled">不允许调用</option><option value="read-only">只浏览与查询</option><option value="all">浏览并执行操作</option>
+        <span><strong>角色权限</strong><small>{{ policyDescription(server.toolPolicy) }}</small></span>
+        <select :value="server.toolPolicy" :disabled="!server.enabled" @change="emit('set-policy', server, ($event.target as HTMLSelectElement).value as McpToolPolicy)">
+          <option value="disabled">不允许角色调用</option>
+          <option value="read-only">只浏览与查询</option>
+          <option value="all">浏览并执行操作</option>
         </select>
       </label>
       <div class="mcp-endpoint-card">
@@ -40,13 +42,13 @@
 
     <section class="mcp-detail-card">
       <header class="mcp-section-title compact">
-        <div><span>TOOLS</span><h2>能力权限</h2></div><small>{{ server.tools.length }} discovered</small>
+        <div><span>TOOLS</span><h2>完整工具目录</h2></div><small>{{ server.tools.length }} discovered</small>
       </header>
       <div v-if="server.tools.length" class="mcp-tool-list">
-        <label v-for="tool in server.tools" :key="tool.name" class="mcp-tool-row">
+        <article v-for="tool in server.tools" :key="tool.name" class="mcp-tool-row">
           <span><strong>{{ tool.title || tool.name }}</strong><small>{{ tool.description || tool.name }}</small><em :class="tool.write ? 'write' : 'read'">{{ tool.write ? '会执行操作' : '只读查询' }}</em></span>
           <span class="mcp-switch small"><input :checked="tool.enabled" type="checkbox" @change="emit('set-tool', server, tool.name, checked($event))"><i></i></span>
-        </label>
+        </article>
       </div>
       <p v-else class="mcp-empty-note">重新检测连接后，会在这里显示服务端公开的工具。</p>
     </section>
@@ -106,8 +108,11 @@ const enabledTools = computed(() => props.server?.tools.filter((tool) => tool.en
 const isBuiltin = computed(() => props.server?.kind === 'reality' || props.server?.kind === 'notification-inbox');
 const statusClass = computed(() => props.testing ? 'checking' : props.server?.lastStatus ?? 'idle');
 const statusLabel = computed(() => props.testing ? '正在检测' : props.server?.lastStatus === 'connected' ? '连接正常' : props.server?.lastStatus === 'error' ? '需要检查' : '等待检测');
-const policyShort = computed(() => props.server?.toolPolicy === 'all' ? 'ALL' : props.server?.toolPolicy === 'disabled' ? 'OFF' : 'READ');
-const policyDescription = computed(() => props.server?.toolPolicy === 'all' ? '角色可执行外部操作' : props.server?.toolPolicy === 'disabled' ? '不向角色提供工具' : '角色只能浏览与查询');
-
+function policyShortLabel(policy: McpToolPolicy) { return policy === 'all' ? 'ALL' : policy === 'read-only' ? 'READ' : 'OFF'; }
+function policyDescription(policy: McpToolPolicy) {
+  if (policy === 'all') return '角色可使用已启用的所有工具，包括执行外部操作。';
+  if (policy === 'read-only') return '角色仅能使用已启用的读取与查询工具。';
+  return '保留连接与工具配置，但不向角色提供任何工具。';
+}
 function checked(event: Event) { return (event.target as HTMLInputElement).checked; }
 </script>

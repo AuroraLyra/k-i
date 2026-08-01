@@ -44,10 +44,11 @@ const store = useAppStore();
 const modelScopes: Array<{ id: ChatModelScope; label: string }> = [
   { id: 'online', label: '线上聊天模型' },
   { id: 'offline', label: '线下 RP 模型' },
-  { id: 'summary', label: '总结、图谱、向量化模型' },
+  { id: 'summary', label: '总结、图谱模型' },
+  { id: 'embedding', label: '向量化模型' },
   { id: 'voom', label: 'VOOM 生成模型' },
-  { id: 'theater', label: '小剧场、同人文、商场模型' },
-  { id: 'groupDiscovery', label: '搜索角色群聊模型' }
+  { id: 'theater', label: '小剧场模型' },
+  { id: 'content', label: '搜索角色群聊、同人文、商场、音乐评论区、情侣空间模型' }
 ];
 const draft = reactive<ChatModelOverrides>(normalizeChatModelOverrides(null));
 const settingsDraft = reactive<AppSettings>(normalizeAppSettings(null));
@@ -56,8 +57,8 @@ const isGroupConversation = computed(() => store.conversationById(props.conversa
 const visibleModelScopes = computed(() => {
   if (isGlobal.value) return modelScopes;
   const allowedScopes: ChatModelScope[] = isGroupConversation.value
-    ? ['online', 'offline', 'summary']
-    : ['online', 'offline', 'summary', 'voom', 'theater'];
+    ? ['online', 'offline', 'summary', 'embedding']
+    : ['online', 'offline', 'summary', 'embedding', 'voom', 'theater'];
   return modelScopes.filter((scope) => allowedScopes.includes(scope.id));
 });
 const panelTitle = computed(() => (isGlobal.value ? '全局模型切换' : '模型切换'));
@@ -106,14 +107,26 @@ function modelValueFor(scope: ChatModelScope) {
 }
 
 function fallbackLabel(scope: ChatModelScope) {
-  if (isGlobal.value) return scope === 'summary' ? '跟随 API 默认总结、图谱、向量化模型' : '跟随 API 默认模型';
+  if (isGlobal.value) {
+    const labels: Record<ChatModelScope, string> = {
+      online: '跟随 API 默认线上聊天模型',
+      offline: '跟随 API 默认线下 RP 模型',
+      summary: '跟随 API 默认总结、图谱模型',
+      embedding: '跟随 API 默认向量化模型',
+      voom: '跟随 API 默认 VOOM 生成模型',
+      theater: '跟随 API 默认小剧场模型',
+      content: '跟随 API 默认内容创作模型'
+    };
+    return labels[scope];
+  }
   const labels: Record<ChatModelScope, string> = {
     online: '跟随全局线上聊天模型',
     offline: '跟随全局线下 RP 模型',
-    summary: '跟随全局总结、图谱、向量化模型',
+    summary: '跟随全局总结、图谱模型',
+    embedding: '跟随全局向量化模型',
     voom: '跟随全局 VOOM 生成模型',
-    theater: '跟随全局小剧场与同人文模型',
-    groupDiscovery: '跟随全局搜索角色群聊模型'
+    theater: '跟随全局小剧场模型',
+    content: '跟随全局内容创作模型'
   };
   return labels[scope];
 }

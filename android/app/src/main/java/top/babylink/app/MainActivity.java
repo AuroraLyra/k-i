@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
 		registerPlugin(LinkKeepAlivePlugin.class);
 		registerPlugin(LinkMediaPlugin.class);
 		registerPlugin(LinkBackupPlugin.class);
+		registerPlugin(LinkStoragePlugin.class);
 		registerPlugin(LinkDisplayPlugin.class);
 		registerPlugin(LinkRealityPlugin.class);
 		registerPlugin(LinkMcpLocalPlugin.class);

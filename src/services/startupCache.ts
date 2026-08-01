@@ -175,6 +175,7 @@ function createStartupMessage(message: ChatMessage): ChatMessage {
       }
     } : {}),
     ...(message.mcpResult ? { mcpResult: message.mcpResult } : {}),
+    ...(message.mcpOperations ? { mcpOperations: message.mcpOperations } : {}),
     ...(message.status ? { status: message.status } : {}),
     ...(message.readAt !== undefined ? { readAt: message.readAt } : {})
   };

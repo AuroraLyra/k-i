@@ -88,12 +88,47 @@ function publicTool(tool) {
   };
 }
 
-function toolPayload(payload) {
-  if (payload?.content && Array.isArray(payload.content)) return payload;
-  const structuredContent = payload ?? {};
+function businessFailure(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '';
+  if (payload.isError === true || payload.ok === false || payload.success === false || payload.status === 'failed' || payload.status === 'error') {
+    return String(payload.message || payload.error || payload.reason || 'upstream_business_failed');
+  }
+  if (typeof payload.retcode === 'number' && payload.retcode !== 0) return `${String(payload.msg || payload.message || 'upstream_failed')}: retcode ${payload.retcode}`;
+  return '';
+}
+
+function businessReceipt(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '';
+  const nested = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data) ? payload.data : {};
+  for (const key of ['message_id', 'messageId', 'operation_id', 'operationId', 'receipt', 'eventId', 'event_id', 'id']) {
+    const value = payload[key] ?? nested[key];
+    if (typeof value === 'string' || typeof value === 'number') {
+      const receipt = String(value).trim();
+      if (receipt) return receipt;
+    }
+  }
+  return '';
+}
+
+function toolPayload(payload, tool) {
+  const structuredContent = payload?.structuredContent ?? payload ?? {};
+  const failure = businessFailure(structuredContent) || (payload?.isError ? 'upstream_mcp_error' : '');
+  if (failure) {
+    const result = { completed: false, error: failure, upstream: structuredContent };
+    return {
+      content: [{ type: 'text', text: JSON.stringify(result) }],
+      structuredContent: result,
+      isError: true
+    };
+  }
+  const receipt = businessReceipt(structuredContent);
+  const write = tool?.annotations?.readOnlyHint !== true;
+  const result = write && !receipt
+    ? { completed: false, unknown: true, upstream: structuredContent }
+    : { completed: true, ...(receipt ? { receipt } : {}), upstream: structuredContent };
   return {
-    content: [{ type: 'text', text: JSON.stringify(structuredContent) }],
-    structuredContent,
+    content: [{ type: 'text', text: JSON.stringify(result) }],
+    structuredContent: result,
     isError: false
   };
 }
@@ -125,11 +160,11 @@ async function allTools() {
 
 async function callTool(name, args) {
   const builtIn = connectors.tools.find((tool) => tool.name === name);
-  if (builtIn) return toolPayload(await connectors.call(name, args));
+  if (builtIn) return toolPayload(await connectors.call(name, args), builtIn);
   let upstreamTool = (await currentUpstreamTools()).find((tool) => tool.name === name);
   if (!upstreamTool) upstreamTool = (await currentUpstreamTools(true)).find((tool) => tool.name === name);
   if (!upstreamTool) throw new Error(`没有找到工具 ${name}。`);
-  return toolPayload(await upstreamTool._upstream.callTool(upstreamTool._upstreamToolName, args));
+  return toolPayload(await upstreamTool._upstream.callTool(upstreamTool._upstreamToolName, args), upstreamTool);
 }
 
 function applyCors(request, response) {

@@ -829,6 +829,40 @@ export const useCommerceStore = defineStore('commerce', () => {
     return relatedWallets.length + relatedTransactions.length + relatedStorefronts.length + relatedProducts.length + relatedCartItems.length + relatedWishlistItems.length + relatedOrders.length + relatedMoments.length;
   }
 
+  async function clearAllCommerceData() {
+    await ensureReady();
+    const entries = {
+      accounts: [...walletAccounts.value],
+      transactions: [...walletTransactions.value],
+      storefronts: [...storefronts.value],
+      products: [...products.value],
+      cartItems: [...cartItems.value],
+      wishlistItems: [...wishlistItems.value],
+      orders: [...orders.value],
+      moments: [...moments.value]
+    };
+    walletAccounts.value = [];
+    walletTransactions.value = [];
+    storefronts.value = [];
+    products.value = [];
+    cartItems.value = [];
+    wishlistItems.value = [];
+    orders.value = [];
+    moments.value = [];
+    await Promise.all([
+      ...entries.accounts.map((entry) => deleteEntity('walletAccounts', entry.id)),
+      ...entries.transactions.map((entry) => deleteEntity('walletTransactions', entry.id)),
+      ...entries.storefronts.map((entry) => deleteEntity('shopStorefronts', entry.id)),
+      ...entries.products.map((entry) => deleteEntity('shopProducts', entry.id)),
+      ...entries.cartItems.map((entry) => deleteEntity('shopCartItems', entry.id)),
+      ...entries.wishlistItems.map((entry) => deleteEntity('shopWishlistItems', entry.id)),
+      ...entries.orders.map((entry) => deleteEntity('shopOrders', entry.id)),
+      ...entries.moments.map((entry) => deleteEntity('shopMoments', entry.id))
+    ]);
+    await pruneUnusedStoredMediaCache();
+    return entries.accounts.length + entries.transactions.length + entries.storefronts.length + entries.products.length + entries.cartItems.length + entries.wishlistItems.length + entries.orders.length + entries.moments.length;
+  }
+
   return {
     ready,
     walletAccounts,
@@ -863,6 +897,7 @@ export const useCommerceStore = defineStore('commerce', () => {
     linkOrderToChat,
     syncChatTransfer,
     rollbackChatFinancialActions,
-    deleteCharacterCommerceData
+    deleteCharacterCommerceData,
+    clearAllCommerceData
   };
 });

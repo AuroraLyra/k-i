@@ -763,8 +763,9 @@ async function generateThread(mode: 'replace' | 'expand') {
   const track = activeTrack.value;
   const currentUser = store.user;
   if (!track || !currentUser || generatingCommentTrackId.value) return;
-  if (!hasTextGenerationConfig(store.settings ?? undefined)) {
-    store.showConfigAlert('请先在设置中配置可用的文本 API 模型，再生成音乐评论区。', '需要配置 API 模型');
+  const modelOverride = store.settings?.modelOverrides.content?.trim() ?? '';
+  if (!hasTextGenerationConfig(store.settings ?? undefined, modelOverride)) {
+    store.showConfigAlert('请先在设置中配置全局内容创作模型或可用的 API 默认模型，再生成音乐评论区。', '需要配置 API 模型');
     return;
   }
   const trackKey = getTrackKey(track);
@@ -780,7 +781,8 @@ async function generateThread(mode: 'replace' | 'expand') {
       characters: store.characters,
       existingComments,
       mode,
-      settings: store.settings ?? undefined
+      settings: store.settings ?? undefined,
+      modelOverride
     });
     const now = Date.now();
     await saveThread({
@@ -1082,12 +1084,12 @@ function playNeighbor(direction: -1 | 1) {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding: max(12px, var(--safe-top)) 20px 10px;
+  padding: max(12px, var(--safe-top)) calc(20px + var(--safe-right)) max(18px, calc(10px + var(--safe-bottom))) calc(20px + var(--safe-left));
 }
 
 .listen-cover-page {
-  grid-template-rows: repeat(6, auto);
-  align-content: start;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
+  align-content: stretch;
   justify-items: center;
   gap: 0;
 }
@@ -1155,9 +1157,9 @@ function playNeighbor(direction: -1 | 1) {
 .listen-room-head {
   display: grid;
   justify-items: center;
-  gap: clamp(7px, 1dvh, 10px);
+  gap: 8px;
   width: 100%;
-  margin-top: clamp(12px, 2.5dvh, 25px);
+  margin-top: 18px;
   text-align: center;
 }
 
@@ -1184,7 +1186,7 @@ function playNeighbor(direction: -1 | 1) {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-height: clamp(64px, 9dvh, 76px);
+  min-height: 70px;
   padding: 4px 18px 6px;
 }
 
@@ -1193,8 +1195,8 @@ function playNeighbor(direction: -1 | 1) {
   z-index: 1;
   display: grid;
   place-items: center;
-  width: clamp(64px, 9dvh, 76px);
-  height: clamp(64px, 9dvh, 76px);
+  width: 70px;
+  height: 70px;
   overflow: hidden;
   border: 3px solid rgba(255, 255, 255, 0.95);
   border-radius: 50%;
@@ -1241,8 +1243,10 @@ function playNeighbor(direction: -1 | 1) {
 
 .record.listen-record {
   align-self: center;
-  width: min(82vw, 40dvh, 370px);
-  margin: clamp(22px, 5.4dvh, 54px) 0 0;
+  width: auto;
+  max-width: min(82vw, 330px);
+  height: min(100%, 330px);
+  margin: 0;
   background:
     radial-gradient(circle at 50% 50%, transparent 0 42%, rgba(255, 255, 255, 0.12) 42.5% 44%, transparent 44.5% 48%, rgba(255, 255, 255, 0.1) 49% 50.5%, transparent 51%),
     radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.22), transparent 19%),
@@ -1300,8 +1304,8 @@ function playNeighbor(direction: -1 | 1) {
   align-items: center;
   gap: 8px;
   width: min(86%, 360px);
-  min-height: clamp(30px, 5.2dvh, 38px);
-  margin-top: clamp(6px, 1.4dvh, 14px);
+  min-height: 34px;
+  margin-top: 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.28);
   padding: 0 14px;
@@ -1323,7 +1327,7 @@ function playNeighbor(direction: -1 | 1) {
   align-items: end;
   gap: 7px;
   width: 100%;
-  margin-top: clamp(10px, 2.4dvh, 24px);
+  margin-top: 14px;
   padding: 0 18px;
 }
 
@@ -1346,7 +1350,7 @@ function playNeighbor(direction: -1 | 1) {
 
 .listen-song-meta strong {
   color: #ffffff;
-  font-size: clamp(12px, 1.85dvh, 14px);
+  font-size: 14px;
   line-height: 1.08;
   font-weight: 950;
 }
@@ -1409,8 +1413,8 @@ function playNeighbor(direction: -1 | 1) {
 
 .progress-panel.listen-progress-panel {
   width: 100%;
-  gap: clamp(8px, 1.6dvh, 14px);
-  margin-top: clamp(14px, 4.5dvh, 45px);
+  gap: 10px;
+  margin-top: 28px;
   background: transparent !important;
   color: #ffffff;
   padding: 0;
@@ -3278,6 +3282,86 @@ function playNeighbor(direction: -1 | 1) {
   background: rgba(255, 255, 255, 0.09);
 }
 
+@media (max-height: 700px) {
+  .listen-room-head {
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .listen-avatars {
+    min-height: 64px;
+    padding: 2px 16px 4px;
+  }
+
+  .listen-avatars span {
+    width: 64px;
+    height: 64px;
+  }
+
+  .listen-live-pill {
+    min-height: 30px;
+    margin-top: 6px;
+  }
+
+  .listen-track-actions {
+    margin-top: 10px;
+  }
+
+  .progress-panel.listen-progress-panel {
+    gap: 8px;
+    margin-top: 16px;
+  }
+}
+
+@media (max-height: 600px) {
+  .listen-page {
+    padding-top: max(8px, var(--safe-top));
+    padding-bottom: max(14px, calc(8px + var(--safe-bottom)));
+  }
+
+  .listen-room-head {
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .listen-room-head strong {
+    font-size: 16px;
+  }
+
+  .listen-room-head p {
+    font-size: 11px;
+  }
+
+  .listen-avatars {
+    min-height: 56px;
+    padding: 1px 14px 3px;
+  }
+
+  .listen-avatars span {
+    width: 56px;
+    height: 56px;
+  }
+
+  .listen-live-pill {
+    min-height: 28px;
+    margin-top: 4px;
+  }
+
+  .listen-track-actions {
+    margin-top: 7px;
+    padding: 0 10px;
+  }
+
+  .listen-song-meta strong {
+    font-size: 12px;
+  }
+
+  .progress-panel.listen-progress-panel {
+    gap: 6px;
+    margin-top: 8px;
+  }
+}
+
 .spin {
   animation: rotate-record 1s linear infinite;
 }
@@ -3295,11 +3379,6 @@ function playNeighbor(direction: -1 | 1) {
 
   .music-content.player-content {
     padding: 0;
-  }
-
-  .player-panel,
-  .player-stage {
-    min-height: calc(var(--app-height) - var(--tab-height) - var(--safe-bottom));
   }
 
   .song-summary {

@@ -2,7 +2,7 @@ import { computed, ref, toRaw, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { applyMemoryStoreMutation, deleteEntity, loadSnapshot, pruneUnusedStoredMediaCache, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatGobangAttachment, ChatImageAttachment, ChatImageCandidate, ChatLinkPreviewAttachment, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatGobangAttachment, ChatImageAttachment, ChatImageCandidate, ChatLinkPreviewAttachment, ChatLocationAttachment, ChatMcpOperation, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import type { CharacterEconomySnapshot, ChatCommerceAttachment, ChatShopShareAttachment } from '@/types/commerce';
 import type { MemoryAssertion, MemoryCompressionStats, MemoryEdge, MemoryEmbeddingCache, MemoryEntity, MemoryEpisode, MemoryRecallResult, MemoryStateSnapshot, MemoryTheme } from '@/types/memory';
 import { createAccountId, createId } from '@/utils/id';
@@ -43,6 +43,7 @@ import { registerTabooWorldBookProvider } from '@/services/tabooWorldBook';
 import { createUserTimeSnapshot } from '@/utils/timeAwareness';
 import { normalizeNarrativeText } from '@/utils/structuredText';
 import { normalizeMcpResultAttachments } from '@/utils/mcpResults';
+import { formatChatMcpOperation, formatChatMcpOperations } from '@/utils/mcpOperations';
 import { createChatLinkPreview, fetchChatLinkPreview } from '@/services/linkPreview';
 
 interface CreateUserVoomPostPayload {
@@ -168,7 +169,7 @@ interface ConfigAlertState {
 }
 
 export type DataCleanupAction = 'generated-images' | 'message-media' | 'user-sent-images' | 'sticker-local-cache' | 'image-candidates' | 'voice-audio';
-export type ClearableDataSection = 'messages' | 'voomPosts' | 'smallTheaters' | 'music' | 'worldBooks' | 'stickers' | 'conversationSettings' | 'characterMemory' | 'generatedImages';
+export type ClearableDataSection = 'messages' | 'favorites' | 'voomPosts' | 'smallTheaters' | 'music' | 'worldBooks' | 'stickers' | 'conversationSettings' | 'characterMemory' | 'generatedImages';
 
 const globalSharedLibraryOwnerId = '__global__';
 
@@ -1042,7 +1043,7 @@ export const useAppStore = defineStore('app', () => {
     return [];
   }
 
-  async function memoryContextForConversationAsync(id: string, queryText = '', options: { includeResolved?: boolean; maxTokens?: number; storeDebug?: boolean; modelOverride?: string; queryVector?: number[]; excludeSourceMessageIds?: string[] } = {}) {
+  async function memoryContextForConversationAsync(id: string, queryText = '', options: { includeResolved?: boolean; maxTokens?: number; storeDebug?: boolean; embeddingModelOverride?: string; queryVector?: number[]; excludeSourceMessageIds?: string[] } = {}) {
     if (!settingsForConversation(id).memory.enabled) return '';
     const excludedIds = new Set(options.excludeSourceMessageIds ?? []);
     const graph = memoryGraphForConversation(id);
@@ -1050,7 +1051,7 @@ export const useAppStore = defineStore('app', () => {
     const memorySettings = settingsForConversation(id).memory;
     if (!queryVector.length && queryText.trim() && memorySettings.embeddingEnabled) {
       try {
-        queryVector = await requestTextEmbedding(settings.value ?? undefined, queryText, options.modelOverride);
+        queryVector = await requestTextEmbedding(settings.value ?? undefined, queryText, options.embeddingModelOverride);
       } catch (error) {
         console.warn('Memory query embedding fell back to lexical recall.', error);
       }
@@ -1150,7 +1151,7 @@ export const useAppStore = defineStore('app', () => {
     }
     const memorySummary = await memoryContextForConversationAsync(conversationId, userMessageText, {
       storeDebug: false,
-      modelOverride: getMemorySummaryModelOverride(chatSettings),
+      embeddingModelOverride: getMemoryEmbeddingModelOverride(chatSettings),
       excludeSourceMessageIds: options.excludeSourceMessageIds
     });
 
@@ -1288,13 +1289,15 @@ export const useAppStore = defineStore('app', () => {
       online: characterOverrides.online || legacyConversationOverrides.online,
       offline: characterOverrides.offline || legacyConversationOverrides.offline,
       summary: characterOverrides.summary || legacyConversationOverrides.summary,
+      embedding: characterOverrides.embedding || legacyConversationOverrides.embedding,
       voom: characterOverrides.voom || legacyConversationOverrides.voom,
       theater: characterOverrides.theater || legacyConversationOverrides.theater,
-      groupDiscovery: characterOverrides.groupDiscovery || legacyConversationOverrides.groupDiscovery
+      content: ''
     });
   }
 
   function getConversationTextModelOverride(chatSettings: ConversationSettings, scope: ChatModelScope, fallbackScope?: ChatModelScope) {
+    if (scope === 'content') return getGlobalTextModelOverride(scope);
     const localOverrides = modelOverridesForConversation(chatSettings.conversationId);
     const localOverride = localOverrides[scope]?.trim() ?? '';
     if (localOverride) return localOverride;
@@ -1314,6 +1317,11 @@ export const useAppStore = defineStore('app', () => {
   function getMemorySummaryModelOverride(chatSettings: ConversationSettings) {
     return modelOverridesForConversation(chatSettings.conversationId).summary?.trim()
       || getGlobalTextModelOverride('summary');
+  }
+
+  function getMemoryEmbeddingModelOverride(chatSettings: ConversationSettings) {
+    return modelOverridesForConversation(chatSettings.conversationId).embedding?.trim()
+      || getGlobalTextModelOverride('embedding');
   }
 
   async function clearLegacyModelOverridesForCharacter(characterId: string) {
@@ -2966,6 +2974,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function messageReadableContent(message: ChatMessage) {
+    if (message.mcpOperations?.length) return formatChatMcpOperations(message.mcpOperations).trim();
     if (message.sticker) return `[Sticker] ${message.sticker.description}`.trim();
     if (message.image) return `[图片] ${message.image.description}`.trim();
     if (message.voice) return `[语音] ${message.voice.transcript}`.trim();
@@ -4248,7 +4257,7 @@ export const useAppStore = defineStore('app', () => {
       user: activeUser,
       characters: selectedCharacters.map(groupCharacterContext),
       settings: settings.value ?? undefined,
-      modelOverride: getGlobalTextModelOverride('groupDiscovery')
+      modelOverride: getGlobalTextModelOverride('content')
     });
   }
 
@@ -6117,8 +6126,8 @@ export const useAppStore = defineStore('app', () => {
         id: 'profiles',
         label: '账号与角色',
         description: '用户资料、角色资料、头像与绑定关系',
-        count: users.value.length + characters.value.length,
-        bytes: estimateGroupedArrayJsonBytes([users.value, characters.value]),
+        count: users.value.length + characters.value.length + profileThemes.value.length + profileHomepages.value.length,
+        bytes: estimateGroupedArrayJsonBytes([users.value, characters.value, profileThemes.value, profileHomepages.value]),
         protected: true
       },
       {
@@ -6315,6 +6324,12 @@ export const useAppStore = defineStore('app', () => {
     if (sectionSet.has('messages')) {
       changed += await deleteMessages(messages.value.map((message) => message.id));
     }
+    if (sectionSet.has('favorites')) {
+      const entries = [...favorites.value];
+      favorites.value = [];
+      await Promise.all(entries.map((entry) => deleteEntity('favorites', entry.id)));
+      changed += entries.length;
+    }
     if (sectionSet.has('voomPosts')) {
       const posts = [...voomPosts.value];
       voomPosts.value = [];
@@ -6409,7 +6424,6 @@ export const useAppStore = defineStore('app', () => {
       await Promise.all(entries.map((entry) => deleteEntity('generatedImages', entry.id)));
       changed += entries.length;
     }
-
     return changed;
   }
 
@@ -7088,10 +7102,10 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  async function persistMemoryEmbeddingsForAssertions(conversationId: string, assertions: MemoryAssertion[], modelOverride = '') {
+  async function persistMemoryEmbeddingsForAssertions(conversationId: string, assertions: MemoryAssertion[], embeddingModelOverride = '') {
     const memorySettings = settingsForConversation(conversationId).memory;
     if (!memorySettings.embeddingEnabled || !assertions.length) return;
-    const embeddingModel = modelOverride || settings.value?.model || '';
+    const embeddingModel = embeddingModelOverride || settings.value?.model || '';
     const existingByOwnerId = new Map(
       memoryEmbeddings.value
         .filter((embedding) => embedding.ownerType === 'assertion')
@@ -7108,7 +7122,7 @@ export const useAppStore = defineStore('app', () => {
     const vectors = await requestTextEmbeddings(
       settings.value ?? undefined,
       candidates.map((candidate) => candidate.text),
-      modelOverride
+      embeddingModelOverride
     );
     const now = Date.now();
     const embeddings = candidates.flatMap((candidate, index): MemoryEmbeddingCache[] => {
@@ -7276,7 +7290,7 @@ export const useAppStore = defineStore('app', () => {
       await persistMemoryGraphUpserts(upserts);
       if (chatSettings.memory.embeddingEnabled) {
         try {
-          await persistMemoryEmbeddingsForAssertions(conversationId, upserts.assertions, modelOverride);
+          await persistMemoryEmbeddingsForAssertions(conversationId, upserts.assertions, getMemoryEmbeddingModelOverride(chatSettings));
         } catch (error) {
           console.warn('Memory assertion embeddings fell back to lexical recall.', error);
         }
@@ -7628,9 +7642,9 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  async function maybeAutoCaptureConversationMemory(conversationId: string) {
+  async function maybeAutoCaptureConversationMemory(conversationId: string, force = false) {
     try {
-      await captureConversationMemory(conversationId);
+      await captureConversationMemory(conversationId, { force });
     } catch (error) {
       console.error('Temporal memory capture failed.', error);
       showConfigAlert(error instanceof Error ? error.message : '记忆生成失败。', '记忆生成失败', {
@@ -7827,7 +7841,7 @@ export const useAppStore = defineStore('app', () => {
         await persistMemoryEmbeddingsForAssertions(
           episode.conversationId,
           [corrected],
-          getMemorySummaryModelOverride(chatSettings)
+          getMemoryEmbeddingModelOverride(chatSettings)
         );
       } catch (error) {
         console.warn('Corrected memory embedding fell back to lexical recall.', error);
@@ -8059,9 +8073,38 @@ export const useAppStore = defineStore('app', () => {
         excludeSourceMessageIds: options?.excludeSourceMessageIds
       });
       if (!replyInputBundle) return;
+      const mcpOperationMessageIds = new Map<string, string>();
+      const publishMcpOperation = async (operation: ChatMcpOperation) => {
+        const existingMessageId = mcpOperationMessageIds.get(operation.id);
+        const nextMessage: ChatMessage = {
+          id: existingMessageId ?? createId('msg'),
+          conversationId,
+          sender: 'system',
+          authorType: 'system',
+          authorName: `${getCharacterAiName(character)} · MCP`,
+          mode: conversation.activeMode,
+          content: formatChatMcpOperation(operation),
+          mcpOperations: [operation],
+          replyBatchId: existingMessageId ? undefined : createId('mcp_turn'),
+          createdAt: operation.requestedAt,
+          status: 'sent'
+        };
+        if (existingMessageId) {
+          const existingIndex = messages.value.findIndex((message) => message.id === existingMessageId);
+          if (existingIndex >= 0) messages.value[existingIndex] = nextMessage;
+        } else {
+          mcpOperationMessageIds.set(operation.id, nextMessage.id);
+          messages.value.push(nextMessage);
+        }
+        await putEntity('messages', nextMessage);
+      };
+      replyInputBundle.input.onMcpOperation = publishMcpOperation;
       const replyPayload = options?.generatedReplyPayload ?? await generateRoleplayReply(replyInputBundle.input);
       if (isReplyRunCancelled(conversationId, replyCancelVersion)) return [];
       const parsedReply = JSON.parse(replyPayload) as RoleplayReplyResult;
+      for (const operation of parsedReply.mcpOperations ?? []) {
+        if (!mcpOperationMessageIds.has(operation.id)) await publishMcpOperation(operation);
+      }
       const apiTrace = parsedReply.apiTrace;
       const mcpResultAttachments = normalizeMcpResultAttachments(parsedReply.mcpResults);
       const replyBatchId = createId('reply');
@@ -8689,7 +8732,7 @@ export const useAppStore = defineStore('app', () => {
 
       await applyCharacterRelationshipAction(character.id, relationshipAction);
 
-      void maybeAutoCaptureConversationMemory(conversationId);
+      void maybeAutoCaptureConversationMemory(conversationId, Boolean(parsedReply.mcpOperations?.length));
 
       if (chatSettings.autoGenerateTheater && shouldAutoGenerateMoment(chatSettings.theaterFrequency)) {
         void createSmallTheaterFromConversation(conversationId, undefined, { silent: true }).catch((error) => {
@@ -9078,7 +9121,7 @@ export const useAppStore = defineStore('app', () => {
           worldBooks: worldBooks.value,
           conversationSummary: conversation.summary,
           memorySummary: await memoryContextForConversationAsync(conversationId, visibleMessagesForConversation(conversationId).slice(-8).map((message) => messageReadableContent(message)).join('\n'), {
-            modelOverride: getMemorySummaryModelOverride(chatSettings)
+            embeddingModelOverride: getMemoryEmbeddingModelOverride(chatSettings)
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
           timeAwareness: chatSettings.timeAwareness,
@@ -9579,9 +9622,9 @@ export const useAppStore = defineStore('app', () => {
     const boundUser = userById(conversation.userId || character.boundUserId) ?? user.value;
     if (!boundUser) return null;
     const chatSettings = settingsForConversation(conversationId);
-    const modelOverride = getConversationTextModelOverride(chatSettings, 'online');
+    const modelOverride = getGlobalTextModelOverride('content');
     if (!hasConfiguredTextModel(modelOverride)) {
-      showConfigAlert('请先配置当前线上聊天的 API 模型，再同步情侣空间。', '需要配置 API 模型');
+      showConfigAlert('请先配置全局内容创作模型或可用的 API 默认模型，再同步情侣空间。', '需要配置 API 模型');
       return null;
     }
 
@@ -9596,7 +9639,7 @@ export const useAppStore = defineStore('app', () => {
         worldBooks: worldBooks.value,
         conversationSummary: conversation.summary,
         memorySummary: await memoryContextForConversationAsync(conversationId, visibleMessages.slice(-10).map((message) => messageReadableContent(message)).join('\n'), {
-          modelOverride: getMemorySummaryModelOverride(chatSettings)
+          embeddingModelOverride: getMemoryEmbeddingModelOverride(chatSettings)
         }),
         stickerVisionEnabled: chatSettings.stickerVisionEnabled,
         timeAwareness: chatSettings.timeAwareness,
@@ -9662,7 +9705,7 @@ export const useAppStore = defineStore('app', () => {
           worldBooks: worldBooks.value,
           conversationSummary: conversation.summary,
           memorySummary: await memoryContextForConversationAsync(conversationId, visibleMessages.slice(-8).map((message) => messageReadableContent(message)).join('\n'), {
-            modelOverride: getMemorySummaryModelOverride(chatSettings)
+            embeddingModelOverride: getMemoryEmbeddingModelOverride(chatSettings)
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
           timeAwareness: chatSettings.timeAwareness,
@@ -9754,7 +9797,7 @@ export const useAppStore = defineStore('app', () => {
           worldBooks: worldBooks.value,
           conversationSummary: conversation.summary,
           memorySummary: await memoryContextForConversationAsync(conversation.id, visibleMessages.slice(-8).map((message) => messageReadableContent(message)).join('\n'), {
-            modelOverride: getMemorySummaryModelOverride(chatSettings)
+            embeddingModelOverride: getMemoryEmbeddingModelOverride(chatSettings)
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
           timeAwareness: chatSettings.timeAwareness,
@@ -10520,7 +10563,7 @@ export const useAppStore = defineStore('app', () => {
           worldBooks: worldBooks.value,
           conversationSummary: conversation.summary,
           memorySummary: await memoryContextForConversationAsync(conversation.id, [post.content, post.imageDescription ?? '', ...userComments.map((comment) => comment.content)].join('\n'), {
-            modelOverride: getMemorySummaryModelOverride(chatSettings)
+            embeddingModelOverride: getMemoryEmbeddingModelOverride(chatSettings)
           }),
           stickerVisionEnabled: chatSettings.stickerVisionEnabled,
           timeAwareness: chatSettings.timeAwareness

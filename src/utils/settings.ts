@@ -1,4 +1,4 @@
-import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, CloudBackupProvider, CloudBackupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, McpServerConfig, McpServerKind, McpSettings, McpToolDefinition, McpToolPolicy, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RealityCalendarEvent, RealityMemo, RealityMcpSettings, RealityRecurrenceRule, RealityReminder, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
+import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, CloudBackupProvider, CloudBackupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, McpServerConfig, McpServerKind, McpSettings, McpToolDefinition, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RealityCalendarEvent, RealityMemo, RealityMcpSettings, RealityRecurrenceRule, RealityReminder, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
 import { createBuiltinNotificationInboxMcpServer, createBuiltinRealityMcpServer } from '@/data/realityMcp';
 import { createId } from './id';
 import { normalizeGlobalThemeScale } from './themeScale';
@@ -151,9 +151,10 @@ export function normalizeChatModelOverrides(overrides?: Partial<ChatModelOverrid
     online: String(overrides?.online ?? '').trim(),
     offline: String(overrides?.offline ?? '').trim(),
     summary: String(overrides?.summary ?? '').trim(),
+    embedding: String(overrides?.embedding ?? '').trim(),
     voom: String(overrides?.voom ?? '').trim(),
     theater: String(overrides?.theater ?? '').trim(),
-    groupDiscovery: String(overrides?.groupDiscovery ?? '').trim()
+    content: String(overrides?.content ?? '').trim()
   };
 }
 
@@ -263,10 +264,6 @@ function normalizeMcpServerKind(value: unknown): McpServerKind {
     : 'custom';
 }
 
-function normalizeMcpToolPolicy(value: unknown): McpToolPolicy {
-  return value === 'disabled' || value === 'all' ? value : 'read-only';
-}
-
 function normalizeMcpTool(value: unknown): McpToolDefinition | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const source = value as Partial<McpToolDefinition>;
@@ -305,9 +302,11 @@ function normalizeMcpServer(value: unknown): McpServerConfig | null {
   const normalizedTools = Array.isArray(source.tools)
     ? source.tools.map(normalizeMcpTool).filter((tool): tool is McpToolDefinition => Boolean(tool))
     : [];
-  const savedTools = new Map(normalizedTools.map((tool) => [tool.name, tool]));
   const tools = fallback
-    ? fallback.tools.map((tool) => ({ ...tool, enabled: savedTools.get(tool.name)?.enabled ?? tool.enabled }))
+    ? fallback.tools.map((tool) => ({
+      ...tool,
+      enabled: normalizedTools.find((candidate) => candidate.name === tool.name)?.enabled ?? tool.enabled
+    }))
     : normalizedTools;
   const timeoutMs = Math.round(Number(source.timeoutMs) || 45_000);
   return {
@@ -322,7 +321,9 @@ function normalizeMcpServer(value: unknown): McpServerConfig | null {
     apiKeyPrefix: String(source.apiKeyPrefix ?? 'Bearer ').replace(/[\r\n]/g, ''),
     enabled: source.enabled !== false,
     globalEnabled: source.globalEnabled ?? fallback?.globalEnabled ?? false,
-    toolPolicy: kind === 'reality' ? 'all' : kind === 'notification-inbox' ? 'read-only' : normalizeMcpToolPolicy(source.toolPolicy),
+    toolPolicy: source.toolPolicy === 'disabled' || source.toolPolicy === 'read-only' || source.toolPolicy === 'all'
+      ? source.toolPolicy
+      : fallback?.toolPolicy ?? 'all',
     timeoutMs: Math.min(120_000, Math.max(3_000, timeoutMs)),
     tools: [...new Map(tools.map((tool) => [tool.name, tool])).values()],
     protocolVersion: String(source.protocolVersion ?? '').trim() || fallback?.protocolVersion || '',

@@ -18,6 +18,7 @@ import type {
   MemoryTheme,
 } from '@/types/memory';
 import { formatUserTimePreview } from '@/utils/timeAwareness';
+import { formatChatMcpOperations } from '@/utils/mcpOperations';
 import { extractCompleteJsonObject, normalizeNarrativeText } from '@/utils/structuredText';
 
 export interface ExtractTemporalMemoryInput {
@@ -56,7 +57,7 @@ export interface TemporalMemoryExtractionResult extends MemoryExtractionResult {
 
 export async function extractTemporalMemory(input: ExtractTemporalMemoryInput): Promise<TemporalMemoryExtractionResult> {
   if (!hasTextGenerationConfig(input.settings, input.modelOverride)) {
-    throw new Error('没有可用的总结、图谱、向量化模型。请先配置全局或角色局部的总结、图谱、向量化模型，或 API 默认模型。');
+    throw new Error('没有可用的总结、图谱模型。请先配置全局或角色局部的总结、图谱模型，或 API 默认模型。');
   }
   const diary = await generateTemporalMemoryDiary(input);
   const graph = await extractTemporalMemoryGraph(input);
@@ -87,7 +88,7 @@ export async function extractTemporalMemory(input: ExtractTemporalMemoryInput): 
 
 export async function generateTemporalMemoryDiary(input: ExtractTemporalMemoryInput): Promise<TemporalMemoryDiaryResult> {
   if (!hasTextGenerationConfig(input.settings, input.modelOverride)) {
-    throw new Error('没有可用的总结、图谱、向量化模型。请先配置全局或角色局部的总结、图谱、向量化模型，或 API 默认模型。');
+    throw new Error('没有可用的总结、图谱模型。请先配置全局或角色局部的总结、图谱模型，或 API 默认模型。');
   }
   const prompt = buildMemoryDiaryPrompt(input);
   let lastError: unknown;
@@ -110,7 +111,7 @@ export async function generateTemporalMemoryDiary(input: ExtractTemporalMemoryIn
     }
   }
   const reason = lastError instanceof Error ? lastError.message : 'JSON 结构无效。';
-  throw new Error(`${reason} 日记模型已自动重试仍未成功，请更换总结、图谱、向量化模型后再试。`);
+  throw new Error(`${reason} 日记模型已自动重试仍未成功，请更换总结、图谱模型后再试。`);
 }
 
 export async function extractTemporalMemoryGraph(input: ExtractTemporalMemoryInput): Promise<TemporalMemoryGraphResult> {
@@ -163,7 +164,7 @@ export async function consolidateMemoryThemeReport(input: ConsolidateMemoryTheme
     .slice(0, 18);
   if (!activeAssertions.length) throw new Error('当前主题没有可用于整理的有效认知。');
   if (!hasTextGenerationConfig(input.settings, input.modelOverride)) {
-    throw new Error('没有可用的总结、图谱、向量化模型。请先配置全局或角色局部的总结、图谱、向量化模型，或 API 默认模型。');
+    throw new Error('没有可用的总结、图谱模型。请先配置全局或角色局部的总结、图谱模型，或 API 默认模型。');
   }
   const evidence = activeAssertions
     .map((assertion, index) => `${index + 1}. ${assertion.perspectiveText}（${assertion.kind}；确信度${Math.round(assertion.confidence * 100)}%）`)
@@ -335,6 +336,8 @@ function renderMessageContent(message: ChatMessage): string {
   if (message.image) parts.push(`[图片：${message.image.description}]`);
   if (message.voice) parts.push(`[语音：${message.voice.transcript}]`);
   if (message.location) parts.push(`[位置：名称=${message.location.name}；地址=${message.location.address || '未提供'}；与对方距离=${message.location.distance}]`);
+  if (message.mcpOperations?.length) parts.push(formatChatMcpOperations(message.mcpOperations));
+  if (message.mcpResult) parts.push(`[MCP 结构化结果：${message.mcpResult.serverName} ${message.mcpResult.toolName} ${JSON.stringify(message.mcpResult.items)}]`);
   if (message.transfer) parts.push(`[转账：${message.transfer.amount} ${message.transfer.note || ''}]`);
   if (message.commerce) parts.push(`[共同事件：${message.commerce.storeName} ${message.commerce.items.map((item) => item.name).join('、')}]`);
   if (message.musicListenInvite) parts.push(`[一起听：${message.musicListenInvite.track?.name || message.musicListenInvite.note || ''}]`);

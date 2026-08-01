@@ -133,7 +133,7 @@
               </label>
               <label class="policy-row">
                 <span><strong>角色权限</strong><small>{{ policyDescription(server.toolPolicy) }}</small></span>
-                <select :value="server.toolPolicy" :disabled="!server.enabled || isBuiltinMcpServer(server)" @change="setToolPolicy(server, $event)">
+                <select :value="server.toolPolicy" :disabled="!server.enabled" @change="setToolPolicy(server, $event)">
                   <option value="disabled">不允许角色调用</option>
                   <option value="read-only">只浏览与查询</option>
                   <option value="all">浏览并执行操作</option>
@@ -544,16 +544,16 @@ async function runBridgePairing() {
       toolPolicy: 'all',
       tools: existing?.tools ?? pairedServer.tools
     };
+    const discoveredServer = await discoverServer(nextServer);
     await saveMcpSettings({
       ...mcpSettings.value,
       servers: existing
-        ? mcpSettings.value.servers.map((server) => server.id === existing.id ? nextServer : server)
-        : [...mcpSettings.value.servers, nextServer]
+        ? mcpSettings.value.servers.map((server) => server.id === existing.id ? discoveredServer : server)
+        : [...mcpSettings.value.servers, discoveredServer]
     });
     showBridgeGuide.value = false;
     bridgePairingText.value = '';
-    setNotice('success', `${nextServer.name} 已配对，正在确认电脑和账号状态。`);
-    void inspectServer(nextServer);
+    setNotice('success', `${discoveredServer.name} 已配对，发现 ${discoveredServer.tools.length} 个工具。`);
   } catch (error) {
     bridgeError.value = error instanceof Error ? error.message : '电脑助手配对失败。';
   }
@@ -591,16 +591,16 @@ async function saveComposer() {
       url,
       headers
     };
+    const discoveredServer = await discoverServer(nextServer);
     const exists = mcpSettings.value.servers.some((server) => server.id === editingServerId.value);
     await saveMcpSettings({
       ...mcpSettings.value,
       servers: exists
-        ? mcpSettings.value.servers.map((server) => server.id === editingServerId.value ? nextServer : server)
-        : [...mcpSettings.value.servers, nextServer]
+        ? mcpSettings.value.servers.map((server) => server.id === editingServerId.value ? discoveredServer : server)
+        : [...mcpSettings.value.servers, discoveredServer]
     });
     showComposer.value = false;
-    setNotice('success', `${nextServer.name} 已保存，正在自动读取远程工具。`);
-    void inspectServer(nextServer);
+    setNotice('success', `${discoveredServer.name} 已保存，发现 ${discoveredServer.tools.length} 个工具。`);
   } catch (error) {
     composerError.value = error instanceof Error ? error.message : 'MCP 配置无法保存。';
   }
@@ -613,6 +613,10 @@ async function inspectServer(server: McpServerConfig) {
     const inspection = await inspectMcpServer(server);
     await patchServer(server.id, {
       ...inspection,
+      tools: inspection.tools.map((tool) => ({
+        ...tool,
+        enabled: server.tools.find((configured) => configured.name === tool.name)?.enabled ?? tool.enabled
+      })),
       lastStatus: 'connected',
       lastCheckedAt: Date.now(),
       lastError: ''
@@ -631,6 +635,21 @@ async function inspectServer(server: McpServerConfig) {
     nextIds.delete(server.id);
     testingServerIds.value = nextIds;
   }
+}
+
+async function discoverServer(server: McpServerConfig) {
+  const inspection = await inspectMcpServer(server);
+  return {
+    ...server,
+    ...inspection,
+    tools: inspection.tools.map((tool) => ({
+      ...tool,
+      enabled: server.tools.find((configured) => configured.name === tool.name)?.enabled ?? tool.enabled
+    })),
+    lastStatus: 'connected' as const,
+    lastCheckedAt: Date.now(),
+    lastError: ''
+  } satisfies McpServerConfig;
 }
 
 async function readImportFile(event: Event) {
@@ -658,19 +677,17 @@ async function runImport() {
     const existingUrls = new Set(mcpSettings.value.servers.map((server) => server.url));
     const additions = importedWithKey.filter((server) => !existingUrls.has(server.url));
     if (!additions.length) throw new Error('这些远程地址已经存在。');
-    await saveMcpSettings({ ...mcpSettings.value, servers: [...mcpSettings.value.servers, ...additions] });
+    const discoveredAdditions: McpServerConfig[] = [];
+    for (const server of additions) discoveredAdditions.push(await discoverServer(server));
+    await saveMcpSettings({ ...mcpSettings.value, servers: [...mcpSettings.value.servers, ...discoveredAdditions] });
     showImporter.value = false;
     importText.value = '';
     importApiKey.value = '';
-    setNotice('success', `已导入 ${additions.length} 个远程 MCP，正在自动检测。`);
-    void inspectImportedServers(additions);
+    const toolCount = discoveredAdditions.reduce((total, server) => total + server.tools.length, 0);
+    setNotice('success', `已导入 ${discoveredAdditions.length} 个远程 MCP，发现 ${toolCount} 个工具。`);
   } catch (error) {
     importError.value = error instanceof Error ? error.message : 'MCP 配置导入失败。';
   }
-}
-
-async function inspectImportedServers(servers: McpServerConfig[]) {
-  for (const server of servers) await inspectServer(server);
 }
 
 function closeDeleteModal(open: boolean) {

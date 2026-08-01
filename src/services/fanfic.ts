@@ -568,7 +568,7 @@ export async function fetchFanficTrendKeywords() {
 }
 
 export async function generateFanficTrendTopics(input: { keywords: string[]; settings?: AppSettings }): Promise<FanficTopic[]> {
-  if (!hasTextGenerationConfig(input.settings, getFanficTextModelOverride(input.settings))) throw new Error('请先配置全局小剧场模型或可用的 API 默认模型，再生成联网同人题材。');
+  if (!hasTextGenerationConfig(input.settings, getFanficTextModelOverride(input.settings))) throw new Error('请先配置全局内容创作模型或可用的 API 默认模型，再生成联网同人题材。');
   const prompt = [
     '根据公开通用网络文学分类标签生成 6 个完全原创、清楚直给、适合连载的双主角 AU 同人题材卡。不要套用任何单一内容频道；六个题材要主动覆盖情感、事业、悬疑、冒险、幻想、现实或轻喜剧中的不同方向。趋势标签只能作为类型参考，禁止提及、拼接或改写任何榜单作品、IP、明星、作者、书名、简介和正文。',
     `趋势标签：${JSON.stringify(input.keywords)}`,

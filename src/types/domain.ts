@@ -395,15 +395,16 @@ export interface CharacterProfileHomepageAutoCleanupSettings {
   lastCleanupAt: number;
 }
 
-export type ChatModelScope = 'online' | 'offline' | 'summary' | 'voom' | 'theater' | 'groupDiscovery';
+export type ChatModelScope = 'online' | 'offline' | 'summary' | 'embedding' | 'voom' | 'theater' | 'content';
 
 export interface ChatModelOverrides {
   online: string;
   offline: string;
   summary: string;
+  embedding: string;
   voom: string;
   theater: string;
-  groupDiscovery: string;
+  content: string;
 }
 
 export interface CharacterThemeStyleBindings {
@@ -710,12 +711,30 @@ export interface ChatApiUsage {
   totalTokens?: number;
 }
 
+export type ChatMcpOperationState = 'running' | 'completed' | 'initiated' | 'awaiting-user' | 'requires-permission' | 'cancelled' | 'unsupported' | 'unknown' | 'failed';
+
+export interface ChatMcpOperation {
+  id: string;
+  serverId: string;
+  serverName: string;
+  toolName: string;
+  toolRef: string;
+  arguments: Record<string, unknown>;
+  result: string;
+  state: ChatMcpOperationState;
+  requestedAt: number;
+  completedAt?: number;
+  receipt?: string;
+}
+
 export interface ChatMcpToolCallTrace {
+  operationId?: string;
   serverId: string;
   serverName: string;
   toolName: string;
   arguments: Record<string, unknown>;
   status: 'success' | 'error';
+  state?: ChatMcpOperationState;
   result: string;
 }
 
@@ -729,6 +748,7 @@ export interface ChatApiTrace {
   status?: string;
   usage?: ChatApiUsage;
   mcpToolCalls: ChatMcpToolCallTrace[];
+  mcpOperations?: ChatMcpOperation[];
 }
 
 export type ChatTransferStatus = 'pending' | 'accepted' | 'rejected';
@@ -877,6 +897,7 @@ export interface ChatMessageQuote {
   voice?: ChatVoiceAttachment;
   location?: ChatLocationAttachment;
   mcpResult?: ChatMcpResultAttachment;
+  mcpOperations?: ChatMcpOperation[];
   transfer?: ChatTransferAttachment;
   commerce?: ChatCommerceAttachment;
   shopShare?: ChatShopShareAttachment;
@@ -909,6 +930,7 @@ export interface ChatMessage {
   voice?: ChatVoiceAttachment;
   location?: ChatLocationAttachment;
   mcpResult?: ChatMcpResultAttachment;
+  mcpOperations?: ChatMcpOperation[];
   transfer?: ChatTransferAttachment;
   commerce?: ChatCommerceAttachment;
   shopShare?: ChatShopShareAttachment;
@@ -1836,4 +1858,5 @@ export interface GenerateReplyInput extends PromptContext {
   settings?: AppSettings;
   modelOverride?: string;
   persistSettings?: (settings: AppSettings) => Promise<void>;
+  onMcpOperation?: (operation: ChatMcpOperation) => void | Promise<void>;
 }

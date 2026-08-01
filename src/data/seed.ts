@@ -54,9 +54,10 @@ export const defaultSettings: AppSettings = {
     online: '',
     offline: '',
     summary: '',
+    embedding: '',
     voom: '',
     theater: '',
-    groupDiscovery: ''
+    content: ''
   },
   autoGenerateVoom: true,
   disclaimerAccepted: false,

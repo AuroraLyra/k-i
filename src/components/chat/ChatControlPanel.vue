@@ -363,12 +363,12 @@
             <input :checked="characterMcpBinding.overrideGlobal" type="checkbox" @change="updateCharacterMcpOverride" />
             <span class="switch-track"></span>
             <div>
-              <strong>角色局部优先</strong>
-              <span>开启后不再继承全局应用，只使用下方单独勾选的 MCP。</span>
+              <strong>单独绑定 MCP 服务</strong>
+              <span>开启后为这个角色选择服务；可用工具仍遵循服务的读写策略和逐工具开关。</span>
             </div>
           </label>
           <p class="character-mcp-note">
-            {{ characterMcpBinding.overrideGlobal ? '当前为角色独立配置；未勾选时该角色不会使用任何 MCP。' : '当前跟随 Services > MCP Studio 中已开启的全局应用。' }}
+            {{ characterMcpBinding.overrideGlobal ? '当前使用角色专属服务绑定；未勾选的服务不会出现在这个角色的聊天中。' : '当前继承 Services > MCP Studio 中已开启的全局服务。' }}
           </p>
           <div v-if="configuredMcpServers.length" class="character-mcp-list">
             <label v-for="server in configuredMcpServers" :key="server.id" class="character-mcp-row" :class="{ unavailable: !server.enabled }">

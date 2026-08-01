@@ -225,6 +225,10 @@ export function useMcpStudioController(navigate: McpStudioContext['navigate']): 
       const inspection = await inspectMcpServer(server);
       await patchServer(server.id, {
         ...inspection,
+        tools: inspection.tools.map((tool) => ({
+          ...tool,
+          enabled: server.tools.find((configured) => configured.name === tool.name)?.enabled ?? tool.enabled
+        })),
         lastStatus: 'connected',
         lastCheckedAt: Date.now(),
         lastError: ''
@@ -239,6 +243,21 @@ export function useMcpStudioController(navigate: McpStudioContext['navigate']): 
       nextIds.delete(server.id);
       checkingIdsState.value = nextIds;
     }
+  }
+
+  async function discoverServer(server: McpServerConfig) {
+    const inspection = await inspectMcpServer(server);
+    return {
+      ...server,
+      ...inspection,
+      tools: inspection.tools.map((tool) => ({
+        ...tool,
+        enabled: server.tools.find((configured) => configured.name === tool.name)?.enabled ?? tool.enabled
+      })),
+      lastStatus: 'connected' as const,
+      lastCheckedAt: Date.now(),
+      lastError: ''
+    } satisfies McpServerConfig;
   }
 
   async function runBridgePairing() {
@@ -257,16 +276,16 @@ export function useMcpStudioController(navigate: McpStudioContext['navigate']): 
         toolPolicy: 'all',
         tools: existing?.tools ?? pairedServer.tools
       };
+      const discoveredServer = await discoverServer(nextServer);
       await saveMcpSettings({
         ...settings.value,
         servers: existing
-          ? settings.value.servers.map((server) => server.id === existing.id ? nextServer : server)
-          : [...settings.value.servers, nextServer]
+          ? settings.value.servers.map((server) => server.id === existing.id ? discoveredServer : server)
+          : [...settings.value.servers, discoveredServer]
       });
       showPairing.value = false;
       bridgePairingText.value = '';
-      setNotice('success', `${nextServer.name} 已配对，正在确认电脑和账号状态。`);
-      void inspectServer(nextServer);
+      setNotice('success', `${discoveredServer.name} 已配对，发现 ${discoveredServer.tools.length} 个工具。`);
     } catch (error) {
       bridgeError.value = error instanceof Error ? error.message : '电脑助手配对失败。';
     } finally {
@@ -295,16 +314,16 @@ export function useMcpStudioController(navigate: McpStudioContext['navigate']): 
         url: normalizeMcpRemoteUrl(composer.url),
         headers: parseHeaders()
       };
+      const discoveredServer = await discoverServer(nextServer);
       const exists = settings.value.servers.some((server) => server.id === editingServerId.value);
       await saveMcpSettings({
         ...settings.value,
         servers: exists
-          ? settings.value.servers.map((server) => server.id === editingServerId.value ? nextServer : server)
-          : [...settings.value.servers, nextServer]
+          ? settings.value.servers.map((server) => server.id === editingServerId.value ? discoveredServer : server)
+          : [...settings.value.servers, discoveredServer]
       });
       showComposer.value = false;
-      setNotice('success', `${nextServer.name} 已保存，正在自动读取远程工具。`);
-      void inspectServer(nextServer);
+      setNotice('success', `${discoveredServer.name} 已保存，发现 ${discoveredServer.tools.length} 个工具。`);
     } catch (error) {
       composerError.value = error instanceof Error ? error.message : 'MCP 配置无法保存。';
     } finally {
@@ -329,10 +348,6 @@ export function useMcpStudioController(navigate: McpStudioContext['navigate']): 
     }
   }
 
-  async function inspectImportedServers(servers: McpServerConfig[]) {
-    for (const server of servers) await inspectServer(server);
-  }
-
   async function runImport() {
     if (importing.value) return;
     importError.value = '';
@@ -345,12 +360,14 @@ export function useMcpStudioController(navigate: McpStudioContext['navigate']): 
       const existingUrls = new Set(settings.value.servers.map((server) => server.url));
       const additions = imported.filter((server) => !existingUrls.has(server.url));
       if (!additions.length) throw new Error('这些远程地址已经存在。');
-      await saveMcpSettings({ ...settings.value, servers: [...settings.value.servers, ...additions] });
+      const discoveredAdditions: McpServerConfig[] = [];
+      for (const server of additions) discoveredAdditions.push(await discoverServer(server));
+      await saveMcpSettings({ ...settings.value, servers: [...settings.value.servers, ...discoveredAdditions] });
       showImporter.value = false;
       importText.value = '';
       importApiKey.value = '';
-      setNotice('success', `已导入 ${additions.length} 个远程 MCP，正在自动检测。`);
-      void inspectImportedServers(additions);
+      const toolCount = discoveredAdditions.reduce((total, server) => total + server.tools.length, 0);
+      setNotice('success', `已导入 ${discoveredAdditions.length} 个远程 MCP，发现 ${toolCount} 个工具。`);
     } catch (error) {
       importError.value = error instanceof Error ? error.message : 'MCP 配置导入失败。';
     } finally {

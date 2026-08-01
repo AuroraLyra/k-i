@@ -43,7 +43,7 @@
         @selectstart.prevent.stop="suppressNativeSelection"
       >
         <span v-if="authorLabel" class="message-author-label">{{ authorLabel }}</span>
-        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, mcpResult: message.mcpResult, transfer: message.transfer, commerce: message.commerce, shopShare: message.shopShare, musicListenInvite: message.musicListenInvite, linkPreview: message.linkPreview, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation, call: message.call, gobang: message.gobang }" :style="bubbleStyle">
+        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, mcpOperation: message.mcpOperations?.length, mcpResult: message.mcpResult, transfer: message.transfer, commerce: message.commerce, shopShare: message.shopShare, musicListenInvite: message.musicListenInvite, linkPreview: message.linkPreview, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation, call: message.call, gobang: message.gobang }" :style="bubbleStyle">
           <template v-if="message.call">
             <section class="call-message-card" :class="[`call-message-card--${message.call.status}`, `call-message-card--${message.call.mode}`, `call-message-card--${message.call.direction}`]" aria-label="通话消息">
               <div class="call-message-head">
@@ -200,6 +200,19 @@
               </span>
               <span class="shop-share-footer"><span><small>{{ message.shopShare.storeName }}</small><strong v-if="shopSharePrice">{{ shopSharePrice }}</strong></span><span>打开 Shop <ChevronRight :size="13" /></span></span>
               <span v-if="message.shopShare.note" class="shop-share-note">“{{ message.shopShare.note }}”</span>
+            </section>
+          </template>
+          <template v-else-if="message.mcpOperations?.length">
+            <section class="mcp-operation-card" aria-label="角色 MCP 行动">
+              <header class="mcp-operation-head">
+                <span class="mcp-operation-mark"><Globe2 :size="15" /></span>
+                <span><small>ROLE ACTION</small><strong>{{ message.authorName || '角色 MCP 行动' }}</strong></span>
+              </header>
+              <article v-for="operation in message.mcpOperations" :key="operation.id" class="mcp-operation-item" :class="`state-${operation.state}`">
+                <span><strong>{{ operation.serverName }} · {{ operation.toolName }}</strong><small>{{ mcpOperationStateLabel(operation.state) }}</small></span>
+                <em v-if="operation.receipt">回执 {{ operation.receipt }}</em>
+                <p v-if="operation.result">{{ operation.result }}</p>
+              </article>
             </section>
           </template>
           <template v-else-if="message.mcpResult">
@@ -441,6 +454,7 @@ import { downloadImageUrl } from '@/utils/download';
 import { getStickerDisplayImageUrl } from '@/utils/stickers';
 import { normalizeTranslationText, shouldShowChineseTranslation } from '@/utils/translation';
 import { gobangStoneForPlayer } from '@/utils/gobang';
+import { mcpOperationStateLabel } from '@/utils/mcpOperations';
 
 const props = withDefaults(defineProps<{
   message: ChatMessage;
@@ -3788,6 +3802,84 @@ time,
   background: transparent !important;
   box-shadow: 0 12px 30px rgba(29, 47, 43, 0.12) !important;
 }
+
+.bubble.mcpOperation {
+  width: min(306px, 78vw);
+  min-width: min(248px, 68vw);
+  max-width: min(306px, 78vw);
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 17px !important;
+  background: transparent !important;
+  box-shadow: 0 12px 30px rgba(44, 72, 111, 0.13) !important;
+}
+
+.mcp-operation-card {
+  display: grid;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(63, 91, 138, 0.18);
+  border-radius: 17px;
+  background: linear-gradient(150deg, #f8fbff, #f2f6ff 58%, #edf3fb);
+  color: #344560;
+}
+
+.mcp-operation-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 10px 11px 9px;
+  border-bottom: 1px solid rgba(63, 91, 138, 0.12);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.mcp-operation-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  background: #dce8fb;
+  color: #4a6fa9;
+}
+
+.mcp-operation-head > span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.mcp-operation-head small,
+.mcp-operation-item small {
+  color: #7185a5;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.mcp-operation-head strong,
+.mcp-operation-item strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-operation-item {
+  display: grid;
+  gap: 4px;
+  padding: 9px 11px;
+  border-top: 1px solid rgba(63, 91, 138, 0.08);
+}
+
+.mcp-operation-item:first-of-type { border-top: 0; }
+.mcp-operation-item > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mcp-operation-item > em { color: #61738f; font-size: 8px; font-style: normal; }
+.mcp-operation-item > p { margin: 0; color: #53627c; font-size: 9px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.mcp-operation-item.state-running small { color: #9a741f; }
+.mcp-operation-item.state-failed small { color: #b35b64; }
+.mcp-operation-item.state-requires-permission small,
+.mcp-operation-item.state-initiated small { color: #7666a4; }
 
 .mcp-result-card {
   display: grid;

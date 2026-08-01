@@ -1,15 +1,19 @@
+import Ajv, { type ValidateFunction } from 'ajv';
 import type { AppSettings, CharacterProfile, ChatMcpResultAttachment, McpServerConfig, McpServerKind, McpToolDefinition } from '@/types/domain';
 import { createBuiltinNotificationInboxMcpServer, createBuiltinRealityMcpServer, notificationInboxMcpTools, realityMcpTools } from '@/data/realityMcp';
 import { fetchNativeMcpLocal, nativeMcpLocalAvailable } from '@/services/nativeMcpLocal';
 import { executeRealityMcpTool } from '@/services/realityMcp';
 import { createActiveTimeout, isFetchInterruptedError, waitForActiveNetworkWindow } from '@/utils/activeTimeout';
 import { createId } from '@/utils/id';
+import { getMcpToolAccessState, mcpToolAccessError, resolveAllowedMcpTools } from '@/utils/mcpAccess';
 import { createMcpResultAttachment } from '@/utils/mcpResults';
 
 const defaultProtocolVersion = '2025-06-18';
 const mcpProxyPath = '/__mcp-proxy';
 const maxToolResultLength = 12_000;
 const maxToolListPages = 20;
+const schemaValidator = new Ajv({ allErrors: true, allowUnionTypes: true, strict: false, validateFormats: false });
+const toolSchemaValidators = new Map<string, ValidateFunction>();
 
 interface JsonRpcError {
   code?: number;
@@ -493,7 +497,7 @@ function isLikelyReadOnlyTool(tool: McpRawTool) {
   return /^(get|list|search|read|fetch|find|query|check|status|inspect|lookup|browse|view|show|download|resolve)[_.:-]?/.test(String(tool.name ?? '').toLowerCase());
 }
 
-function normalizeDiscoveredTool(tool: McpRawTool, current?: McpToolDefinition): McpToolDefinition | null {
+function normalizeDiscoveredTool(tool: McpRawTool): McpToolDefinition | null {
   const name = String(tool.name ?? '').trim();
   if (!name) return null;
   return {
@@ -503,20 +507,19 @@ function normalizeDiscoveredTool(tool: McpRawTool, current?: McpToolDefinition):
     inputSchema: tool.inputSchema && typeof tool.inputSchema === 'object' && !Array.isArray(tool.inputSchema)
       ? tool.inputSchema
       : { type: 'object', properties: {} },
-    enabled: current?.enabled !== false,
+    enabled: true,
     write: !isLikelyReadOnlyTool(tool)
   };
 }
 
 export async function inspectMcpServer(server: McpServerConfig): Promise<McpServerInspection> {
   if (isBuiltinDeviceMcpServer(server)) {
-    const currentTools = new Map(server.tools.map((tool) => [tool.name, tool]));
     const builtinTools = server.kind === 'notification-inbox' ? notificationInboxMcpTools : realityMcpTools;
     return {
       tools: builtinTools.map((tool) => ({
         ...tool,
         inputSchema: { ...tool.inputSchema },
-        enabled: currentTools.get(tool.name)?.enabled ?? tool.enabled
+        enabled: true
       })),
       protocolVersion: 'builtin',
       serverName: server.kind === 'notification-inbox' ? 'BabyLink Notification Inbox MCP' : 'BabyLink Reality MCP',
@@ -536,9 +539,8 @@ export async function inspectMcpServer(server: McpServerConfig): Promise<McpServ
       serverInfo = await recoverMcpSession(session, error);
       rawTools = await session.listTools();
     }
-    const currentTools = new Map(server.tools.map((tool) => [tool.name, tool]));
     const tools = rawTools
-      .map((tool) => normalizeDiscoveredTool(tool, currentTools.get(String(tool.name ?? '').trim())))
+      .map(normalizeDiscoveredTool)
       .filter((tool): tool is McpToolDefinition => Boolean(tool));
     return { ...serverInfo, tools: [...new Map(tools.map((tool) => [tool.name, tool])).values()] };
   } finally {
@@ -563,12 +565,37 @@ function formatToolCallResult(result: McpToolCallResultPayload | undefined) {
   return (parts.join('\n') || '工具执行完成，但没有返回文本内容。').slice(0, maxToolResultLength);
 }
 
-function validateMcpToolExecution(server: McpServerConfig, toolName: string) {
+function schemaValidatorKey(server: McpServerConfig, tool: McpToolDefinition) {
+  return `${server.id}:${tool.name}:${JSON.stringify(tool.inputSchema)}`;
+}
+
+function validateMcpToolArguments(server: McpServerConfig, tool: McpToolDefinition, args: Record<string, unknown>) {
+  const key = schemaValidatorKey(server, tool);
+  let validate = toolSchemaValidators.get(key);
+  if (!validate) {
+    try {
+      validate = schemaValidator.compile(tool.inputSchema);
+      toolSchemaValidators.set(key, validate);
+    } catch (error) {
+      throw new Error(`工具参数规则无效，已阻止调用：${error instanceof Error ? error.message : '无法编译 JSON Schema。'}`);
+    }
+  }
+  if (validate(args)) return;
+  const detail = (validate.errors ?? [])
+    .slice(0, 3)
+    .map((error) => `${error.instancePath || '参数'} ${error.message ?? '无效'}`)
+    .join('；');
+  throw new Error(`工具参数不符合 ${tool.name} 的输入规则：${detail || '参数无效。'}`);
+}
+
+function validateMcpToolExecution(server: McpServerConfig, toolName: string, args: Record<string, unknown>) {
   if (!isBuiltinDeviceMcpServer(server)) normalizeMcpRemoteUrl(server.url);
   const configuredTool = server.tools.find((tool) => tool.name === toolName);
-  if (!configuredTool?.enabled) throw new Error('该 MCP 工具未启用。');
-  if (server.toolPolicy === 'disabled') throw new Error('该 MCP 连接已禁止角色自动调用。');
-  if (configuredTool.write && server.toolPolicy !== 'all') throw new Error('该工具会修改外部平台，当前连接仅允许查询工具。');
+  if (!configuredTool) throw new Error('该 MCP 服务没有这个工具，重新检测连接后再试。');
+  const accessState = getMcpToolAccessState(server, configuredTool);
+  if (accessState !== 'allowed') throw new Error(mcpToolAccessError(accessState));
+  validateMcpToolArguments(server, configuredTool, args);
+  return configuredTool;
 }
 
 function toMcpToolExecutionResult(server: McpServerConfig, toolName: string, result: McpToolCallResultPayload | undefined): McpToolExecutionResult {
@@ -596,7 +623,7 @@ export async function executeMcpTools(requests: McpToolExecutionRequest[]): Prom
       const { server, toolName, args } = request;
       let session: McpHttpSession | undefined;
       try {
-        validateMcpToolExecution(server, toolName);
+        const configuredTool = validateMcpToolExecution(server, toolName, args);
         if (isBuiltinDeviceMcpServer(server)) {
           const result = await executeRealityMcpTool(request);
           outcomes.push({ ok: true, result });
@@ -615,7 +642,6 @@ export async function executeMcpTools(requests: McpToolExecutionRequest[]): Prom
         try {
           result = await session.callTool(toolName, args);
         } catch (error) {
-          const configuredTool = server.tools.find((tool) => tool.name === toolName);
           const sessionRejected = error instanceof McpSessionExpiredError;
           const safeTransportRetry = error instanceof McpTransportError && configuredTool?.write === false;
           if (!sessionRejected && !safeTransportRetry) {
@@ -657,7 +683,7 @@ export async function executeMcpTool(server: McpServerConfig, toolName: string, 
 export function resolveMcpServers(settings: AppSettings | undefined, character: CharacterProfile) {
   const mcp = settings?.mcpSettings;
   if (!mcp?.enabled) return [];
-  const enabledServers = mcp.servers.filter((server) => server.enabled && server.toolPolicy !== 'disabled');
+  const enabledServers = mcp.servers.filter((server) => server.enabled);
   const binding = character.mcpBinding;
   const selectedIds = new Set(binding?.overrideGlobal
     ? binding.serverIds
@@ -666,8 +692,7 @@ export function resolveMcpServers(settings: AppSettings | undefined, character: 
 }
 
 export function resolveMcpTools(settings: AppSettings | undefined, character: CharacterProfile): ResolvedMcpTool[] {
-  return resolveMcpServers(settings, character).flatMap((server) => server.tools
-    .filter((tool) => tool.enabled && (!tool.write || server.toolPolicy === 'all'))
+  return resolveMcpServers(settings, character).flatMap((server) => resolveAllowedMcpTools(server)
     .map((tool) => ({ server, tool })));
 }
 
@@ -731,7 +756,7 @@ export function createMcpServerTemplate(kind: McpServerKind = 'custom'): McpServ
     apiKeyPrefix: 'Bearer ',
     enabled: true,
     globalEnabled: true,
-    toolPolicy: kind === 'termux' ? 'all' : 'read-only',
+    toolPolicy: 'all',
     timeoutMs: platformSearch || kind === 'termux' ? 120_000 : 45_000,
     tools: [],
     protocolVersion: '',

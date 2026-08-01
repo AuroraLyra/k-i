@@ -1,4 +1,5 @@
 import { AsyncZipDeflate, strFromU8, strToU8, unzip, Zip } from 'fflate';
+import { Capacitor } from '@capacitor/core';
 import { isNativeBackupSaveAvailable, saveNativeBackupArchive } from '@/services/nativeBackup';
 import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, ChatImageCandidate, ChatMessage, ChatMessageQuote, ChatVoiceAttachment, FavoriteMessageRecord, GeneratedImageRecord, Sticker, VoomImageCandidate, VoomPost, WorldBookEntry } from '@/types/domain';
 
@@ -36,7 +37,7 @@ export interface PreparedBackupDestination {
 }
 
 export interface BackupArchiveSaveResult {
-  method: 'native' | 'file-system' | 'browser-download';
+  method: 'native' | 'native-share' | 'file-system' | 'browser-download';
   fileName: string;
   location: string;
 }
@@ -433,7 +434,8 @@ export function createBackupArchiveFilename(userId: string) {
 }
 
 export function canPrepareBackupDestination() {
-  return typeof (window as Window & { showSaveFilePicker?: unknown }).showSaveFilePicker === 'function';
+  return !Capacitor.isNativePlatform()
+    && typeof (window as Window & { showSaveFilePicker?: unknown }).showSaveFilePicker === 'function';
 }
 
 export async function prepareBackupDestination(filename: string): Promise<PreparedBackupDestination | null> {
@@ -490,8 +492,12 @@ export async function downloadLinkBackupArchive(
       await options.onProgress?.('正在写入系统文件', 96 + writtenBytes / Math.max(1, totalBytes) * 3);
     });
     if (!result?.saved) throw new Error('系统没有确认备份文件已保存。');
-    await options.onProgress?.('系统已确认备份写入', 100);
-    return { method: 'native', fileName: result.fileName, location: result.location };
+    await options.onProgress?.(result.requiresUserSave ? '已打开系统保存或分享面板' : '系统已确认备份写入', 100);
+    return {
+      method: result.requiresUserSave ? 'native-share' : 'native',
+      fileName: result.fileName,
+      location: result.location
+    };
   }
   await options.onProgress?.(options.destination ? '正在写入所选文件' : '正在交给浏览器下载', 98);
   const result = await downloadBlob(archive, filename, options.destination);

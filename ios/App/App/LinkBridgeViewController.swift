@@ -4,5 +4,6 @@ import Capacitor
 final class LinkBridgeViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         bridge?.registerPluginType(LinkBackupPlugin.self)
+        bridge?.registerPluginType(LinkStoragePlugin.self)
     }
 }
