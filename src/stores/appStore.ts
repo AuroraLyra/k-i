@@ -2,7 +2,7 @@ import { computed, ref, toRaw, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { applyMemoryStoreMutation, deleteEntity, loadSnapshot, pruneUnusedStoredMediaCache, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatGobangAttachment, ChatImageAttachment, ChatImageCandidate, ChatLinkPreviewAttachment, ChatLocationAttachment, ChatMcpOperation, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatGobangAttachment, ChatImageAttachment, ChatImageCandidate, ChatLinkPreviewAttachment, ChatLocationAttachment, ChatMcpOperation, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, ThoughtChainTheme, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import type { CharacterEconomySnapshot, ChatCommerceAttachment, ChatShopShareAttachment } from '@/types/commerce';
 import type { MemoryAssertion, MemoryCompressionStats, MemoryEdge, MemoryEmbeddingCache, MemoryEntity, MemoryEpisode, MemoryRecallResult, MemoryStateSnapshot, MemoryTheme } from '@/types/memory';
 import { createAccountId, createId } from '@/utils/id';
@@ -12,6 +12,7 @@ import { getImageGenerationSize, getImagePromptPresetForProvider, getSelectedIma
 import { createTabooWorldBook, isTabooWorldBook, normalizeWorldBookEntry, normalizeWorldBooks } from '@/utils/worldBook';
 import { createDefaultSmallTheaterTopics, defaultSmallTheaterTopicDrafts, normalizeSmallTheaterTopic } from '@/utils/smallTheater';
 import { createDefaultProfileTheme, extractProfileThemeContent, isDefaultProfileTheme, normalizeProfileTheme, normalizeProfileThemesForCharacter, normalizeProfileThemeContentLines, renderProfileThemeHtml, selectRandomEnabledProfileTheme } from '@/utils/profileThemes';
+import { createThoughtChainTheme as createDefaultThoughtChainTheme, normalizeThoughtChainTheme, normalizeThoughtChainThemes, selectRandomEnabledThoughtChainTheme } from '@/utils/thoughtChainThemes';
 import { getSmallTheaterVisibleText } from '@/utils/smallTheaterHtml';
 import { RECENT_STICKER_GROUP_NAME, cacheStickerImageUrl, createStickerFromDraft, createStickerGroup, getStickerDisplayImageUrl, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
 import { getConversationActiveMessages, getConversationFloorCount, getConversationFloors, getMessageFloorMap, getRecentCompleteFloorMessages, normalizeConversationSettings } from '@/utils/memory';
@@ -63,6 +64,7 @@ interface RoleplayReplyInputBundle {
   modelOverride: string;
   input: GenerateReplyInput;
   activeProfileTheme: ProfileTheme | null;
+  activeThoughtChainTheme: ThoughtChainTheme | null;
 }
 
 interface BuildRoleplayReplyInputOptions {
@@ -1144,6 +1146,9 @@ export const useAppStore = defineStore('app', () => {
     const activeProfileTheme = mode === 'online'
       ? selectRandomEnabledProfileTheme(await ensureProfileThemesForCharacter(character.id))
       : null;
+    const activeThoughtChainTheme = mode === 'online'
+      ? selectRandomEnabledThoughtChainTheme(settings.value?.thoughtChainThemes ?? [])
+      : null;
     let characterEconomy: CharacterEconomySnapshot | undefined;
     if (mode === 'online' && conversation.kind !== 'group') {
       const commerceStore = useCommerceStore();
@@ -1163,6 +1168,7 @@ export const useAppStore = defineStore('app', () => {
       chatSettings,
       modelOverride,
       activeProfileTheme,
+      activeThoughtChainTheme,
       input: {
         user: boundUser,
         character,
@@ -1196,6 +1202,17 @@ export const useAppStore = defineStore('app', () => {
               template: activeProfileTheme.template,
               source: activeProfileTheme.source,
               builtIn: activeProfileTheme.builtIn
+            }
+          : undefined,
+        activeThoughtChainTheme: activeThoughtChainTheme
+          ? {
+              id: activeThoughtChainTheme.id,
+              name: activeThoughtChainTheme.name,
+              prompt: activeThoughtChainTheme.prompt,
+              regex: activeThoughtChainTheme.regex,
+              css: activeThoughtChainTheme.css,
+              template: activeThoughtChainTheme.template,
+              source: activeThoughtChainTheme.source
             }
           : undefined,
         availableStickers: availableCharacterStickers.map((sticker) => ({
@@ -8141,6 +8158,24 @@ export const useAppStore = defineStore('app', () => {
       });
       if (!replyInputBundle) return;
       const mcpOperationMessageIds = new Map<string, string>();
+      const replyBatchId = createId('reply');
+      const publishMcpPrelude = async (prelude: { content: string; translation?: string }) => {
+        const content = prelude.content.trim();
+        if (!content) return;
+        const nextMessage: ChatMessage = {
+          id: createId('msg'),
+          conversationId,
+          sender: 'char',
+          mode: conversation.activeMode,
+          content,
+          ...(conversation.activeMode === 'online' && prelude.translation?.trim() ? { translation: prelude.translation.trim() } : {}),
+          replyBatchId,
+          createdAt: Date.now(),
+          status: 'sent'
+        };
+        messages.value.push(nextMessage);
+        await putEntity('messages', nextMessage);
+      };
       const publishMcpOperation = async (operation: ChatMcpOperation) => {
         const existingMessageId = mcpOperationMessageIds.get(operation.id);
         const nextMessage: ChatMessage = {
@@ -8165,6 +8200,7 @@ export const useAppStore = defineStore('app', () => {
         }
         await putEntity('messages', nextMessage);
       };
+      replyInputBundle.input.onMcpPrelude = publishMcpPrelude;
       replyInputBundle.input.onMcpOperation = publishMcpOperation;
       const replyPayload = options?.generatedReplyPayload ?? await generateRoleplayReply(replyInputBundle.input);
       if (isReplyRunCancelled(conversationId, replyCancelVersion)) return [];
@@ -8174,7 +8210,6 @@ export const useAppStore = defineStore('app', () => {
       }
       const apiTrace = parsedReply.apiTrace;
       const mcpResultAttachments = normalizeMcpResultAttachments(parsedReply.mcpResults);
-      const replyBatchId = createId('reply');
       const replyVariantFields = options?.replyVariantGroupId
         ? {
           replyVariantGroupId: options.replyVariantGroupId,
@@ -9530,6 +9565,95 @@ export const useAppStore = defineStore('app', () => {
     return true;
   }
 
+  function thoughtChainThemes() {
+    return settings.value?.thoughtChainThemes ?? [];
+  }
+
+  async function createThoughtChainTheme(payload: Pick<ThoughtChainTheme, 'name' | 'prompt'> & Partial<Pick<ThoughtChainTheme, 'regex' | 'template' | 'css' | 'enabled'>>) {
+    if (!settings.value || !payload.name.trim() || !payload.prompt.trim()) {
+      showConfigAlert('请填写思维链名称和提示词。', '无法保存思维链');
+      return null;
+    }
+    const draft = createDefaultThoughtChainTheme();
+    const theme = normalizeThoughtChainTheme({
+      ...draft,
+      ...payload,
+      enabled: payload.enabled ?? true,
+      source: 'custom',
+      updatedAt: Date.now()
+    });
+    if (!theme) return null;
+    await saveSettings({ ...settings.value, thoughtChainThemes: [...thoughtChainThemes(), theme] });
+    return theme;
+  }
+
+  async function saveThoughtChainTheme(theme: ThoughtChainTheme) {
+    if (!settings.value || !theme.name.trim() || !theme.prompt.trim()) {
+      showConfigAlert('请填写思维链名称和提示词。', '无法保存思维链');
+      return null;
+    }
+    const existingTheme = thoughtChainThemes().find((entry) => entry.id === theme.id);
+    const normalizedTheme = normalizeThoughtChainTheme({
+      ...theme,
+      source: existingTheme?.source ?? theme.source,
+      createdAt: existingTheme?.createdAt ?? theme.createdAt,
+      updatedAt: Date.now()
+    });
+    if (!normalizedTheme) return null;
+    const nextThemes = thoughtChainThemes().map((entry) => entry.id === normalizedTheme.id ? normalizedTheme : entry);
+    if (!existingTheme) nextThemes.push(normalizedTheme);
+    await saveSettings({ ...settings.value, thoughtChainThemes: nextThemes });
+    return normalizedTheme;
+  }
+
+  async function setThoughtChainThemeEnabled(themeId: string, enabled: boolean) {
+    if (!settings.value) return false;
+    const normalizedThemeId = themeId.trim();
+    if (!normalizedThemeId || !thoughtChainThemes().some((theme) => theme.id === normalizedThemeId)) return false;
+    await saveSettings({
+      ...settings.value,
+      thoughtChainThemes: thoughtChainThemes().map((theme) => theme.id === normalizedThemeId
+        ? { ...theme, enabled, updatedAt: Date.now() }
+        : theme)
+    });
+    return true;
+  }
+
+  async function importThoughtChainThemes(themes: ThoughtChainTheme[]) {
+    if (!settings.value) return [];
+    const now = Date.now();
+    const importedThemes = normalizeThoughtChainThemes(themes).map((theme) => ({
+      ...theme,
+      id: createId('thought-chain-theme'),
+      source: 'imported' as const,
+      createdAt: now,
+      updatedAt: now
+    }));
+    if (!importedThemes.length) return [];
+    await saveSettings({ ...settings.value, thoughtChainThemes: [...thoughtChainThemes(), ...importedThemes] });
+    return importedThemes;
+  }
+
+  async function deleteThoughtChainTheme(themeId: string) {
+    if (!settings.value) return false;
+    const normalizedThemeId = themeId.trim();
+    if (!thoughtChainThemes().some((theme) => theme.id === normalizedThemeId)) return false;
+    await saveSettings({ ...settings.value, thoughtChainThemes: thoughtChainThemes().filter((theme) => theme.id !== normalizedThemeId) });
+    return true;
+  }
+
+  async function cleanupThoughtChainTraces(olderThanDays: number) {
+    const cutoff = Date.now() - Math.max(1, Math.round(Number(olderThanDays) || 1)) * oneDayMs;
+    const affectedMessages = messages.value.filter((message) => Boolean(message.apiTrace?.visibleReasoning) && message.createdAt < cutoff);
+    for (const message of affectedMessages) {
+      if (!message.apiTrace) continue;
+      const { visibleReasoning: _visibleReasoning, thoughtChainTheme: _thoughtChainTheme, ...apiTrace } = message.apiTrace;
+      message.apiTrace = apiTrace;
+      await putEntity('messages', message);
+    }
+    return affectedMessages.length;
+  }
+
   async function createSmallTheaterTopic(payload: Pick<SmallTheaterTopic, 'title' | 'prompt'> & Partial<Pick<SmallTheaterTopic, 'charId' | 'enabled'>>) {
     const now = Date.now();
     const topic = normalizeSmallTheaterTopic({
@@ -10764,6 +10888,7 @@ export const useAppStore = defineStore('app', () => {
     messagesForConversation,
     profileThemesForCharacter,
     enabledProfileThemesForCharacter,
+    thoughtChainThemes,
     profileHomepagesForCharacter,
     smallTheaterTopicsForCharacter,
     smallTheatersForCharacter,
@@ -10931,6 +11056,12 @@ export const useAppStore = defineStore('app', () => {
     setProfileThemeEnabledForCharacter,
     importProfileThemes,
     deleteProfileTheme,
+    createThoughtChainTheme,
+    saveThoughtChainTheme,
+    setThoughtChainThemeEnabled,
+    importThoughtChainThemes,
+    deleteThoughtChainTheme,
+    cleanupThoughtChainTraces,
     deleteProfileHomepage,
     cleanupProfileHomepagesForCharacters,
     runProfileHomepageAutoCleanupForCharacters,

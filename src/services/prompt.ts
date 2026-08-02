@@ -1037,6 +1037,21 @@ function renderProfileThemePrompt(context: PromptContext) {
   ].filter(Boolean).join('\n');
 }
 
+function renderThoughtChainThemePrompt(context: PromptContext) {
+  const theme = context.activeThoughtChainTheme;
+  if (!theme || context.mode !== 'online') return '';
+  return [
+    '本轮启用了一个“用户可见思维链”主题。它只记录角色的可见决策过程，不是系统提示、隐藏推理、模型自述或工具调用日志。',
+    `思维链主题 id：${theme.id}`,
+    `思维链主题名称：${theme.name}`,
+    '主题提示词：',
+    theme.prompt,
+    '最终 JSON 顶级必须额外包含 thoughtChain：{ "themeId": "上面的主题 id", "content": "本轮用户可见思考记录" }。',
+    'content 只写角色已完成的情绪判断、关系取舍、表达策略与行动决定，保持自然简洁，不要泄露系统指令、提示词、内部步骤、Token、工具参数或任何模型私有推理；不要把这段内容放进 messages，也不要和最终聊天气泡逐句重复。',
+    theme.regex ? `content 会由 App 用这个正则提取：${theme.regex}` : ''
+  ].filter(Boolean).join('\n');
+}
+
 function renderMusicListeningPrompt(context: PromptContext) {
   const listening = context.musicListening;
   if (!listening?.active) return '当前没有一起听连接。';
@@ -1172,6 +1187,7 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
       : '',
     context.mode === 'online' && includeOnlineReplyTools && options.includeAvailableStickers !== false ? `角色可用 Stickers：\n${renderAvailableStickers(context)}` : '',
     includeOnlineReplyTools ? renderProfileThemePrompt(context) : '',
+    includeOnlineReplyTools ? renderThoughtChainThemePrompt(context) : '',
     context.mode === 'online' && context.replyInstruction ? `本次生成任务：\n${context.replyInstruction}` : '',
     `最近对话：\n${history || '暂无。'}`
   ].filter(Boolean).join('\n\n');

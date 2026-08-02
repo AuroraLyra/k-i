@@ -201,6 +201,7 @@ export const defaultSettings: AppSettings = {
   profileHomepageAutoCleanup: {},
   smallTheaterTopicEnabledByCharacter: {},
   profileThemeEnabledByCharacter: {},
+  thoughtChainThemes: [],
   smallTheaterTopicDefaultsInitialized: {},
   keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),

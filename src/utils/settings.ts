@@ -1,6 +1,7 @@
 import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettings, AppSettings, AppThemeSettings, ChatModelOverrides, CharacterProfileHomepageAutoCleanupSettings, CharacterRingtoneSettings, CharacterSmallTheaterAutoCleanupSettings, CharacterVoomAutoCleanupSettings, CloudBackupProvider, CloudBackupSettings, DoubaoTtsAudioFormat, DoubaoTtsSettings, DoubaoTtsTextType, GitHubBackupSettings, ImageModelScope, ImageModelSelection, ImagePromptPreset, ImageProviderType, McpServerConfig, McpServerKind, McpSettings, McpToolDefinition, MinimaxTtsAudioFormat, MinimaxTtsSettings, NovelAiImageSettings, OpenAiImageSettings, OpenAiTtsAudioFormat, OpenAiTtsSettings, PollinationsImageSettings, ProfileHomepageAutoCleanupPreset, RealityCalendarEvent, RealityMemo, RealityMcpSettings, RealityRecurrenceRule, RealityReminder, RingtoneAsset, RingtoneEventType, SmallTheaterAutoCleanupPreset, ThemeFontEntry, ThemeFontSource, ThemeGlobalSettings, ThemeStylePreset, ThemeStylePresetSource, ThemeStyleScopeSettings, TtsProviderType, VoomAutoCleanupPreset } from '@/types/domain';
 import { createBuiltinNotificationInboxMcpServer, createBuiltinRealityMcpServer } from '@/data/realityMcp';
 import { createId } from './id';
+import { normalizeThoughtChainThemes } from './thoughtChainThemes';
 import { normalizeGlobalThemeScale } from './themeScale';
 
 export const novelAiOfficialApiUrl = 'https://image.novelai.net';
@@ -588,6 +589,7 @@ export const defaultAppSettings: AppSettings = {
   profileHomepageAutoCleanup: {},
   smallTheaterTopicEnabledByCharacter: {},
   profileThemeEnabledByCharacter: {},
+  thoughtChainThemes: [],
   smallTheaterTopicDefaultsInitialized: {},
   keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),
@@ -1901,6 +1903,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     profileHomepageAutoCleanup: normalizeProfileHomepageAutoCleanup(settings?.profileHomepageAutoCleanup),
     smallTheaterTopicEnabledByCharacter: normalizeBooleanRecordMap(settings?.smallTheaterTopicEnabledByCharacter),
     profileThemeEnabledByCharacter: normalizeBooleanRecordMap(settings?.profileThemeEnabledByCharacter),
+    thoughtChainThemes: normalizeThoughtChainThemes(settings?.thoughtChainThemes),
     smallTheaterTopicDefaultsInitialized: normalizeTimestampRecord(settings?.smallTheaterTopicDefaultsInitialized),
     keepAlive: normalizeKeepAliveSettings(settings?.keepAlive),
     ringtoneSettings: normalizeRingtoneSettings(settings?.ringtoneSettings),

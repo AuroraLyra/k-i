@@ -171,7 +171,7 @@ function permissionStatusLabel(status: RealityPermissionStatus['status']) {
     denied: '未授权',
     prompt: '待授权',
     available: '可授权',
-    unsupported: '当前不支持',
+    unsupported: '不支持',
     unknown: '待检查'
   }[status];
 }
@@ -242,11 +242,13 @@ onMounted(() => void refreshPermissions());
 .mcp-permission-row button {
   border: 0;
   border-radius: 999px;
-  padding: 8px 11px;
+  padding: 7px 9px;
   color: #fff;
   background: #7663b5;
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .mcp-permission-panel .mcp-section-title button:disabled,
@@ -270,7 +272,7 @@ onMounted(() => void refreshPermissions());
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
   padding: 10px;
   border-radius: 14px;
   background: rgba(246, 244, 251, 0.86);
@@ -289,11 +291,11 @@ onMounted(() => void refreshPermissions());
 }
 
 .mcp-permission-row em {
-  padding: 4px 7px;
+  padding: 4px 6px;
   border-radius: 999px;
   color: #7663b5;
   background: #ede9fb;
-  font-size: 10px;
+  font-size: 9px;
   font-style: normal;
   white-space: nowrap;
 }
@@ -305,7 +307,16 @@ onMounted(() => void refreshPermissions());
 .mcp-permission-feedback.error { color: #b1495f; }
 
 @media (max-width: 430px) {
-  .mcp-permission-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .mcp-permission-row button { grid-column: 1 / -1; }
+  .mcp-permission-row { padding: 9px; }
+  .mcp-permission-row small { font-size: 10px; }
+}
+
+@media (max-width: 280px) {
+  .mcp-permission-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+
+  .mcp-permission-row > span { grid-column: 1 / -1; }
 }
 </style>

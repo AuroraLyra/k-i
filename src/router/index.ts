@@ -8,6 +8,7 @@ const GobangRoomPage = () => import('@/pages/GobangRoomPage.vue');
 const CoupleSpacePage = () => import('@/pages/CoupleSpacePage.vue');
 const GroupChatPage = () => import('@/pages/GroupChatPage.vue');
 const ProfileThemePage = () => import('@/pages/ProfileThemePage.vue');
+const ThoughtChainThemePage = () => import('@/pages/ThoughtChainThemePage.vue');
 const SmallTheaterPage = () => import('@/pages/SmallTheaterPage.vue');
 const SmallTheaterDetailPage = () => import('@/pages/SmallTheaterDetailPage.vue');
 const OfflineSettingsPage = () => import('@/pages/OfflineSettingsPage.vue');
@@ -79,6 +80,7 @@ export const router = createRouter({
     { path: '/chats/:id/search', name: 'chat-search', component: ChatSearchPage, props: true },
     { path: '/chats/:id/settings', name: 'chat-settings', component: ChatSettingsPage, props: true },
     { path: '/chats/:id/profile-themes', name: 'profile-themes', component: ProfileThemePage, props: true },
+    { path: '/chats/:id/thought-chain-themes', name: 'thought-chain-themes', component: ThoughtChainThemePage, props: true },
     { path: '/chats/:id/couple-space', name: 'couple-space', component: CoupleSpacePage, props: true },
     { path: '/chats/:id/theaters', name: 'small-theater', component: SmallTheaterPage, props: true },
     { path: '/chats/:id/gobang/:messageId', name: 'gobang-room', component: GobangRoomPage, props: true },

@@ -102,6 +102,28 @@ export interface ProfileTheme {
   updatedAt: number;
 }
 
+export type ThoughtChainThemeSource = 'custom' | 'imported';
+
+export interface ThoughtChainTheme {
+  id: string;
+  name: string;
+  prompt: string;
+  regex: string;
+  template: string;
+  css: string;
+  enabled: boolean;
+  source: ThoughtChainThemeSource;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ThoughtChainThemeSnapshot {
+  id: string;
+  name: string;
+  template: string;
+  css: string;
+}
+
 export interface ProfileHomepageRecord {
   id: string;
   charId: string;
@@ -750,6 +772,8 @@ export interface ChatApiTrace {
   requestId?: string;
   reasoning?: string;
   reasoningFormat?: ChatApiReasoningFormat;
+  visibleReasoning?: string;
+  thoughtChainTheme?: ThoughtChainThemeSnapshot;
   finishReason?: string;
   status?: string;
   usage?: ChatApiUsage;
@@ -1774,6 +1798,7 @@ export interface AppSettings {
   profileHomepageAutoCleanup: Record<string, CharacterProfileHomepageAutoCleanupSettings>;
   smallTheaterTopicEnabledByCharacter: Record<string, Record<string, boolean>>;
   profileThemeEnabledByCharacter: Record<string, Record<string, boolean>>;
+  thoughtChainThemes: ThoughtChainTheme[];
   smallTheaterTopicDefaultsInitialized: Record<string, number>;
   keepAlive: AppKeepAliveSettings;
   ringtoneSettings: AppRingtoneSettings;
@@ -1855,6 +1880,7 @@ export interface PromptContext {
   offlineSettings?: ConversationOfflineSettings;
   replyInstruction?: string;
   activeProfileTheme?: Pick<ProfileTheme, 'id' | 'name' | 'prompt' | 'regex' | 'css' | 'template' | 'source' | 'builtIn'>;
+  activeThoughtChainTheme?: Pick<ThoughtChainTheme, 'id' | 'name' | 'prompt' | 'regex' | 'css' | 'template' | 'source'>;
   musicListening?: MusicListeningContext;
   characterEconomy?: CharacterEconomySnapshot;
 }
@@ -1865,5 +1891,6 @@ export interface GenerateReplyInput extends PromptContext {
   modelOverride?: string;
   requestRecovery?: ConversationRequestRecoverySettings;
   persistSettings?: (settings: AppSettings) => Promise<void>;
+  onMcpPrelude?: (prelude: { content: string; translation?: string }) => void | Promise<void>;
   onMcpOperation?: (operation: ChatMcpOperation) => void | Promise<void>;
 }

@@ -372,6 +372,7 @@
           <div class="action-menu-group-title"><small>CONTENT TOOLS</small></div>
           <div class="action-menu-grid">
             <button type="button" @click="openModelSwitch"><span>模型切换</span></button>
+            <button type="button" @click="openThoughtChainThemes"><span>思维链自定义</span></button>
             <button type="button" :disabled="chatActionLocked" @click="startGobangInvitation"><span>五子棋</span></button>
             <button type="button" :class="{ busy: generatingVoom }" :aria-disabled="generatingVoom" @click="generateVoomPost"><span>{{ generatingVoom ? '生成中' : '生成 VOOM' }}</span></button>
             <button type="button" @click="openSmallTheater"><span>小剧场</span></button>
@@ -3791,6 +3792,11 @@ async function openCharacterProfile() {
 function openModelSwitch() {
   showActionMenu.value = false;
   showModelSwitch.value = true;
+}
+
+function openThoughtChainThemes() {
+  showActionMenu.value = false;
+  void router.push({ name: 'thought-chain-themes', params: { id: props.id } });
 }
 
 function openDeleteFriendConfirm() {

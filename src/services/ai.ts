@@ -13,6 +13,7 @@ import { formatUserTimePreview, renderTimeAwarenessPrompt } from '@/utils/timeAw
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
 import { getVoomFrequencyChance, stripVoomCommentReplyPrefix } from '@/utils/voom';
 import { normalizeCoupleSpaceSnapshot } from '@/utils/coupleSpace';
+import { extractThoughtChainContent } from '@/utils/thoughtChainThemes';
 import { executeMcpTools, resolveMcpTools, type ResolvedMcpTool } from './mcp';
 import { buildMomentPrompt, buildPrompt } from './prompt';
 import { prependTabooWorldBookPrompt } from './tabooWorldBook';
@@ -110,6 +111,7 @@ export interface RoleplayReplyResult {
   mcpResults?: ChatMcpResultAttachment[];
   mcpOperations?: ChatMcpOperation[];
   apiTrace?: ChatApiTrace;
+  thoughtChain?: { themeId?: string; content?: string } | string;
   messageActions?: RoleplayMessageActions;
   profileUpdate: null | {
     nickname: string;
@@ -2898,6 +2900,19 @@ class RoleplayReplyFormatError extends Error {
 const roleplayFormatRetryInstruction = `重要重试要求：上一次响应的 JSON 格式损坏。请从头重新生成完整响应，只输出一个 JSON 对象，不要 Markdown 代码块或解释。
 所有 content、translation 与 profileThemeContent 都必须是合法 JSON 字符串：换行写成 \\n，原始反斜杠写成 \\\\，双引号写成 \\"。不要省略结尾的引号、数组或花括号。`;
 
+function normalizeVisibleThoughtChain(value: unknown) {
+  if (typeof value === 'string') {
+    const content = value.trim().slice(0, 60000);
+    return content || undefined;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const content = String(record.content ?? record.text ?? record.reasoning ?? '').trim().slice(0, 60000);
+  if (!content) return undefined;
+  const themeId = String(record.themeId ?? record.id ?? '').trim().slice(0, 120);
+  return { ...(themeId ? { themeId } : {}), content };
+}
+
 export function normalizeRoleplayReplyPayload(apiReply: string, input: GenerateReplyInput): string {
   if (apiReply) {
     try {
@@ -2949,6 +2964,7 @@ export function normalizeRoleplayReplyPayload(apiReply: string, input: GenerateR
         ...normalizeStickerPlacements(parsedRecordAny.stickerMessages),
         ...normalizeReplyStickerPlacements(parsedRecordAny.replies ?? parsedRecordAny.messages)
       ];
+      const thoughtChain = normalizeVisibleThoughtChain(parsedRecordAny.thoughtChain);
       return JSON.stringify({
         reply: replies[0] ?? '',
         replies,
@@ -2960,6 +2976,7 @@ export function normalizeRoleplayReplyPayload(apiReply: string, input: GenerateR
         stickerPlacements,
         segments,
         messageActions,
+        ...(thoughtChain ? { thoughtChain } : {}),
         profileUpdate: profileUpdateRecord
           ? {
               nickname: String(profileUpdateRecord.nickname ?? '').trim(),
@@ -3000,6 +3017,12 @@ export function normalizeRoleplayReplyPayload(apiReply: string, input: GenerateR
 interface PlannedMcpToolCall {
   resolvedTool: ResolvedMcpTool;
   args: Record<string, unknown>;
+}
+
+interface McpAgentTurn {
+  calls: PlannedMcpToolCall[];
+  replyPayload: string;
+  apiResult: TextGenerationResult;
 }
 
 interface CompletedMcpToolCall {
@@ -3073,9 +3096,18 @@ function normalizeMcpPlannedCalls(payload: unknown, tools: ResolvedMcpTool[], li
   return calls;
 }
 
-function formatMcpAgentEvents(events: CompletedMcpToolCall[]) {
-  if (!events.length) return '本轮尚未调用工具。';
-  return events.map((event, index) => JSON.stringify({
+function firstMcpPrelude(payload: string) {
+  const parsed = JSON.parse(payload) as RoleplayReplyResult;
+  const segment = parsed.segments?.find((entry) => entry.type === 'reply' && entry.content.trim());
+  if (segment?.type === 'reply') return { content: segment.content.trim(), translation: segment.translation?.trim() || undefined };
+  const content = parsed.replies?.find((reply) => reply.trim())?.trim() || parsed.reply.trim();
+  if (!content) return null;
+  const index = parsed.replies?.findIndex((reply) => reply.trim() === content) ?? 0;
+  return { content, translation: parsed.replyTranslations?.[Math.max(0, index)]?.trim() || undefined };
+}
+
+function formatMcpAgentEvents(events: CompletedMcpToolCall[], sentPreludes: string[]) {
+  const entries = events.map((event, index) => JSON.stringify({
     sequence: index + 1,
     operationId: event.operationId,
     toolRef: event.toolRef,
@@ -3084,10 +3116,15 @@ function formatMcpAgentEvents(events: CompletedMcpToolCall[]) {
     state: event.status,
     receipt: event.receipt ?? '',
     result: event.content
-  })).join('\n');
+  }));
+  if (sentPreludes.length) entries.unshift(JSON.stringify({
+    kind: 'already-sent-role-messages',
+    messages: sentPreludes
+  }));
+  return entries.length ? entries.join('\n') : '本轮尚未发送消息或调用工具。';
 }
 
-async function planMcpToolCalls(input: GenerateReplyInput, basePrompt: string, tools: ResolvedMcpTool[], events: CompletedMcpToolCall[], remainingCalls: number) {
+async function generateMcpAgentTurn(input: GenerateReplyInput, basePrompt: string, tools: ResolvedMcpTool[], events: CompletedMcpToolCall[], sentPreludes: string[], remainingCalls: number): Promise<McpAgentTurn> {
   const plannerModeInstruction = input.mode === 'online'
     ? `当前是线上聊天。目录中的工具来自当前角色已绑定且启用的 MCP 服务；该角色可以直接调用服务内所有工具。
 角色必须基于人设、长期记忆、对话摘要、近期聊天和本轮氛围，自行决定不调用、调用哪些工具及其参数；不必等待用户明确提出工具请求。查询、读取、创建、修改、发送、发布和删除等操作均由角色根据上下文独立判断，工具调用后会真实执行。
@@ -3096,7 +3133,7 @@ async function planMcpToolCalls(input: GenerateReplyInput, basePrompt: string, t
   const prompt = `${basePrompt}
 
 【当前角色的 MCP 行动循环】
-你现在不是另一个独立的规划助手，而是上面这段聊天中的同一个角色。先决定当前是否还需要执行下一项真实工具动作；只输出工具决策 JSON，不输出给用户的聊天回复。工具返回后会作为本次聊天的新事件再次交给你，你可继续调用工具或结束行动并由角色正常回复。
+你就是上面聊天中的同一个角色。先按正常线上聊天规则生成本次要发送的完整角色回复，再自主决定当前是否需要执行下一项真实 MCP 工具动作。工具返回后会作为本次聊天的新事件再次交给你；如果本次调用工具，首段角色回复会先真实发送，随后你可继续调用工具或补发基于结果的消息。
 
 调用策略：
 ${plannerModeInstruction}
@@ -3105,7 +3142,7 @@ ${plannerModeInstruction}
 ${formatUserTimePreview(new Date(input.timeAwarenessNow ?? Date.now()))}
 
 本轮已经发生的 MCP 行动（和普通聊天一样属于当前上下文）：
-${formatMcpAgentEvents(events)}
+${formatMcpAgentEvents(events, sentPreludes)}
 
 当前角色可用的完整工具目录：
 ${JSON.stringify(mcpPlannerToolCatalog(tools), null, 2)}
@@ -3115,14 +3152,20 @@ ${JSON.stringify(mcpPlannerToolCatalog(tools), null, 2)}
 2. toolRef、serverId 与 toolName 必须从目录逐字选择，arguments 必须符合 inputSchema；不得编造工具或参数。
 3. 还可以执行 ${remainingCalls} 次工具调用。每次只返回 0 或 1 个调用，便于先读取上一步真实结果再继续行动。
 4. 创建日程、提醒或闹钟时，所有 ISO 8601 时间必须相对于上面的当前现实时间，不能使用历史聊天里的旧日期；开始时间早于当前时间时不要调用写入工具。
-5. 只输出 JSON：{"calls":[{"toolRef":"serverId:toolName","serverId":"...","toolName":"...","arguments":{}}]}。`;
-  const response = await callTextApi(input.settings, prompt, input.modelOverride, [], {
+5. 只输出一个完整角色回复 JSON，并在顶层额外加入 calls：{"messages":[...],"messageActions":{...},"profileUpdate":{...},"calls":[{"toolRef":"serverId:toolName","serverId":"...","toolName":"...","arguments":{}}]}。不调用工具时 calls 必须是 []。
+6. calls 非空时，messages 只能包含一条 type 为 text 的行动前消息；它会在工具执行前立刻真实发给用户。可以自然表达“我去查一下”“我现在处理”等行动，但绝不能把未得到的工具结果说成已经查到、已经完成或已经发送。
+7. 上面标为 already-sent-role-messages 的内容已经真实发出，后续 messages 绝不能重复它们。`;
+  const apiResult = await callTextApiDetailed(input.settings, prompt, input.modelOverride, [], {
     jsonMode: true,
-    maxTokens: 2_048,
-    temperature: 0.1,
+    maxTokens: 8_192,
     retryTransientFailures: input.requestRecovery?.retryTransientFailures
   });
-  return normalizeMcpPlannedCalls(parseModelJsonResponse(response), tools, 1);
+  const parsed = parseModelJsonResponse(apiResult.text);
+  return {
+    calls: normalizeMcpPlannedCalls(parsed, tools, remainingCalls > 0 ? 1 : 0),
+    replyPayload: normalizeRoleplayReplyPayload(apiResult.text, input),
+    apiResult
+  };
 }
 
 function parseMcpResultRecord(content: string) {
@@ -3188,16 +3231,19 @@ function toChatMcpOperation(operationId: string, serverId: string, serverName: s
 
 async function collectMcpReplyContext(input: GenerateReplyInput, basePrompt: string) {
   const tools = resolveMcpTools(input.settings, input.character);
-  if (!tools.length) return { context: '', structuredResults: [] as ChatMcpResultAttachment[], toolCalls: [] as ChatMcpToolCallTrace[], operations: [] as ChatMcpOperation[] };
+  if (!tools.length) return { context: '', structuredResults: [] as ChatMcpResultAttachment[], toolCalls: [] as ChatMcpToolCallTrace[], operations: [] as ChatMcpOperation[], finalReplyPayload: '', finalApiResult: undefined as TextGenerationResult | undefined };
   const maxCalls = Math.max(1, Math.min(6, input.settings?.mcpSettings.maxToolCallsPerReply ?? 2));
   const completedCalls: CompletedMcpToolCall[] = [];
   const structuredResults: ChatMcpResultAttachment[] = [];
   const toolCalls: ChatMcpToolCallTrace[] = [];
   const operations: ChatMcpOperation[] = [];
-  for (let callIndex = 0; callIndex < maxCalls; callIndex += 1) {
-    let calls: PlannedMcpToolCall[];
+  const sentPreludes: string[] = [];
+  let finalReplyPayload = '';
+  let finalApiResult: TextGenerationResult | undefined;
+  for (let callIndex = 0; callIndex <= maxCalls; callIndex += 1) {
+    let agentTurn: McpAgentTurn;
     try {
-      calls = await planMcpToolCalls(input, basePrompt, tools, completedCalls, maxCalls - callIndex);
+      agentTurn = await generateMcpAgentTurn(input, basePrompt, tools, completedCalls, sentPreludes, maxCalls - callIndex);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'MCP 行动规划失败。';
       completedCalls.push({
@@ -3210,8 +3256,17 @@ async function collectMcpReplyContext(input: GenerateReplyInput, basePrompt: str
       });
       break;
     }
-    const plannedCall = calls[0];
-    if (!plannedCall) break;
+    const plannedCall = agentTurn.calls[0];
+    if (!plannedCall) {
+      finalReplyPayload = agentTurn.replyPayload;
+      finalApiResult = agentTurn.apiResult;
+      break;
+    }
+    const prelude = firstMcpPrelude(agentTurn.replyPayload);
+    if (prelude) {
+      sentPreludes.push(prelude.content);
+      await input.onMcpPrelude?.(prelude);
+    }
     const { server, tool } = plannedCall.resolvedTool;
     const requestedAt = Date.now();
     const operationId = createId('mcp');
@@ -3283,21 +3338,40 @@ async function collectMcpReplyContext(input: GenerateReplyInput, basePrompt: str
   return {
     context: `【当前聊天中的 MCP 行动记录】
 以下是角色刚刚在本轮聊天里亲自调用工具后得到的结果。根据 state 自然回复：completed 才能说已完成；initiated 只能说已打开或已发起；requires-permission 表示系统尚未授权；unknown 表示结果未确认；failed 表示失败。
+已真实发送的行动前角色消息：${sentPreludes.length ? JSON.stringify(sentPreludes) : '无'}。不要重复发送这些消息。
 ${resultPayload}
 【MCP 行动记录结束】`,
     structuredResults,
     toolCalls,
-    operations
+    operations,
+    finalReplyPayload,
+    finalApiResult
   };
 }
 
-function attachReplyTrace(payload: string, apiResult: TextGenerationResult, mcpReply: Awaited<ReturnType<typeof collectMcpReplyContext>>) {
+function attachReplyTrace(payload: string, apiResult: TextGenerationResult, mcpReply: Awaited<ReturnType<typeof collectMcpReplyContext>>, input: GenerateReplyInput) {
   const parsed = JSON.parse(payload) as RoleplayReplyResult;
+  const activeThoughtChainTheme = input.activeThoughtChainTheme;
+  const rawThoughtChain = typeof parsed.thoughtChain === 'string'
+    ? parsed.thoughtChain
+    : parsed.thoughtChain?.content;
+  const visibleReasoning = activeThoughtChainTheme
+    ? extractThoughtChainContent(rawThoughtChain, activeThoughtChainTheme.regex)
+    : '';
   const apiTrace: ChatApiTrace = {
     generatedAt: Date.now(),
     model: apiResult.model?.trim() || '',
     ...(apiResult.requestId ? { requestId: apiResult.requestId } : {}),
     ...(apiResult.reasoning ? { reasoning: apiResult.reasoning, reasoningFormat: apiResult.reasoningFormat ?? 'unknown' } : {}),
+    ...(visibleReasoning ? {
+      visibleReasoning,
+      thoughtChainTheme: {
+        id: activeThoughtChainTheme!.id,
+        name: activeThoughtChainTheme!.name,
+        template: activeThoughtChainTheme!.template,
+        css: activeThoughtChainTheme!.css
+      }
+    } : {}),
     ...(apiResult.finishReason ? { finishReason: apiResult.finishReason } : {}),
     ...(apiResult.status ? { status: apiResult.status } : {}),
     ...(apiResult.usage ? { usage: apiResult.usage } : {}),
@@ -3316,13 +3390,16 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
   requireTextGenerationConfig(input.settings, input.modelOverride, '角色回复');
   const basePrompt = buildPrompt(input, { includeCurrentTurnStickerImages: true });
   const mcpReply = await collectMcpReplyContext(input, basePrompt);
+  if (mcpReply.finalReplyPayload) {
+    return attachReplyTrace(mcpReply.finalReplyPayload, mcpReply.finalApiResult!, mcpReply, input);
+  }
   const prompt = mcpReply.context ? `${basePrompt}\n\n${mcpReply.context}` : basePrompt;
   const imageParts = await getPreparedVisualImageParts(input);
   const apiResult = await callTextApiDetailed(input.settings, prompt, input.modelOverride, imageParts, {
     retryTransientFailures: input.requestRecovery?.retryTransientFailures
   });
   try {
-    return attachReplyTrace(normalizeRoleplayReplyPayload(apiResult.text, input), apiResult, mcpReply);
+    return attachReplyTrace(normalizeRoleplayReplyPayload(apiResult.text, input), apiResult, mcpReply, input);
   } catch (error) {
     if (!(error instanceof RoleplayReplyFormatError)) throw error;
     if (input.requestRecovery?.retryMalformedRoleplayJson === false) {
@@ -3338,7 +3415,7 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
     { jsonMode: true, maxTokens: 8192, retryTransientFailures: input.requestRecovery?.retryTransientFailures }
   );
   try {
-    return attachReplyTrace(normalizeRoleplayReplyPayload(retryResult.text, input), retryResult, mcpReply);
+    return attachReplyTrace(normalizeRoleplayReplyPayload(retryResult.text, input), retryResult, mcpReply, input);
   } catch (error) {
     if (error instanceof RoleplayReplyFormatError) {
       throw new Error('角色回复模型连续两次返回损坏的 JSON，已阻止将原始 JSON 显示为聊天内容。请重试或切换模型。');
