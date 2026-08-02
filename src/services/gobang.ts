@@ -197,7 +197,8 @@ export async function generateGobangMove(input: GenerateReplyInput, game: ChatGo
   const rawResponse = await requestTextGeneration(input.settings, buildGobangTurnPrompt(input, game), input.modelOverride, {
     temperature: 0.55,
     jsonMode: true,
-    signal
+    signal,
+    retryTransientFailures: input.requestRecovery?.retryTransientFailures
   });
   if (!rawResponse.trim()) throw new GobangApiError('invalid-response', '角色模型没有返回五子棋落子与发言。');
   return parseGobangTurnResponse(rawResponse, game, input);

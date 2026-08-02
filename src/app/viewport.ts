@@ -40,9 +40,9 @@ export function syncAppViewportHeight() {
   if (isIOSPwa) root.style.removeProperty('--app-viewport-height');
 
   const isKeyboardInput = (element: Element | null) => {
-    if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return true;
+    if (element instanceof HTMLTextAreaElement) return true;
     if (!(element instanceof HTMLInputElement)) return false;
-    return !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(element.type);
+    return ['email', 'number', 'password', 'search', 'tel', 'text', 'url'].includes(element.type);
   };
 
   const revealActiveKeyboardInput = () => {
@@ -112,9 +112,7 @@ export function syncAppViewportHeight() {
     keyboardWasOpen = keyboardOpen;
 
     root.classList.toggle('keyboard-open', keyboardOpen);
-    const useCssPwaLayoutViewport = isIOSPwa && !keyboardOpen;
-    if (useCssPwaLayoutViewport) root.style.removeProperty('--app-viewport-height');
-    else root.style.setProperty('--app-viewport-height', `${Math.round(nextHeight)}px`);
+    root.style.setProperty('--app-viewport-height', `${Math.round(nextHeight)}px`);
     root.style.setProperty('--visual-viewport-raw-height', `${viewportHeight}px`);
     root.style.setProperty('--visual-viewport-raw-offset-top', `${nextViewportOffsetTop}px`);
     root.style.setProperty('--keyboard-raw-inset', `${nextKeyboardInset}px`);
@@ -125,7 +123,7 @@ export function syncAppViewportHeight() {
     }
     window.dispatchEvent(new CustomEvent<AppViewportChangeDetail>(APP_VIEWPORT_CHANGE_EVENT, {
       detail: {
-        appHeight: useCssPwaLayoutViewport ? Math.round(root.getBoundingClientRect().height) : Math.round(nextHeight),
+        appHeight: Math.round(nextHeight),
         keyboardInset: nextKeyboardInset,
         keyboardOpen,
         visualHeight: viewportHeight

@@ -259,7 +259,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { Disc3, Hash, Heart, ListMusic, ListOrdered, LoaderCircle, MessageCircle, MessageSquareText, Pause, Play, Repeat, Repeat1, Search, Send, Shuffle, SkipBack, SkipForward, Smile, ThumbsUp, X } from 'lucide-vue-next';
 import { deleteEntity, getDb, putEntity } from '@/data/db';
-import { generateMusicCommentThread, hasTextGenerationConfig } from '@/services/ai';
+import { generateMusicCommentThread, hasSelectedTextGenerationConfig } from '@/services/ai';
 import { fetchMusicCoverUrl, fetchMusicLyricText, mergeMusicTrack, refreshPlayableMusicTrack, searchMusicTracks } from '@/services/music';
 import { useAppStore } from '@/stores/appStore';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
@@ -764,8 +764,8 @@ async function generateThread(mode: 'replace' | 'expand') {
   const currentUser = store.user;
   if (!track || !currentUser || generatingCommentTrackId.value) return;
   const modelOverride = store.settings?.modelOverrides.content?.trim() ?? '';
-  if (!hasTextGenerationConfig(store.settings ?? undefined, modelOverride)) {
-    store.showConfigAlert('请先在设置中配置全局内容创作模型或可用的 API 默认模型，再生成音乐评论区。', '需要配置 API 模型');
+  if (!hasSelectedTextGenerationConfig(store.settings ?? undefined, modelOverride)) {
+    store.showConfigAlert('请先在设置的模型切换中配置全局内容创作模型，再生成音乐评论区。', '需要配置模型');
     return;
   }
   const trackKey = getTrackKey(track);

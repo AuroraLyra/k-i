@@ -104,8 +104,8 @@
     <section v-if="activeTab === 'ai'" class="panel-section">
       <section class="settings-block">
         <header class="section-header"><div><span>Models</span><strong>群聊生成模型</strong></div></header>
-        <label class="field"><span>线上群聊模型覆盖</span><input :value="chatSettings.modelOverrides.online" placeholder="留空使用全局文本模型" @change="updateModel('online', $event)" /></label>
-        <label class="field"><span>群聊线下模型覆盖</span><input :value="chatSettings.modelOverrides.offline" placeholder="留空使用全局文本模型" @change="updateModel('offline', $event)" /></label>
+        <label class="field"><span>线上群聊模型覆盖</span><input :value="chatSettings.modelOverrides.online" placeholder="留空跟随全局线上模型；未配置则报错" @change="updateModel('online', $event)" /></label>
+        <label class="field"><span>群聊线下模型覆盖</span><input :value="chatSettings.modelOverrides.offline" placeholder="留空跟随全局线下模型；未配置则报错" @change="updateModel('offline', $event)" /></label>
       </section>
       <section class="settings-block">
         <header class="section-header"><div><span>Behavior</span><strong>群聊行为与感知</strong></div></header>

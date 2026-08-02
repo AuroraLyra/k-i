@@ -398,6 +398,10 @@ const defaultUserBubbleColor = '#eeeeee';
 
 export const defaultConversationSettings: Omit<ConversationSettings, 'conversationId'> = {
   memory: defaultChatMemorySettings,
+  requestRecovery: {
+    retryTransientFailures: true,
+    retryMalformedRoleplayJson: true
+  },
   modelOverrides: normalizeChatModelOverrides(null),
   appearance: {
     backgroundImage: '',
@@ -444,6 +448,7 @@ export const defaultConversationSettings: Omit<ConversationSettings, 'conversati
 export function normalizeConversationSettings(settings: Partial<ConversationSettings> | null | undefined, conversationId: string, _mode: ChatMode = 'online'): ConversationSettings {
   const memoryDefaults = defaultChatMemorySettings;
   const memory = settings?.memory ?? memoryDefaults;
+  const requestRecovery = settings?.requestRecovery ?? defaultConversationSettings.requestRecovery;
   const appearance = settings?.appearance ?? defaultConversationSettings.appearance;
   const call = settings?.call ?? defaultConversationSettings.call;
   const modelOverrides = normalizeChatModelOverrides(settings?.modelOverrides ?? defaultConversationSettings.modelOverrides);
@@ -483,6 +488,10 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
       reflectionEnabled: memory.reflectionEnabled ?? memoryDefaults.reflectionEnabled,
       embeddingEnabled: memory.embeddingEnabled ?? memoryDefaults.embeddingEnabled,
       embeddingModel: String(memory.embeddingModel ?? memoryDefaults.embeddingModel).trim()
+    },
+    requestRecovery: {
+      retryTransientFailures: requestRecovery.retryTransientFailures ?? defaultConversationSettings.requestRecovery.retryTransientFailures,
+      retryMalformedRoleplayJson: requestRecovery.retryMalformedRoleplayJson ?? defaultConversationSettings.requestRecovery.retryMalformedRoleplayJson
     },
     modelOverrides,
     appearance: {

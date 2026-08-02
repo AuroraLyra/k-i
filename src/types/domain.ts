@@ -444,6 +444,11 @@ export interface ChatMemorySettings {
   embeddingModel: string;
 }
 
+export interface ConversationRequestRecoverySettings {
+  retryTransientFailures: boolean;
+  retryMalformedRoleplayJson: boolean;
+}
+
 export interface ConversationTimeAwarenessSettings {
   enabled: boolean;
 }
@@ -506,6 +511,7 @@ export interface ConversationOfflineSettings {
 export interface ConversationSettings {
   conversationId: string;
   memory: ChatMemorySettings;
+  requestRecovery: ConversationRequestRecoverySettings;
   modelOverrides: ChatModelOverrides;
   appearance: ChatAppearanceSettings;
   call: ConversationCallSettings;
@@ -1857,6 +1863,7 @@ export interface GenerateReplyInput extends PromptContext {
   userMessage: string;
   settings?: AppSettings;
   modelOverride?: string;
+  requestRecovery?: ConversationRequestRecoverySettings;
   persistSettings?: (settings: AppSettings) => Promise<void>;
   onMcpOperation?: (operation: ChatMcpOperation) => void | Promise<void>;
 }

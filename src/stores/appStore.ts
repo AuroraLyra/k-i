@@ -18,7 +18,7 @@ import { getConversationActiveMessages, getConversationFloorCount, getConversati
 import { resolveMemoryEpisodeFloorRange } from '@/utils/memoryFloors';
 import { selectMemoryCaptureFloors } from '@/utils/memoryCapture';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
-import { discoverGeneratedGroups, estimateRoleplayReplyInputTokens, fetchVendorModels, generateCoupleSpaceSnapshot, generateGroupChatReply, generateImageByProvider, generateRoleplayReply, generateSmallTheater, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasTextGenerationConfig, requestTextEmbedding, requestTextEmbeddings, shouldAutoGenerateMoment, type GroupDiscoveryCharacterContext, type RoleplayCallResponse, type RoleplayGobangResponse, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
+import { discoverGeneratedGroups, estimateRoleplayReplyInputTokens, fetchVendorModels, generateCoupleSpaceSnapshot, generateGroupChatReply, generateImageByProvider, generateRoleplayReply, generateSmallTheater, generateUserVoomComments, generateVoomCommentReplies, generateVoomPost, hasSelectedTextGenerationConfig, hasTextGenerationConfig, requestTextEmbedding, requestTextEmbeddings, shouldAutoGenerateMoment, type GroupDiscoveryCharacterContext, type RoleplayCallResponse, type RoleplayGobangResponse, type RoleplayReplyResult, type RoleplayReplySegment } from '@/services/ai';
 import { fetchMusicCoverUrl, mergeMusicTrack, refreshPlayableMusicTrack, searchMusicTracks } from '@/services/music';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import { useCommerceStore } from '@/stores/commerceStore';
@@ -1049,9 +1049,10 @@ export const useAppStore = defineStore('app', () => {
     const graph = memoryGraphForConversation(id);
     let queryVector = options.queryVector ?? [];
     const memorySettings = settingsForConversation(id).memory;
-    if (!queryVector.length && queryText.trim() && memorySettings.embeddingEnabled) {
+    const embeddingModelOverride = options.embeddingModelOverride?.trim() ?? '';
+    if (!queryVector.length && queryText.trim() && memorySettings.embeddingEnabled && embeddingModelOverride) {
       try {
-        queryVector = await requestTextEmbedding(settings.value ?? undefined, queryText, options.embeddingModelOverride);
+        queryVector = await requestTextEmbedding(settings.value ?? undefined, queryText, embeddingModelOverride);
       } catch (error) {
         console.warn('Memory query embedding fell back to lexical recall.', error);
       }
@@ -1205,6 +1206,7 @@ export const useAppStore = defineStore('app', () => {
         userMessage: userMessageText,
         settings: settings.value ?? undefined,
         modelOverride,
+        requestRecovery: chatSettings.requestRecovery,
         persistSettings: saveSettings
       }
     };
@@ -1270,20 +1272,38 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function hasConfiguredTextModel(modelOverride = '') {
-    return hasTextGenerationConfig(settings.value ?? undefined, modelOverride);
+    return hasSelectedTextGenerationConfig(settings.value ?? undefined, modelOverride);
+  }
+
+  function availableTextModelOverride(modelOverride = '') {
+    const normalizedOverride = modelOverride.trim();
+    return hasConfiguredTextModel(normalizedOverride) ? normalizedOverride : '';
+  }
+
+  function normalizeAvailableModelOverrides(overrides?: Partial<ChatModelOverrides> | null): ChatModelOverrides {
+    const normalizedOverrides = normalizeChatModelOverrides(overrides);
+    return normalizeChatModelOverrides({
+      online: availableTextModelOverride(normalizedOverrides.online),
+      offline: availableTextModelOverride(normalizedOverrides.offline),
+      summary: availableTextModelOverride(normalizedOverrides.summary),
+      embedding: availableTextModelOverride(normalizedOverrides.embedding),
+      voom: availableTextModelOverride(normalizedOverrides.voom),
+      theater: availableTextModelOverride(normalizedOverrides.theater),
+      content: availableTextModelOverride(normalizedOverrides.content)
+    });
   }
 
   function getGlobalTextModelOverride(scope: ChatModelScope) {
-    return settings.value?.modelOverrides[scope]?.trim() ?? '';
+    return availableTextModelOverride(settings.value?.modelOverrides[scope] ?? '');
   }
 
   function modelOverridesForConversation(id: string): ChatModelOverrides {
     const chatSettings = settingsForConversation(id);
     const conversation = conversationById(id);
-    if (conversation?.kind === 'group') return normalizeChatModelOverrides(chatSettings.modelOverrides);
+    if (conversation?.kind === 'group') return normalizeAvailableModelOverrides(chatSettings.modelOverrides);
     const character = conversation ? characterById(conversation.charId) : null;
-    const characterOverrides = normalizeChatModelOverrides(character?.modelOverrides);
-    const legacyConversationOverrides = normalizeChatModelOverrides(chatSettings.modelOverrides);
+    const characterOverrides = normalizeAvailableModelOverrides(character?.modelOverrides);
+    const legacyConversationOverrides = normalizeAvailableModelOverrides(chatSettings.modelOverrides);
 
     return normalizeChatModelOverrides({
       online: characterOverrides.online || legacyConversationOverrides.online,
@@ -1294,6 +1314,42 @@ export const useAppStore = defineStore('app', () => {
       theater: characterOverrides.theater || legacyConversationOverrides.theater,
       content: ''
     });
+  }
+
+  async function clearUnavailableModelOverrides() {
+    if (!settings.value) return;
+    const normalizedGlobalOverrides = normalizeAvailableModelOverrides(settings.value.modelOverrides);
+    const globalOverridesChanged = JSON.stringify(normalizedGlobalOverrides) !== JSON.stringify(settings.value.modelOverrides);
+    const characterUpdates = characters.value.flatMap((character) => {
+      if (!character.modelOverrides) return [];
+      const normalizedOverrides = normalizeAvailableModelOverrides(character.modelOverrides);
+      if (JSON.stringify(normalizedOverrides) === JSON.stringify(normalizeChatModelOverrides(character.modelOverrides))) return [];
+      return [{ ...character, modelOverrides: normalizedOverrides }];
+    });
+    const conversationUpdates = conversationSettings.value.flatMap((chatSettings) => {
+      const normalizedOverrides = normalizeAvailableModelOverrides(chatSettings.modelOverrides);
+      if (JSON.stringify(normalizedOverrides) === JSON.stringify(chatSettings.modelOverrides)) return [];
+      return [normalizeConversationSettings({ ...chatSettings, modelOverrides: normalizedOverrides }, chatSettings.conversationId, conversationById(chatSettings.conversationId)?.activeMode)];
+    });
+    if (!globalOverridesChanged && !characterUpdates.length && !conversationUpdates.length) return;
+
+    if (globalOverridesChanged && settings.value) {
+      settings.value = normalizeAppSettings({ ...settings.value, modelOverrides: normalizedGlobalOverrides });
+    }
+    if (characterUpdates.length) {
+      const updatesById = new Map(characterUpdates.map((character) => [character.id, character]));
+      characters.value = characters.value.map((character) => updatesById.get(character.id) ?? character);
+    }
+    if (conversationUpdates.length) {
+      const updatesById = new Map(conversationUpdates.map((chatSettings) => [chatSettings.conversationId, chatSettings]));
+      conversationSettings.value = conversationSettings.value.map((chatSettings) => updatesById.get(chatSettings.conversationId) ?? chatSettings);
+    }
+
+    await Promise.all([
+      ...(globalOverridesChanged && settings.value ? [putEntity('settings', settings.value, 'main')] : []),
+      ...characterUpdates.map((character) => putEntity('characters', character)),
+      ...conversationUpdates.map((chatSettings) => putEntity('conversationSettings', chatSettings))
+    ]);
   }
 
   function getConversationTextModelOverride(chatSettings: ConversationSettings, scope: ChatModelScope, fallbackScope?: ChatModelScope) {
@@ -5796,6 +5852,7 @@ export const useAppStore = defineStore('app', () => {
     const normalizedSettings = normalizeAppSettings(nextSettings);
     await putEntity('settings', normalizedSettings, 'main');
     settings.value = normalizedSettings;
+    await clearUnavailableModelOverrides();
     void refreshEnabledVendorModels();
   }
 
@@ -5859,14 +5916,15 @@ export const useAppStore = defineStore('app', () => {
       })
     );
 
-    if (!changed || !settings.value) return;
-
-    const normalizedSettings = normalizeAppSettings({
-      ...settings.value,
-      apiVendors: nextVendors
-    });
-    settings.value = normalizedSettings;
-    await putEntity('settings', normalizedSettings, 'main');
+    if (changed && settings.value) {
+      const normalizedSettings = normalizeAppSettings({
+        ...settings.value,
+        apiVendors: nextVendors
+      });
+      settings.value = normalizedSettings;
+      await putEntity('settings', normalizedSettings, 'main');
+    }
+    await clearUnavailableModelOverrides();
   }
 
   async function bindWorldBook(characterId: string, worldBookId: string, enabled: boolean) {
@@ -7067,10 +7125,10 @@ export const useAppStore = defineStore('app', () => {
       const reportedCount = Number(theme.reportAssertionCount) || 0;
       return activeCount >= 5 && (reportedCount <= 0 || activeCount - reportedCount >= 3);
     });
-    if (!themeCandidates.length || !hasTextGenerationConfig(settings.value ?? undefined, getMemorySummaryModelOverride(settingsForConversation(upserts.episode.conversationId)))) return;
     const modelOverride = upserts.episode.conversationId
       ? getMemorySummaryModelOverride(settingsForConversation(upserts.episode.conversationId))
       : '';
+    if (!themeCandidates.length || !modelOverride || !hasTextGenerationConfig(settings.value ?? undefined, modelOverride)) return;
     const consolidatedThemes = [] as MemoryTheme[];
     for (const theme of themeCandidates) {
       const activeAssertions = memoryAssertions.value.filter((assertion) =>
@@ -7081,6 +7139,7 @@ export const useAppStore = defineStore('app', () => {
         const report = await consolidateMemoryThemeReport({
           settings: settings.value ?? undefined,
           modelOverride,
+          retryTransientFailures: settingsForConversation(upserts.episode.conversationId).requestRecovery.retryTransientFailures,
           characterName: getCharacterAiName(character),
           userName: getUserAiName(boundUser),
           theme,
@@ -7104,8 +7163,8 @@ export const useAppStore = defineStore('app', () => {
 
   async function persistMemoryEmbeddingsForAssertions(conversationId: string, assertions: MemoryAssertion[], embeddingModelOverride = '') {
     const memorySettings = settingsForConversation(conversationId).memory;
-    if (!memorySettings.embeddingEnabled || !assertions.length) return;
-    const embeddingModel = embeddingModelOverride || settings.value?.model || '';
+    const embeddingModel = embeddingModelOverride.trim();
+    if (!memorySettings.embeddingEnabled || !embeddingModel || !assertions.length) return;
     const existingByOwnerId = new Map(
       memoryEmbeddings.value
         .filter((embedding) => embedding.ownerType === 'assertion')
@@ -7122,7 +7181,7 @@ export const useAppStore = defineStore('app', () => {
     const vectors = await requestTextEmbeddings(
       settings.value ?? undefined,
       candidates.map((candidate) => candidate.text),
-      embeddingModelOverride
+      embeddingModel
     );
     const now = Date.now();
     const embeddings = candidates.flatMap((candidate, index): MemoryEmbeddingCache[] => {
@@ -7180,6 +7239,11 @@ export const useAppStore = defineStore('app', () => {
     }
     const chatSettings = settingsForConversation(conversationId);
     if (!chatSettings.memory.enabled || (!options.force && !chatSettings.memory.autoCapture)) return null;
+    const modelOverride = getMemorySummaryModelOverride(chatSettings);
+    if (!modelOverride) {
+      if (options.force) throw new Error('请先在模型切换中配置“总结、图谱模型”。记忆不会回退使用线上或线下聊天模型。');
+      return null;
+    }
     const graph = memoryGraphForConversation(conversationId);
     const capturedMessageIds = new Set(
       graph.episodes
@@ -7223,7 +7287,6 @@ export const useAppStore = defineStore('app', () => {
     try {
       const captureNow = Date.now();
       const timeSnapshot = createUserTimeSnapshot(new Date(captureNow));
-      const modelOverride = getMemorySummaryModelOverride(chatSettings);
       const extractionQuery = sourceMessages.map((message) => messageReadableContent(message)).join('\n');
       const characterContext = buildMemoryCharacterContext(character, boundUser);
       const sourceMode = sourceMessages.at(-1)?.mode ?? conversation.activeMode;
@@ -7252,7 +7315,8 @@ export const useAppStore = defineStore('app', () => {
         messages: sourceMessages,
         currentAssertions: [...extractionAssertionMap.values()].slice(0, 30),
         timeAwareness: chatSettings.timeAwareness,
-        captureNow
+        captureNow,
+        retryTransientFailures: chatSettings.requestRecovery.retryTransientFailures
       });
       const extraction = {
         ...extracted,
@@ -7551,6 +7615,8 @@ export const useAppStore = defineStore('app', () => {
       .filter((message) => sourceMessageIds.has(message.id) && message.status !== 'failed');
     if (!sourceMessages.length) throw new Error('原始楼层已不存在，无法重新生成这篇日记。');
     const chatSettings = settingsForConversation(conversation.id);
+    const modelOverride = getMemorySummaryModelOverride(chatSettings);
+    if (!modelOverride) throw new Error('请先在模型切换中配置“总结、图谱模型”。记忆不会回退使用线上或线下聊天模型。');
     const graph = memoryGraphForConversation(conversation.id);
     if (capturingMemoryBrainIds.has(graph.brainId) || rebuildingMemoryBrainIds.has(graph.brainId)) throw new Error('当前角色记忆正在写入，请稍后再试。');
     const characterName = getCharacterAiName(character);
@@ -7566,14 +7632,15 @@ export const useAppStore = defineStore('app', () => {
       const timeSnapshot = createUserTimeSnapshot(new Date(captureNow));
       const diary = await generateTemporalMemoryDiary({
         settings: settings.value ?? undefined,
-        modelOverride: getMemorySummaryModelOverride(chatSettings),
+        modelOverride,
         characterName,
         characterContext,
         userName,
         worldBookContext,
         messages: sourceMessages,
         timeAwareness: chatSettings.timeAwareness,
-        captureNow
+        captureNow,
+        retryTransientFailures: chatSettings.requestRecovery.retryTransientFailures
       });
       const regenerated = integrateMemoryExtraction({
         ...graph,
@@ -9624,7 +9691,7 @@ export const useAppStore = defineStore('app', () => {
     const chatSettings = settingsForConversation(conversationId);
     const modelOverride = getGlobalTextModelOverride('content');
     if (!hasConfiguredTextModel(modelOverride)) {
-      showConfigAlert('请先配置全局内容创作模型或可用的 API 默认模型，再同步情侣空间。', '需要配置 API 模型');
+      showConfigAlert('请先在设置的模型切换中配置全局内容创作模型，再同步情侣空间。', '需要配置模型');
       return null;
     }
 

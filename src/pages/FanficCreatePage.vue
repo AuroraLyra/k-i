@@ -113,7 +113,7 @@
         <article v-if="selectedTopic" class="confirm-topic"><small>{{ selectedTopic.source === 'trend' ? '联网趋势灵感' : selectedTopic.categoryLabel ? `${selectedTopic.categoryLabel} / ${selectedTopic.subcategory}` : '原创题材' }}</small><strong>{{ selectedTopic.title }}</strong><p>{{ selectedTopic.hook }}</p></article>
         <dl class="confirm-settings"><div><dt>基调</dt><dd>{{ preferences.tone }}</dd></div><div><dt>视角</dt><dd>{{ preferences.pov }}</dd></div><div><dt>结局</dt><dd>{{ preferences.endingPreference }}</dd></div><div><dt>篇幅</dt><dd>{{ preferences.chapterTarget }} 章 · 每章约 2500 字</dd></div></dl>
         <ul class="original-rules"><li><Check :size="14" /> 作品始终明确属于用户与所选角色，AU 剧情会结合题材与参考资料重新创作</li><li><Check :size="14" /> 双方设定与角色绑定局部世界书仅供参考，不要求逐条照搬；正文同时遵循故事圣经与已发布事实</li><li><Check :size="14" /> 章节只创建高潮评论点；用户点击某个热点后，模型才单独生成并缓存该点评论</li></ul>
-        <label class="consent-row"><input v-model="consent" type="checkbox" /><span>同意将双方资料与所选角色启用的局部世界书发送给全局小剧场与同人文模型（未单独选择时跟随 API 默认模型）作为创作参考，并在点击高潮评论点时发送同账号绑定角色的真名、签名与角色设定；不发送聊天和记忆。</span></label>
+        <label class="consent-row"><input v-model="consent" type="checkbox" /><span>同意将双方资料与所选角色启用的局部世界书发送给全局小剧场与同人文模型（需先在模型切换中手动选择）作为创作参考，并在点击高潮评论点时发送同账号绑定角色的真名、签名与角色设定；不发送聊天和记忆。</span></label>
         <p v-if="createError" class="error-note">{{ createError }}</p>
       </section>
     </main>

@@ -203,17 +203,7 @@
             </section>
           </template>
           <template v-else-if="message.mcpOperations?.length">
-            <section class="mcp-operation-card" aria-label="角色 MCP 行动">
-              <header class="mcp-operation-head">
-                <span class="mcp-operation-mark"><Globe2 :size="15" /></span>
-                <span><small>ROLE ACTION</small><strong>{{ message.authorName || '角色 MCP 行动' }}</strong></span>
-              </header>
-              <article v-for="operation in message.mcpOperations" :key="operation.id" class="mcp-operation-item" :class="`state-${operation.state}`">
-                <span><strong>{{ operation.serverName }} · {{ operation.toolName }}</strong><small>{{ mcpOperationStateLabel(operation.state) }}</small></span>
-                <em v-if="operation.receipt">回执 {{ operation.receipt }}</em>
-                <p v-if="operation.result">{{ operation.result }}</p>
-              </article>
-            </section>
+            <p class="mcp-operation-text" aria-label="角色 MCP 行动">{{ mcpOperationText }}</p>
           </template>
           <template v-else-if="message.mcpResult">
             <section class="mcp-result-card" aria-label="MCP 联网搜索结果">
@@ -794,6 +784,16 @@ function mcpResultItemUrl(item: ChatMcpResultItem) {
   const position = `${item.longitude},${item.latitude}`;
   return `https://uri.amap.com/marker?position=${encodeURIComponent(position)}&name=${encodeURIComponent(item.title)}&src=BabyLink`;
 }
+
+const mcpOperationText = computed(() => props.message.mcpOperations?.map((operation) => {
+  const detail = [operation.receipt ? `回执 ${operation.receipt}` : '', operation.result]
+    .filter(Boolean)
+    .join(' · ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `MCP · ${operation.serverName} · ${operation.toolName} · ${mcpOperationStateLabel(operation.state)}${detail ? `：${detail}` : ''}`;
+}).join('；') ?? '');
+
 const linePayAmount = computed(() => props.message.transfer?.amount || '0.00');
 const linePayStatus = computed(() => props.message.transfer?.status ?? 'pending');
 const linePayIsReceipt = computed(() => Boolean(props.message.transfer?.responseToMessageId));
@@ -985,7 +985,7 @@ const voicePlaybackLabel = computed(() => {
 });
 
 const isSystemNarration = computed(() => props.message.sender === 'system' && props.message.displayStyle === 'narration');
-const showMessageTime = computed(() => props.appearance.showMessageTime && !props.hideMessageTime && !isSystemNarration.value && !props.message.voomEventType && !props.message.voomPostId);
+const showMessageTime = computed(() => props.appearance.showMessageTime && !props.hideMessageTime && !isSystemNarration.value && !props.message.mcpOperations?.length && !props.message.voomEventType && !props.message.voomPostId);
 const showReadState = computed(() => props.appearance.showReadStatus && messageVisualSender.value !== 'system' && !props.message.voomEventType && !props.message.voomPostId);
 const showMessageMeta = computed(() => showMessageTime.value || showReadState.value);
 
@@ -3805,81 +3805,32 @@ time,
 
 .bubble.mcpOperation {
   width: min(306px, 78vw);
-  min-width: min(248px, 68vw);
   max-width: min(306px, 78vw);
-  padding: 0 !important;
-  overflow: hidden;
-  border-radius: 17px !important;
+  padding: 3px 4px !important;
+  border-radius: 0 !important;
   background: transparent !important;
-  box-shadow: 0 12px 30px rgba(44, 72, 111, 0.13) !important;
+  color: #5f6872 !important;
+  box-shadow: none !important;
 }
 
-.mcp-operation-card {
-  display: grid;
-  width: 100%;
+.mcp-operation-text {
+  display: -webkit-box;
   overflow: hidden;
-  border: 1px solid rgba(63, 91, 138, 0.18);
-  border-radius: 17px;
-  background: linear-gradient(150deg, #f8fbff, #f2f6ff 58%, #edf3fb);
-  color: #344560;
-}
-
-.mcp-operation-head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  padding: 10px 11px 9px;
-  border-bottom: 1px solid rgba(63, 91, 138, 0.12);
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.mcp-operation-mark {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 10px;
-  background: #dce8fb;
-  color: #4a6fa9;
-}
-
-.mcp-operation-head > span:last-child {
-  display: grid;
-  min-width: 0;
-}
-
-.mcp-operation-head small,
-.mcp-operation-item small {
-  color: #7185a5;
-  font-size: 7px;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-}
-
-.mcp-operation-head strong,
-.mcp-operation-item strong {
-  overflow: hidden;
+  margin: 0;
+  color: inherit;
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-style: italic;
+  line-height: 1.55;
+  text-align: center;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgba(95, 104, 114, 0.45);
+  text-underline-offset: 3px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
-
-.mcp-operation-item {
-  display: grid;
-  gap: 4px;
-  padding: 9px 11px;
-  border-top: 1px solid rgba(63, 91, 138, 0.08);
-}
-
-.mcp-operation-item:first-of-type { border-top: 0; }
-.mcp-operation-item > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.mcp-operation-item > em { color: #61738f; font-size: 8px; font-style: normal; }
-.mcp-operation-item > p { margin: 0; color: #53627c; font-size: 9px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-.mcp-operation-item.state-running small { color: #9a741f; }
-.mcp-operation-item.state-failed small { color: #b35b64; }
-.mcp-operation-item.state-requires-permission small,
-.mcp-operation-item.state-initiated small { color: #7666a4; }
 
 .mcp-result-card {
   display: grid;

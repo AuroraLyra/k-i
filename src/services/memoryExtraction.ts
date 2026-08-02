@@ -33,6 +33,7 @@ export interface ExtractTemporalMemoryInput {
   timeAwareness?: ConversationTimeAwarenessSettings;
   captureNow?: number;
   signal?: AbortSignal;
+  retryTransientFailures?: boolean;
 }
 
 const entityTypes = new Set<MemoryEntityType>(['character', 'user', 'person', 'place', 'object', 'organization', 'event', 'concept']);
@@ -56,9 +57,7 @@ export interface TemporalMemoryExtractionResult extends MemoryExtractionResult {
 }
 
 export async function extractTemporalMemory(input: ExtractTemporalMemoryInput): Promise<TemporalMemoryExtractionResult> {
-  if (!hasTextGenerationConfig(input.settings, input.modelOverride)) {
-    throw new Error('没有可用的总结、图谱模型。请先配置全局或角色局部的总结、图谱模型，或 API 默认模型。');
-  }
+  requireDedicatedMemoryModel(input.settings, input.modelOverride);
   const diary = await generateTemporalMemoryDiary(input);
   const graph = await extractTemporalMemoryGraph(input);
   return {
@@ -87,9 +86,7 @@ export async function extractTemporalMemory(input: ExtractTemporalMemoryInput): 
 }
 
 export async function generateTemporalMemoryDiary(input: ExtractTemporalMemoryInput): Promise<TemporalMemoryDiaryResult> {
-  if (!hasTextGenerationConfig(input.settings, input.modelOverride)) {
-    throw new Error('没有可用的总结、图谱模型。请先配置全局或角色局部的总结、图谱模型，或 API 默认模型。');
-  }
+  requireDedicatedMemoryModel(input.settings, input.modelOverride);
   const prompt = buildMemoryDiaryPrompt(input);
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -101,6 +98,7 @@ export async function generateTemporalMemoryDiary(input: ExtractTemporalMemoryIn
       maxTokens: attempt === 0 ? 4_096 : 8_192,
       jsonMode: true,
       signal: input.signal,
+      retryTransientFailures: input.retryTransientFailures,
     });
     try {
       const parseMetadata = { repairedJson: false };
@@ -127,6 +125,7 @@ export async function extractTemporalMemoryGraph(input: ExtractTemporalMemoryInp
         maxTokens: attempt === 0 ? 6_144 : 10_240,
         jsonMode: true,
         signal: input.signal,
+        retryTransientFailures: input.retryTransientFailures,
       });
       const parseMetadata = { repairedJson: false };
       return {
@@ -150,6 +149,7 @@ export function parseTemporalMemoryGraphResponse(raw: string, metadata: { repair
 export interface ConsolidateMemoryThemeInput {
   settings: AppSettings | undefined;
   modelOverride?: string;
+  retryTransientFailures?: boolean;
   characterName: string;
   userName: string;
   theme: MemoryTheme;
@@ -163,9 +163,7 @@ export async function consolidateMemoryThemeReport(input: ConsolidateMemoryTheme
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, 18);
   if (!activeAssertions.length) throw new Error('当前主题没有可用于整理的有效认知。');
-  if (!hasTextGenerationConfig(input.settings, input.modelOverride)) {
-    throw new Error('没有可用的总结、图谱模型。请先配置全局或角色局部的总结、图谱模型，或 API 默认模型。');
-  }
+  requireDedicatedMemoryModel(input.settings, input.modelOverride);
   const evidence = activeAssertions
     .map((assertion, index) => `${index + 1}. ${assertion.perspectiveText}（${assertion.kind}；确信度${Math.round(assertion.confidence * 100)}%）`)
     .join('\n');
@@ -182,11 +180,21 @@ ${evidence}`;
     temperature: 0.15,
     maxTokens: 500,
     jsonMode: true,
+    retryTransientFailures: input.retryTransientFailures,
   });
   const parsed = parseJsonObject(requireCompleteGenerationJson(response, '主题记忆报告'));
   const report = cleanText(parsed.report, 700);
   if (!report) throw new Error('主题记忆整理结果缺少 report 字段。');
   return report;
+}
+
+function requireDedicatedMemoryModel(settings: AppSettings | undefined, modelOverride = '') {
+  if (!modelOverride.trim()) {
+    throw new Error('请先在模型切换中配置“总结、图谱模型”。记忆不会回退使用线上或线下聊天模型。');
+  }
+  if (!hasTextGenerationConfig(settings, modelOverride)) {
+    throw new Error('当前“总结、图谱模型”不可用，请检查模型配置。');
+  }
 }
 
 function buildMemoryDiaryPrompt(input: ExtractTemporalMemoryInput): string {

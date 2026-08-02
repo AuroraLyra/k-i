@@ -94,15 +94,24 @@
             {{ modelFeedback }}
           </p>
 
-          <div v-if="draft.models.length" class="model-grid">
-            <label v-for="model in draft.models" :key="model.id" class="model-option">
-              <input :checked="model.selected" type="checkbox" @change="toggleModel(model.id, $event)" />
-              <div>
-                <strong>{{ model.nickname || model.id }}</strong>
-                <span>{{ model.id }}</span>
-              </div>
+          <template v-if="draft.models.length">
+            <label class="field model-search-field">
+              <span>搜索模型</span>
+              <input v-model="modelSearch" type="search" autocomplete="off" placeholder="输入模型名称或 ID" />
             </label>
-          </div>
+
+            <div v-if="filteredModels.length" class="model-grid">
+              <label v-for="model in filteredModels" :key="model.id" class="model-option">
+                <input :checked="model.selected" type="checkbox" @change="toggleModel(model.id, $event)" />
+                <div>
+                  <strong>{{ model.nickname || model.id }}</strong>
+                  <span>{{ model.id }}</span>
+                </div>
+              </label>
+            </div>
+
+            <div v-else class="empty-note">未找到匹配的模型，试试其他关键字。</div>
+          </template>
 
           <div v-else class="empty-note">暂无模型，拉取模型后可同时选择多个模型方便后续任意切换</div>
         </section>
@@ -174,6 +183,7 @@ const activeTab = ref<ComposerTab>('openai');
 const loadingModels = ref(false);
 const modelState = ref<'idle' | 'loading' | 'success' | 'error'>('idle');
 const modelFeedback = ref('');
+const modelSearch = ref('');
 const editingVendorId = ref<string | null>(null);
 const draft = ref<ApiVendor>(createApiVendor({ enabled: true }));
 const showAvatarEditor = ref(false);
@@ -181,6 +191,11 @@ const avatarEditorSource = ref('');
 
 const vendors = computed(() => props.settings.apiVendors);
 const selectedModels = computed(() => draft.value.models.filter((model) => model.selected));
+const filteredModels = computed(() => {
+  const keyword = modelSearch.value.trim().toLocaleLowerCase();
+  if (!keyword) return draft.value.models;
+  return draft.value.models.filter((model) => [model.id, model.nickname].some((value) => value.toLocaleLowerCase().includes(keyword)));
+});
 const editorTitle = computed(() => (editingVendorId.value ? 'Edit Provider' : 'Add Provider'));
 const syncButtonLabel = computed(() => ({
   idle: 'Sync now',
@@ -220,6 +235,7 @@ function openCreator() {
   activeTab.value = 'openai';
   modelState.value = 'idle';
   modelFeedback.value = '';
+  modelSearch.value = '';
   showComposer.value = true;
 }
 
@@ -229,6 +245,7 @@ function openEditor(vendor: ApiVendor) {
   activeTab.value = 'openai';
   modelState.value = 'idle';
   modelFeedback.value = '';
+  modelSearch.value = '';
   showComposer.value = true;
 }
 
@@ -635,6 +652,34 @@ function submit() {
 .nickname-grid {
   display: grid;
   gap: 10px;
+}
+
+.model-search-field {
+  gap: 6px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.model-search-field span {
+  color: #9d7a86;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.model-search-field input {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.model-search-field input:focus {
+  outline: none;
 }
 
 .model-option {

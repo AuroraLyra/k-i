@@ -67,6 +67,7 @@ const currentGlobalSettings = computed(() => normalizeAppSettings(store.settings
 
 const groupedModels = computed(() => {
   return (store.settings?.apiVendors ?? [])
+    .filter((vendor) => vendor.enabled)
     .map((vendor) => ({
       id: vendor.id,
       name: vendor.name,
@@ -102,31 +103,31 @@ watch(
 );
 
 function modelValueFor(scope: ChatModelScope) {
-  if (isGlobal.value) return settingsDraft.modelOverrides[scope];
-  return draft[scope].trim();
+  const value = isGlobal.value ? settingsDraft.modelOverrides[scope] : draft[scope];
+  return groupedModels.value.some((vendor) => vendor.models.some((model) => model.value === value.trim())) ? value.trim() : '';
 }
 
 function fallbackLabel(scope: ChatModelScope) {
   if (isGlobal.value) {
     const labels: Record<ChatModelScope, string> = {
-      online: '跟随 API 默认线上聊天模型',
-      offline: '跟随 API 默认线下 RP 模型',
-      summary: '跟随 API 默认总结、图谱模型',
-      embedding: '跟随 API 默认向量化模型',
-      voom: '跟随 API 默认 VOOM 生成模型',
-      theater: '跟随 API 默认小剧场模型',
-      content: '跟随 API 默认内容创作模型'
+      online: '未配置（角色回复时会提示配置模型）',
+      offline: '未配置（线下 RP 时会提示配置模型）',
+      summary: '未配置（自动记忆不会调用模型）',
+      embedding: '未配置（语义记忆不会调用模型）',
+      voom: '未配置（生成 VOOM 时会提示配置模型）',
+      theater: '未配置（生成小剧场时会提示配置模型）',
+      content: '未配置（内容创作时会提示配置模型）'
     };
     return labels[scope];
   }
   const labels: Record<ChatModelScope, string> = {
-    online: '跟随全局线上聊天模型',
-    offline: '跟随全局线下 RP 模型',
-    summary: '跟随全局总结、图谱模型',
-    embedding: '跟随全局向量化模型',
-    voom: '跟随全局 VOOM 生成模型',
-    theater: '跟随全局小剧场模型',
-    content: '跟随全局内容创作模型'
+    online: '跟随全局线上聊天模型（未配置则报错）',
+    offline: '跟随全局线下 RP 模型（未配置则报错）',
+    summary: '跟随全局总结、图谱模型（未配置则不调用）',
+    embedding: '跟随全局向量化模型（未配置则不调用）',
+    voom: '跟随全局 VOOM 生成模型（未配置则报错）',
+    theater: '跟随全局小剧场模型（未配置则报错）',
+    content: '跟随全局内容创作模型（未配置则报错）'
   };
   return labels[scope];
 }

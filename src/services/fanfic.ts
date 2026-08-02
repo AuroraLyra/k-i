@@ -1,4 +1,4 @@
-import { generateImageByProvider, hasTextGenerationConfig, requestTextGeneration, type TextGenerationOptions } from '@/services/ai';
+import { generateImageByProvider, hasSelectedTextGenerationConfig, requestTextGeneration, type TextGenerationOptions } from '@/services/ai';
 import type {
   AppSettings,
   CharacterProfile,
@@ -68,12 +68,16 @@ async function requestFanficJson(
   invalidStructureMessage: string | ((value: unknown) => string) = '文本模型返回的 JSON 缺少必要字段。',
   maxAttempts = 2
 ) {
+  const modelOverride = getFanficTextModelOverride(settings);
+  if (!hasSelectedTextGenerationConfig(settings, modelOverride)) {
+    throw new Error('请先在模型切换中配置全局内容创作模型，再生成同人文内容。');
+  }
   let lastError: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const attemptPrompt = attempt === 0
       ? prompt
       : `${prompt}\n\n重要重试要求：上一次响应不是可解析的完整 JSON。请从头重新生成全部字段，使用紧凑 JSON，不要 Markdown 代码块，不要解释，不要省略结尾的引号、数组或花括号。`;
-    const reply = await requestTextGeneration(settings, attemptPrompt, getFanficTextModelOverride(settings), {
+    const reply = await requestTextGeneration(settings, attemptPrompt, modelOverride, {
       ...options,
       jsonMode: true,
       temperature: attempt === 0 ? options.temperature : Math.min(options.temperature ?? 0.9, 0.72),
@@ -468,7 +472,7 @@ export async function generateFanficChapter(input: {
     }
   );
   const chapter = normalizeFanficChapter(parsed, { book: input.book, order: input.order });
-  chapter.model = getFanficTextModelOverride(input.settings) || input.settings?.model || undefined;
+  chapter.model = getFanficTextModelOverride(input.settings) || undefined;
   return chapter;
 }
 
@@ -568,7 +572,7 @@ export async function fetchFanficTrendKeywords() {
 }
 
 export async function generateFanficTrendTopics(input: { keywords: string[]; settings?: AppSettings }): Promise<FanficTopic[]> {
-  if (!hasTextGenerationConfig(input.settings, getFanficTextModelOverride(input.settings))) throw new Error('请先配置全局内容创作模型或可用的 API 默认模型，再生成联网同人题材。');
+  if (!hasSelectedTextGenerationConfig(input.settings, getFanficTextModelOverride(input.settings))) throw new Error('请先在模型切换中配置全局内容创作模型，再生成联网同人题材。');
   const prompt = [
     '根据公开通用网络文学分类标签生成 6 个完全原创、清楚直给、适合连载的双主角 AU 同人题材卡。不要套用任何单一内容频道；六个题材要主动覆盖情感、事业、悬疑、冒险、幻想、现实或轻喜剧中的不同方向。趋势标签只能作为类型参考，禁止提及、拼接或改写任何榜单作品、IP、明星、作者、书名、简介和正文。',
     `趋势标签：${JSON.stringify(input.keywords)}`,

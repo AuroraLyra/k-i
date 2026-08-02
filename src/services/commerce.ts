@@ -1,6 +1,6 @@
 import type { AppSettings, CharacterProfile, ImageProviderType, UserProfile } from '@/types/domain';
 import type { CommercePurchaseKind, ShopCategory, ShopProduct, WalletAccount, WalletTransaction, WalletTransactionType } from '@/types/commerce';
-import { generateImageByProvider, requestTextGeneration } from '@/services/ai';
+import { generateImageByProvider, hasSelectedTextGenerationConfig, requestTextGeneration } from '@/services/ai';
 import { parseFanficJsonResponse as parseAiJsonResponse } from '@/utils/fanficJson';
 import { getImageGenerationSize, getImagePromptPresetForProvider, getSelectedImageModelOption } from '@/utils/settings';
 
@@ -206,6 +206,10 @@ async function requestCommerceJson<T>(input: {
   errorLabel: string;
   normalize: (payload: unknown) => T;
 }) {
+  const modelOverride = commerceTextModelOverride(input.settings);
+  if (!hasSelectedTextGenerationConfig(input.settings, modelOverride)) {
+    throw new Error('请先在模型切换中配置全局内容创作模型，再使用商城 AI 功能。');
+  }
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const prompt = attempt === 0
@@ -214,7 +218,7 @@ async function requestCommerceJson<T>(input: {
     const response = await requestTextGeneration(
       input.settings,
       prompt,
-      commerceTextModelOverride(input.settings),
+      modelOverride,
       {
         temperature: attempt === 0 ? input.temperature : Math.min(input.temperature, 0.68),
         maxTokens: Math.min(8192, input.maxTokens + attempt * 1200),

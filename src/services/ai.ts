@@ -2202,6 +2202,14 @@ export function hasTextGenerationConfig(settings: AppSettings | undefined, model
   return Boolean(resolved.endpoint.trim() && resolved.model.trim());
 }
 
+export function hasSelectedTextGenerationConfig(settings: AppSettings | undefined, modelOverride = '') {
+  const selection = splitModelSelection(modelOverride);
+  if (!selection.vendorId || !selection.model) return false;
+  const vendor = settings?.apiVendors.find((entry) => entry.id === selection.vendorId);
+  if (!vendor?.enabled || !vendor.models.some((model) => model.selected && model.id === selection.model)) return false;
+  return hasTextGenerationConfig(settings, modelOverride);
+}
+
 function requireTextGenerationConfig(settings: AppSettings | undefined, modelOverride = '', target = 'AI 回复') {
   if (hasTextGenerationConfig(settings, modelOverride)) return;
   throw new Error(`请先配置可用的 API 模型后再使用${target}。`);
@@ -2212,6 +2220,7 @@ export interface TextGenerationOptions {
   maxTokens?: number;
   signal?: AbortSignal;
   jsonMode?: boolean;
+  retryTransientFailures?: boolean;
 }
 
 export interface TextGenerationUsage {
@@ -2512,7 +2521,7 @@ async function callTextApiDetailed(settings: AppSettings | undefined, prompt: st
     response = compatibilityResult.response;
     requestEndpoint = compatibilityResult.requestEndpoint;
   }
-  if (!response.ok && shouldRetryTextApiResponse(response)) {
+  if (!response.ok && options.retryTransientFailures !== false && shouldRetryTextApiResponse(response)) {
     await waitForTextApiRetry();
     const retryResult = await fetchTextEndpoint(resolved.endpoint, requestInit);
     response = retryResult.response;
@@ -3110,7 +3119,8 @@ ${JSON.stringify(mcpPlannerToolCatalog(tools), null, 2)}
   const response = await callTextApi(input.settings, prompt, input.modelOverride, [], {
     jsonMode: true,
     maxTokens: 2_048,
-    temperature: 0.1
+    temperature: 0.1,
+    retryTransientFailures: input.requestRecovery?.retryTransientFailures
   });
   return normalizeMcpPlannedCalls(parseModelJsonResponse(response), tools, 1);
 }
@@ -3308,11 +3318,16 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
   const mcpReply = await collectMcpReplyContext(input, basePrompt);
   const prompt = mcpReply.context ? `${basePrompt}\n\n${mcpReply.context}` : basePrompt;
   const imageParts = await getPreparedVisualImageParts(input);
-  const apiResult = await callTextApiDetailed(input.settings, prompt, input.modelOverride, imageParts);
+  const apiResult = await callTextApiDetailed(input.settings, prompt, input.modelOverride, imageParts, {
+    retryTransientFailures: input.requestRecovery?.retryTransientFailures
+  });
   try {
     return attachReplyTrace(normalizeRoleplayReplyPayload(apiResult.text, input), apiResult, mcpReply);
   } catch (error) {
     if (!(error instanceof RoleplayReplyFormatError)) throw error;
+    if (input.requestRecovery?.retryMalformedRoleplayJson === false) {
+      throw new Error('角色回复模型返回的 JSON 格式损坏。已关闭自动重新生成，请修正模型输出或在“更多”中开启该选项后重试。');
+    }
   }
 
   const retryResult = await callTextApiDetailed(
@@ -3320,7 +3335,7 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
     `${prompt}\n\n${roleplayFormatRetryInstruction}`,
     input.modelOverride,
     imageParts,
-    { jsonMode: true, maxTokens: 8192 }
+    { jsonMode: true, maxTokens: 8192, retryTransientFailures: input.requestRecovery?.retryTransientFailures }
   );
   try {
     return attachReplyTrace(normalizeRoleplayReplyPayload(retryResult.text, input), retryResult, mcpReply);

@@ -1,10 +1,10 @@
-import Ajv, { type ValidateFunction } from 'ajv';
 import type { AppSettings, CharacterProfile, ChatMcpResultAttachment, McpServerConfig, McpServerKind, McpToolDefinition } from '@/types/domain';
 import { createBuiltinNotificationInboxMcpServer, createBuiltinRealityMcpServer, notificationInboxMcpTools, realityMcpTools } from '@/data/realityMcp';
 import { fetchNativeMcpLocal, nativeMcpLocalAvailable } from '@/services/nativeMcpLocal';
 import { executeRealityMcpTool } from '@/services/realityMcp';
 import { createActiveTimeout, isFetchInterruptedError, waitForActiveNetworkWindow } from '@/utils/activeTimeout';
 import { createId } from '@/utils/id';
+import { createJsonSchemaValidator, type JsonSchemaValidator } from '@/utils/jsonSchema';
 import { getMcpToolAccessState, mcpToolAccessError, resolveAllowedMcpTools } from '@/utils/mcpAccess';
 import { createMcpResultAttachment } from '@/utils/mcpResults';
 
@@ -12,8 +12,7 @@ const defaultProtocolVersion = '2025-06-18';
 const mcpProxyPath = '/__mcp-proxy';
 const maxToolResultLength = 12_000;
 const maxToolListPages = 20;
-const schemaValidator = new Ajv({ allErrors: true, allowUnionTypes: true, strict: false, validateFormats: false });
-const toolSchemaValidators = new Map<string, ValidateFunction>();
+const toolSchemaValidators = new Map<string, JsonSchemaValidator>();
 
 interface JsonRpcError {
   code?: number;
@@ -574,17 +573,15 @@ function validateMcpToolArguments(server: McpServerConfig, tool: McpToolDefiniti
   let validate = toolSchemaValidators.get(key);
   if (!validate) {
     try {
-      validate = schemaValidator.compile(tool.inputSchema);
+      validate = createJsonSchemaValidator(tool.inputSchema);
       toolSchemaValidators.set(key, validate);
     } catch (error) {
       throw new Error(`工具参数规则无效，已阻止调用：${error instanceof Error ? error.message : '无法编译 JSON Schema。'}`);
     }
   }
-  if (validate(args)) return;
-  const detail = (validate.errors ?? [])
-    .slice(0, 3)
-    .map((error) => `${error.instancePath || '参数'} ${error.message ?? '无效'}`)
-    .join('；');
+  const errors = validate(args);
+  if (errors.length === 0) return;
+  const detail = errors.join('；');
   throw new Error(`工具参数不符合 ${tool.name} 的输入规则：${detail || '参数无效。'}`);
 }
 
