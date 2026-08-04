@@ -29,6 +29,8 @@ cp .env.example .env
 - `NAPCAT_QUICK_PASSWORD`：可选的机器人 QQ 密码，仅保存在服务器 `.env`；用于失效后自动重登。不要提交、截图或写入日志。
 - `NAPCAT_QUICK_PASSWORD_MD5`：仅在不能使用明文变量时作为备用，两项只填写一项；MD5 仍等同登录凭据。
 - `ALLOWED_QQ_GROUPS`：逗号分隔的全部授权 QQ 群号。
+- `BRIDGE_RELEASE_BASE_URL`：Bridge 外部安装包地址，默认使用公开 GitHub Release。
+- `IMAGE_PROXY_CACHE_TTL_HOURS`、`IMAGE_PROXY_CACHE_MAX_MB`、`IMAGE_PROXY_CACHE_ENTRY_MAX_MB`：公共图片代理共享缓存的有效期、总容量和单文件上限。
 
 生成随机值时可使用 `openssl rand -base64 48 | tr -d '\n'`。不要把 `deploy/.env`、数据库密码、NapCat Token 或 Android keystore 提交到 Git。
 
@@ -127,6 +129,7 @@ curl -X POST https://babylink.top/api/admin/napcat/sync -H "Authorization: Beare
 - 云备份在设备内通过 PBKDF2-SHA-256 派生密钥并使用 AES-256-GCM 加密；Google Drive、OneDrive、Dropbox 使用用户账号自带免费空间并由设备直传，LINK 服务端不接收、不存储、不转发备份内容、Token 或恢复密钥。
 - 云端自动备份仅在应用运行或重新回到前台时执行，移动系统不会保证网页真正后台运行。
 - 用户必须离线保存恢复密钥；密钥丢失后管理员也无法恢复备份。
+- 公共图片代理缓存保存在独立 `image_proxy_cache` 卷，默认最多 512 MiB；带 Authorization、签名参数、上游私有缓存指令或非图片响应不会写入共享缓存。
 
 账号数据库仍需每日异地备份：
 
@@ -212,14 +215,21 @@ iOS 仍不能在 BabyLink 内静默自更新。安装、签名和续签由 Apple
 
 桌面助手必须在对应系统构建。macOS 使用 `npm run bridge:desktop:dist` 生成 DMG，Windows 使用同一命令生成 NSIS EXE；正式发布前应分别配置 Apple Developer ID、公证凭据和 Windows 代码签名证书。
 
-生成安装包后，通过现有受保护发布接口上传。`versionCode` 必须按平台递增，`versionName` 应与根 `package.json` 版本一致：
+Bridge 安装包托管在公开 GitHub Release，避免占用 BabyLink 源站流量。生产环境的 `BRIDGE_RELEASE_BASE_URL` 默认为 `https://github.com/babylink-themes/LINK/releases/download`；用户仍需先通过 BabyLink 登录和五分钟下载票据校验，校验成功后服务端才重定向到外部安装包。
+
+生成安装包后，先创建标签 `bridge-v<versionName>` 的 GitHub Release，并上传名称严格符合以下格式的资产：
+
+- macOS：`BabyLink-Bridge-<versionName>-mac-arm64.dmg`
+- Windows：`BabyLink-Bridge-<versionName>-win-x64.exe`
+
+确认外部资产 SHA-256 与本地文件一致后，再通过现有受保护发布接口登记版本。`versionCode` 必须按平台递增，`versionName` 应与根 `package.json` 版本一致：
 
 ```bash
 ADMIN_TOKEN='<admin-token>' node scripts/publish-release.mjs desktop-macos bridge-dist/BabyLink-Bridge-0.1.0-mac-arm64.dmg 1 0.1.0 1 '电脑助手首个 macOS 版本'
 ADMIN_TOKEN='<admin-token>' node scripts/publish-release.mjs desktop-windows bridge-dist/BabyLink-Bridge-0.1.0-win-x64.exe 1 0.1.0 1 '电脑助手首个 Windows 版本'
 ```
 
-发布成功后，登录用户会在 BabyLink → Services → MCP Studio → 连接的电脑助手区域看到版本号、文件大小和下载按钮。下载 URL 使用与 APK/IPA 相同的五分钟签名票据；未发布的平台只显示“暂未发布”，不会生成假链接。
+发布成功后，登录用户会在 BabyLink → Services → MCP Studio → 连接的电脑助手区域看到版本号、文件大小和下载按钮。下载 URL 使用与 APK/IPA 相同的五分钟签名票据；Android 与 iOS 安装包继续由本地受保护文件流提供，只有桌面 Bridge 在票据校验后跳转 GitHub。未发布的平台只显示“暂未发布”，不会生成假链接。
 
 ## 10. 更新与回滚
 
@@ -228,9 +238,12 @@ ADMIN_TOKEN='<admin-token>' node scripts/publish-release.mjs desktop-windows bri
 ```bash
 git pull --ff-only
 cd deploy
+df -h /
 docker compose up -d --build
 docker compose logs --tail=200 app caddy
 ```
+
+镜像构建会同时保留旧镜像和新层，发布前必须确认根分区有足够余量。若空间不足，只能清理未使用的构建缓存和悬空镜像（`docker builder prune -af`、`docker image prune -f`）；不得删除 `postgres_data`、`releases`、Caddy 或 NapCat 卷。PostgreSQL 在恢复期间会短暂拒绝连接，应用启动会对该明确的瞬态状态有限重试；若持续失败，应先排查磁盘和数据库日志，不能反复重建应用容器。
 
 静态网页更新由 PWA Service Worker 拉取。原生壳继续加载 `https://babylink.top`，所以绝大多数 UI 和业务更新无需重新发布 APK/IPA。
 

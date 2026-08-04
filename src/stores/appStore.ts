@@ -1,10 +1,10 @@
 import { computed, ref, toRaw, watch } from 'vue';
 import { defineStore } from 'pinia';
-import { applyMemoryStoreMutation, deleteEntity, loadSnapshot, pruneUnusedStoredMediaCache, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
+import { applyMemoryStoreMutation, deleteEntity, loadAllMessages, loadAllMessagesByConversation, loadAppStartupSnapshot, loadMessagesBeforeConversationCursor, loadSnapshot, pruneUnusedStoredMediaCache, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
 import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatGobangAttachment, ChatImageAttachment, ChatImageCandidate, ChatLinkPreviewAttachment, ChatLocationAttachment, ChatMcpOperation, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, ThoughtChainTheme, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import type { CharacterEconomySnapshot, ChatCommerceAttachment, ChatShopShareAttachment } from '@/types/commerce';
-import type { MemoryAssertion, MemoryCompressionStats, MemoryEdge, MemoryEmbeddingCache, MemoryEntity, MemoryEpisode, MemoryRecallResult, MemoryStateSnapshot, MemoryTheme } from '@/types/memory';
+import type { MemoryAssertion, MemoryCaptureStatus, MemoryCompressionStats, MemoryEdge, MemoryEmbeddingCache, MemoryEntity, MemoryEpisode, MemoryRecallResult, MemoryStateSnapshot, MemoryTheme } from '@/types/memory';
 import { createAccountId, createId } from '@/utils/id';
 import { getCharacterAiName, getCharacterInitialProfile, getCharacterVoomAuthorName, getCharacterVoomDisplayName, getFriendRelationship, isCharacterFriend, normalizeCharacterMindStateLines, normalizeCharacterProfile } from '@/utils/character';
 import { getUserAiName, getUserDisplayName, getUserVoomAuthorName, normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
@@ -16,6 +16,7 @@ import { createThoughtChainTheme as createDefaultThoughtChainTheme, normalizeTho
 import { getSmallTheaterVisibleText } from '@/utils/smallTheaterHtml';
 import { RECENT_STICKER_GROUP_NAME, cacheStickerImageUrl, createStickerFromDraft, createStickerGroup, getStickerDisplayImageUrl, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
 import { getConversationActiveMessages, getConversationFloorCount, getConversationFloors, getMessageFloorMap, getRecentCompleteFloorMessages, normalizeConversationSettings } from '@/utils/memory';
+import { applyCurrentChatMemoryDefaults, chatMemoryDefaultsMigrationVersion } from '@/utils/memorySettings';
 import { resolveMemoryEpisodeFloorRange } from '@/utils/memoryFloors';
 import { selectMemoryCaptureFloors } from '@/utils/memoryCapture';
 import { formatContentWithChineseTranslation, normalizeTranslationText } from '@/utils/translation';
@@ -25,13 +26,12 @@ import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import { useCommerceStore } from '@/stores/commerceStore';
 import { useRoleOperationsStore } from '@/stores/roleOperationsStore';
 import { downloadEncryptedCloudBackup, isCloudBackupConnected, uploadEncryptedCloudBackup } from '@/services/cloudBackup';
-import { GitHubBackupError, downloadGitHubBackup, downloadGitHubBackupVersion, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
+import { GitHubBackupError, downloadGitHubBackupFile, ensureGitHubBackupRepository, formatGitHubBackupError, listGitHubBackupHistory, uploadGitHubBackup } from '@/services/githubBackup';
 import { dismissLinkCallNotification, showLinkNotification } from '@/services/keepAlive';
-import { persistFanficStartupCache } from '@/services/fanficStartupCache';
 import { playRingtone } from '@/services/ringtone';
 import { synthesizeSpeech } from '@/services/tts';
 import { classifyGobangApiError, generateGobangMove, GobangApiError } from '@/services/gobang';
-import { createLinkBackupFile, parseLinkBackupFileText, parseLinkBackupText, stickerBackupPlaceholder } from '@/utils/backup';
+import { createLinkBackupArchive, createLinkBackupFile, parseLinkBackupFileText, parseLinkBackupText, stickerBackupPlaceholder, type LinkBackupArchive } from '@/utils/backup';
 import { markRestoredGlobalNoticesSeen } from '@/utils/globalNotices';
 import { getVoomFrequencyChance, stripVoomCommentReplyPrefix } from '@/utils/voom';
 import { compressInlineImageDataUrl } from '@/utils/imageFile';
@@ -46,6 +46,8 @@ import { normalizeNarrativeText } from '@/utils/structuredText';
 import { normalizeMcpResultAttachments } from '@/utils/mcpResults';
 import { formatChatMcpOperation, formatChatMcpOperations } from '@/utils/mcpOperations';
 import { createChatLinkPreview, fetchChatLinkPreview } from '@/services/linkPreview';
+import { replyMessageDeliveryGap, shouldStageOnlineReplyDelivery, waitForReplyDelivery } from '@/utils/replyDelivery';
+import { compareConversationMessageOrder, createConversationMessageCursor, type ConversationMessageCursor } from '@/data/messagePagination';
 
 interface CreateUserVoomPostPayload {
   userId: string;
@@ -278,20 +280,30 @@ function createCharacterProfileHistoryEntries(previousCharacter: CharacterProfil
 export const useAppStore = defineStore('app', () => {
   const ready = ref(false);
   let hydratePromise: Promise<void> | null = null;
-  let githubBackupRunning = false;
-  let cloudBackupRunning = false;
+  const fullyLoadedConversationMessageIds = new Set<string>();
+  let allMessagesLoaded = false;
+  let allMessagesPromise: Promise<ChatMessage[]> | null = null;
+  const conversationMessageLoadPromises = new Map<string, Promise<ChatMessage[]>>();
+  const githubBackupRunning = ref(false);
+  const cloudBackupRunning = ref(false);
   let stickerImportCacheQueue = Promise.resolve();
   const capturingMemoryConversationIds = new Set<string>();
   const capturingMemoryBrainIds = new Set<string>();
   const rebuildingMemoryBrainIds = new Set<string>();
   const pendingMemoryCaptureRequests = new Map<string, PendingMemoryCaptureRequest>();
+  const memoryCaptureStatuses = ref<Record<string, MemoryCaptureStatus>>({});
   const generatingMomentConversationIds = new Set<string>();
   const generatingSmallTheaterConversationIds = new Set<string>();
   const regeneratingChatImageMessageIds = new Set<string>();
   const regeneratingVoomImagePostIds = new Set<string>();
   const activeReplyRunIds = new Map<string, string>();
+  const activeReplyDeliveryAbortControllers = new Map<string, AbortController>();
   const activeGobangRequestIds = new Map<string, string>();
+  const activeGobangRequestCount = ref(0);
   const replyCancelVersions = new Map<string, number>();
+  const localBackupOperation = ref<'idle' | 'exporting' | 'importing'>('idle');
+  const localBackupOperationOwner = ref<'idle' | 'external' | 'store'>('idle');
+  const appUpdateTransientOperations = ref<Record<string, string>>({});
   const characterReadReceiptTimers = new Map<string, number>();
   const replyingConversationIds = ref<string[]>([]);
   const loadingReply = computed(() => replyingConversationIds.value.length > 0);
@@ -304,6 +316,28 @@ export const useAppStore = defineStore('app', () => {
   const activeConversationId = ref<string | null>(null);
   const messages = ref<ChatMessage[]>([]);
   const activeCall = ref<AppActiveCallState | null>(null);
+  const appUpdateBlockers = computed(() => {
+    const blockers: string[] = [];
+    if (replyingConversationIds.value.length) blockers.push('正在生成聊天回复');
+    if (activeCall.value && activeCall.value.status !== 'ended') blockers.push('正在进行通话');
+    if (activeGobangRequestCount.value) blockers.push('正在请求五子棋落子');
+    if (localBackupOperation.value === 'exporting') blockers.push('正在导出本地备份');
+    if (localBackupOperation.value === 'importing') blockers.push('正在导入本地备份');
+    if (githubBackupRunning.value) blockers.push('正在同步 GitHub 备份');
+    if (cloudBackupRunning.value) blockers.push('正在同步云端备份');
+    blockers.push(...Object.values(appUpdateTransientOperations.value));
+    return blockers;
+  });
+
+  function setAppUpdateTransientOperation(id: string, label: string, active: boolean) {
+    const normalizedId = id.trim();
+    const normalizedLabel = label.trim();
+    if (!normalizedId) return;
+    const next = { ...appUpdateTransientOperations.value };
+    if (active && normalizedLabel) next[normalizedId] = normalizedLabel;
+    else delete next[normalizedId];
+    appUpdateTransientOperations.value = next;
+  }
   const voomPosts = ref<VoomPost[]>([]);
   const profileThemes = ref<ProfileTheme[]>([]);
   const profileHomepages = ref<ProfileHomepageRecord[]>([]);
@@ -372,7 +406,7 @@ export const useAppStore = defineStore('app', () => {
       groupedMessages.set(message.conversationId, conversationMessages);
     }
     for (const conversationMessages of groupedMessages.values()) {
-      conversationMessages.sort((leftMessage, rightMessage) => leftMessage.createdAt - rightMessage.createdAt);
+      conversationMessages.sort(compareConversationMessageOrder);
     }
     return groupedMessages;
   });
@@ -519,6 +553,22 @@ export const useAppStore = defineStore('app', () => {
     };
   }
 
+  function migrateChatMemoryDefaultsInSnapshot(snapshot: AppSnapshot): AppSnapshot {
+    const normalizedSettings = normalizeAppSettings(snapshot.settings);
+    if (normalizedSettings.chatMemoryDefaultsMigrationVersion >= chatMemoryDefaultsMigrationVersion) return snapshot;
+    return {
+      ...snapshot,
+      conversationSettings: snapshot.conversationSettings.map((entry) => normalizeConversationSettings({
+        ...entry,
+        memory: applyCurrentChatMemoryDefaults(entry.memory)
+      }, entry.conversationId, snapshot.conversations.find((conversation) => conversation.id === entry.conversationId)?.activeMode)),
+      settings: normalizeAppSettings({
+        ...normalizedSettings,
+        chatMemoryDefaultsMigrationVersion
+      })
+    };
+  }
+
   function applySnapshotToStore(snapshot: AppSnapshot) {
     const sharedLibraryData = normalizeSharedLibraryData({
       profileThemes: snapshot.profileThemes ?? [],
@@ -552,6 +602,9 @@ export const useAppStore = defineStore('app', () => {
     generatedImages.value = snapshot.generatedImages;
     favorites.value = normalizeFavorites(snapshot.favorites ?? []);
     settings.value = sharedLibraryData.settings;
+    fullyLoadedConversationMessageIds.clear();
+    conversations.value.forEach((conversation) => fullyLoadedConversationMessageIds.add(conversation.id));
+    allMessagesLoaded = true;
     activeConversationId.value = null;
     ready.value = true;
   }
@@ -623,18 +676,32 @@ export const useAppStore = defineStore('app', () => {
     };
   }
 
+  async function migrateChatMemoryDefaults() {
+    if (!settings.value || settings.value.chatMemoryDefaultsMigrationVersion >= chatMemoryDefaultsMigrationVersion) return;
+    const updates = conversationSettings.value.map((entry) => normalizeConversationSettings({
+      ...entry,
+      memory: applyCurrentChatMemoryDefaults(entry.memory)
+    }, entry.conversationId, conversationById(entry.conversationId)?.activeMode));
+    const migratedSettings = normalizeAppSettings({
+      ...settings.value,
+      chatMemoryDefaultsMigrationVersion
+    });
+    conversationSettings.value = updates;
+    settings.value = migratedSettings;
+    await Promise.all([
+      ...updates.map((entry) => putEntity('conversationSettings', entry)),
+      putEntity('settings', migratedSettings, 'main')
+    ]);
+  }
+
   async function hydrate() {
     if (ready.value) return;
     if (hydratePromise) return hydratePromise;
     hydratePromise = (async () => {
-    const storedSnapshot = await loadSnapshot();
-    persistFanficStartupCache({
-      books: storedSnapshot.fanficBooks ?? [],
-      chapters: storedSnapshot.fanficChapters ?? [],
-      topics: storedSnapshot.fanficTopics ?? [],
-      jobs: storedSnapshot.fanficGenerationJobs ?? []
-    });
+    const storedSnapshot = await loadAppStartupSnapshot();
     const snapshot = await hydrateStoredMediaRefs(storedSnapshot);
+    fullyLoadedConversationMessageIds.clear();
+    allMessagesLoaded = false;
     users.value = snapshot.users.map((entry) => normalizeUserProfile(entry));
     const fallbackUserId = snapshot.settings.activeUserId || snapshot.users[0]?.id || '';
     characters.value = snapshot.characters.map((entry) => normalizeCharacterProfile(entry, fallbackUserId));
@@ -730,6 +797,7 @@ export const useAppStore = defineStore('app', () => {
         putEntity('settings', settings.value, 'main')
       ]);
     }
+    await migrateChatMemoryDefaults();
     syncPendingIncomingCall();
     ready.value = true;
     queueMissingStickerImageCaches();
@@ -786,6 +854,77 @@ export const useAppStore = defineStore('app', () => {
 
   function setActiveConversation(conversationId: string | null) {
     activeConversationId.value = conversationId;
+  }
+
+  function normalizeLoadedConversationMessages(entries: ChatMessage[]) {
+    return entries
+      .map((message) => normalizeInterruptedGobangRequest(normalizeStoredMessageAuthorReference(message)))
+      .map((message) => normalizeStoredVoomEventMessage(message, voomPosts.value))
+      .sort(compareConversationMessageOrder);
+  }
+
+  function mergeConversationMessages(conversationId: string, nextMessages: ChatMessage[], options: { replace?: boolean } = {}) {
+    const normalizedConversationId = conversationId.trim();
+    if (!normalizedConversationId) return;
+    const nextById = new Map(nextMessages.map((message) => [message.id, message]));
+    const retainedMessages = options.replace
+      ? messages.value.filter((message) => message.conversationId !== normalizedConversationId)
+      : messages.value.filter((message) => !nextById.has(message.id));
+    messages.value = [...retainedMessages, ...nextMessages]
+      .sort(compareConversationMessageOrder);
+  }
+
+  async function ensureConversationMessagesLoaded(conversationId: string) {
+    const normalizedConversationId = conversationId.trim();
+    if (!normalizedConversationId) return [] as ChatMessage[];
+    if (fullyLoadedConversationMessageIds.has(normalizedConversationId)) return messagesForConversation(normalizedConversationId);
+    const pending = conversationMessageLoadPromises.get(normalizedConversationId);
+    if (pending) return await pending;
+
+    const loading = (async () => {
+      const storedMessages = await loadAllMessagesByConversation(normalizedConversationId);
+      const hydratedMessages = await hydrateStoredMediaRefs(storedMessages);
+      const nextMessages = normalizeLoadedConversationMessages(hydratedMessages);
+      mergeConversationMessages(normalizedConversationId, nextMessages, { replace: true });
+      fullyLoadedConversationMessageIds.add(normalizedConversationId);
+      return nextMessages;
+    })().finally(() => {
+      conversationMessageLoadPromises.delete(normalizedConversationId);
+    });
+    conversationMessageLoadPromises.set(normalizedConversationId, loading);
+    return await loading;
+  }
+
+  async function loadEarlierConversationMessages(conversationId: string, cursor?: ConversationMessageCursor | null, limit?: number) {
+    const normalizedConversationId = conversationId.trim();
+    if (!normalizedConversationId || fullyLoadedConversationMessageIds.has(normalizedConversationId)) {
+      return { messages: [] as ChatMessage[], nextCursor: null, hasMore: false };
+    }
+    const currentMessages = messagesForConversation(normalizedConversationId);
+    const before = cursor ?? (currentMessages.length ? createConversationMessageCursor(currentMessages[0]) : null);
+    if (!before) return { messages: [] as ChatMessage[], nextCursor: null, hasMore: false };
+    const page = await loadMessagesBeforeConversationCursor(normalizedConversationId, before, limit);
+    const hydratedMessages = await hydrateStoredMediaRefs(page.messages);
+    mergeConversationMessages(normalizedConversationId, normalizeLoadedConversationMessages(hydratedMessages));
+    return page;
+  }
+
+  async function ensureAllMessagesLoaded() {
+    if (allMessagesLoaded) return messages.value;
+    if (allMessagesPromise) return await allMessagesPromise;
+    allMessagesPromise = (async () => {
+      const storedMessages = await loadAllMessages();
+      const hydratedMessages = await hydrateStoredMediaRefs(storedMessages);
+      const nextMessages = normalizeLoadedConversationMessages(hydratedMessages);
+      messages.value = nextMessages;
+      fullyLoadedConversationMessageIds.clear();
+      conversations.value.forEach((conversation) => fullyLoadedConversationMessageIds.add(conversation.id));
+      allMessagesLoaded = true;
+      return nextMessages;
+    })().finally(() => {
+      allMessagesPromise = null;
+    });
+    return await allMessagesPromise;
   }
 
   function unreadCountAfterIncomingMessage(conversation: Conversation, messageCount: number) {
@@ -872,6 +1011,44 @@ export const useAppStore = defineStore('app', () => {
     return getConversationActiveMessages(messagesForConversation(id));
   }
 
+  function createDefaultMemoryCaptureStatus(): MemoryCaptureStatus {
+    return {
+      phase: 'idle',
+      message: '记忆捕获尚未运行。',
+      uncapturedFloors: 0,
+      lastAttemptAt: 0,
+      lastSuccessAt: 0,
+      lastError: '',
+      lastEpisodeId: ''
+    };
+  }
+
+  function setMemoryCaptureStatus(conversationId: string, patch: Partial<MemoryCaptureStatus>) {
+    const current = memoryCaptureStatuses.value[conversationId] ?? createDefaultMemoryCaptureStatus();
+    memoryCaptureStatuses.value = {
+      ...memoryCaptureStatuses.value,
+      [conversationId]: { ...current, ...patch }
+    };
+  }
+
+  function memoryCaptureStatusForConversation(conversationId: string) {
+    return memoryCaptureStatuses.value[conversationId] ?? createDefaultMemoryCaptureStatus();
+  }
+
+  function memoryRecallQueryForMessages(conversationMessages: ChatMessage[]) {
+    const recentContext = conversationMessages
+      .filter((message) => message.sender !== 'system' && message.status !== 'failed')
+      .slice(-8)
+      .map((message) => messageReadableContent(message).trim())
+      .filter(Boolean)
+      .join('\n');
+    const lastUserTurn = getLastUserTurnText(conversationMessages).trim();
+    return [lastUserTurn, recentContext]
+      .filter(Boolean)
+      .join('\n')
+      .slice(-4_000);
+  }
+
   function promptMessagesForConversation(id: string) {
     const activeMessages = visibleMessagesForConversation(id);
     const memorySettings = settingsForConversation(id).memory;
@@ -883,7 +1060,7 @@ export const useAppStore = defineStore('app', () => {
     );
     const recallableMessages = activeMessages.filter((message) => !forgottenMessageIds.has(message.id));
     if (!memorySettings.enabled || !memorySettings.compressionEnabled) {
-      return getRecentCompleteFloorMessages(recallableMessages, memorySettings.recentFloorLimit);
+      return recallableMessages;
     }
     const archivedMessageIds = new Set(
       conversationEpisodes
@@ -999,7 +1176,7 @@ export const useAppStore = defineStore('app', () => {
       ? recallCharacterMemory({
           ...graph,
           brainId: graph.brainId,
-          query: getLastUserTurnText(activeMessages),
+          query: memoryRecallQueryForMessages(activeMessages),
           maxTokens: memorySettings.recallTokenBudget,
           timeAwarenessEnabled: settingsForConversation(id).timeAwareness.enabled
         })
@@ -1071,8 +1248,10 @@ export const useAppStore = defineStore('app', () => {
     const now = Date.now();
     const recalled = createRecallUpserts(recall.items, now);
     const recalledIds = new Set(recalled.map((assertion) => assertion.id));
+    const naturalForgettingGraceMs = 30 * 24 * 60 * 60 * 1_000;
     const faded = settingsForConversation(id).memory.naturalForgettingEnabled
       ? graph.assertions
+          .filter((assertion) => Boolean(assertion.lastRecalledAt) && now - Number(assertion.lastRecalledAt) >= naturalForgettingGraceMs)
           .map((assertion) => fadeMemoryAccessibility(assertion, now))
           .filter((assertion) => {
             const previous = memoryAssertions.value.find((item) => item.id === assertion.id);
@@ -1129,6 +1308,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function buildRoleplayReplyInputForConversation(conversationId: string, options: BuildRoleplayReplyInputOptions = {}): Promise<RoleplayReplyInputBundle | null> {
+    await ensureConversationMessagesLoaded(conversationId);
     const conversation = conversationById(conversationId);
     if (!conversation) return null;
     const character = characterById(conversation.charId);
@@ -1139,6 +1319,7 @@ export const useAppStore = defineStore('app', () => {
     const mode = options.mode ?? conversation.activeMode;
     const conversationMessages = messagesForConversation(conversationId).filter((message) => message.replyVariantState !== 'inactive');
     const userMessageText = getLastUserTurnText(conversationMessages);
+    const memoryQueryText = memoryRecallQueryForMessages(conversationMessages);
     const chatSettings = settingsForConversation(conversationId);
     const promptMessages = promptMessagesForConversation(conversationId);
     const modelOverride = getConversationTextModelOverride(chatSettings, mode);
@@ -1155,7 +1336,7 @@ export const useAppStore = defineStore('app', () => {
       await commerceStore.ensureReady(users.value, characters.value);
       characterEconomy = characterEconomySnapshotForPrompt(character.id);
     }
-    const memorySummary = await memoryContextForConversationAsync(conversationId, userMessageText, {
+    const memorySummary = await memoryContextForConversationAsync(conversationId, memoryQueryText, {
       storeDebug: false,
       embeddingModelOverride: getMemoryEmbeddingModelOverride(chatSettings),
       excludeSourceMessageIds: options.excludeSourceMessageIds
@@ -1182,6 +1363,7 @@ export const useAppStore = defineStore('app', () => {
         stickerVisionEnabled: chatSettings.stickerVisionEnabled,
         narrationModeEnabled: chatSettings.narrationModeEnabled,
         offlineInvitationEnabled: chatSettings.offlineInvitationEnabled,
+        onlineGuidance: chatSettings.onlineGuidance,
         timeAwareness: chatSettings.timeAwareness,
         timeAwarenessNow: options.timeAwarenessNow,
         offlineSettings: chatSettings.offline,
@@ -1258,6 +1440,7 @@ export const useAppStore = defineStore('app', () => {
       stickerVisionEnabled: chatSettings.stickerVisionEnabled,
       narrationModeEnabled: chatSettings.narrationModeEnabled,
       offlineInvitationEnabled: chatSettings.offlineInvitationEnabled,
+      onlineGuidance: chatSettings.onlineGuidance,
       timeAwareness: chatSettings.timeAwareness,
       offlineSettings: chatSettings.offline,
       musicListening: musicListeningContextForConversation(id),
@@ -1480,12 +1663,61 @@ export const useAppStore = defineStore('app', () => {
 
   function cancelConversationReply(conversationId: string) {
     replyCancelVersions.set(conversationId, (replyCancelVersions.get(conversationId) ?? 0) + 1);
+    activeReplyDeliveryAbortControllers.get(conversationId)?.abort();
     activeReplyRunIds.delete(conversationId);
     replyingConversationIds.value = replyingConversationIds.value.filter((id) => id !== conversationId);
   }
 
   function isReplyRunCancelled(conversationId: string, cancelVersion: number) {
     return (replyCancelVersions.get(conversationId) ?? 0) !== cancelVersion;
+  }
+
+  async function publishReplyBatch(
+    conversationId: string,
+    batch: ChatMessage[],
+    options: { stageOnline?: boolean; cancelVersion?: number } = {}
+  ) {
+    if (!batch.length) return batch;
+    const shouldStage = Boolean(
+      options.stageOnline
+      && batch.length > 1
+      && shouldStageOnlineReplyDelivery({
+        conversationId,
+        activeConversationId: activeConversationId.value,
+        visibilityState: document.visibilityState
+      })
+    );
+    if (!shouldStage) {
+      messages.value.push(...batch);
+      await Promise.all(batch.map((message) => putEntity('messages', message)));
+      return batch;
+    }
+
+    const controller = new AbortController();
+    activeReplyDeliveryAbortControllers.set(conversationId, controller);
+    const deliveredMessages: ChatMessage[] = [];
+    try {
+      for (let index = 0; index < batch.length; index += 1) {
+        if (controller.signal.aborted || (options.cancelVersion !== undefined && isReplyRunCancelled(conversationId, options.cancelVersion))) break;
+        const message = batch[index];
+        messages.value.push(message);
+        await putEntity('messages', message);
+        deliveredMessages.push(message);
+
+        if (index < batch.length - 1 && shouldStageOnlineReplyDelivery({
+          conversationId,
+          activeConversationId: activeConversationId.value,
+          visibilityState: document.visibilityState
+        })) {
+          await waitForReplyDelivery(replyMessageDeliveryGap(message), controller.signal);
+        }
+      }
+    } finally {
+      if (activeReplyDeliveryAbortControllers.get(conversationId) === controller) {
+        activeReplyDeliveryAbortControllers.delete(conversationId);
+      }
+    }
+    return deliveredMessages;
   }
 
   function proactiveReplyCooldownMs(frequency: VoomFrequency) {
@@ -3268,6 +3500,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function deleteMessages(messageIds: string | string[]) {
+    await ensureAllMessagesLoaded();
     const ids = expandMessageIdsForDeletion(messageIds);
     if (!ids.length) return 0;
     const idSet = new Set(ids);
@@ -4734,6 +4967,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function requestGroupReply(conversationId: string, options: { proactive?: boolean; instruction?: string; allowPrivateInitiation?: boolean } = {}) {
+    await ensureConversationMessagesLoaded(conversationId);
     const conversation = conversationById(conversationId);
     const activeUser = userById(conversation?.userId ?? '') ?? user.value;
     if (!conversation || conversation.kind !== 'group' || !activeUser || !conversation.groupMembers?.length || isConversationReplying(conversationId)) return [];
@@ -4799,16 +5033,20 @@ export const useAppStore = defineStore('app', () => {
           replyBatchId, createdAt: baseTime + index, status: 'sent' as const
         } satisfies ChatMessage;
       });
-      const latestConversation = conversationById(conversationId) ?? conversation;
-      const nextConversation = { ...latestConversation, updatedAt: generatedMessages.at(-1)?.createdAt ?? baseTime };
       if (generatedMessages.length) {
-        messages.value.push(...generatedMessages);
+        const deliveredMessages = await publishReplyBatch(conversationId, generatedMessages, {
+          stageOnline: conversation.activeMode === 'online'
+        });
+        if (!deliveredMessages.length) return [];
+        const latestConversation = conversationById(conversationId) ?? conversation;
+        const nextConversation = { ...latestConversation, updatedAt: deliveredMessages.at(-1)?.createdAt ?? baseTime };
         conversations.value = conversations.value.map((item) => item.id === conversationId ? nextConversation : item);
-        await Promise.all([...generatedMessages.map((message) => putEntity('messages', message)), putEntity('conversations', nextConversation)]);
-        await syncGroupEventsToCharacterConversations(nextConversation, generatedMessages);
+        await putEntity('conversations', nextConversation);
+        await syncGroupEventsToCharacterConversations(nextConversation, deliveredMessages);
+        if (deliveredMessages.length !== generatedMessages.length) return deliveredMessages;
       }
       if (generated.membershipDecision) {
-        const latestGroup = conversationById(conversationId) ?? nextConversation;
+        const latestGroup = conversationById(conversationId) ?? conversation;
         const applicant = groupUserMember(latestGroup);
         if (applicant?.membershipStatus === 'pending') {
           const approved = generated.membershipDecision === 'approve';
@@ -4818,7 +5056,7 @@ export const useAppStore = defineStore('app', () => {
         }
       }
       if (options.allowPrivateInitiation !== false && generated.privateInitiations.length) {
-        await triggerGroupPrivateInitiations(nextConversation, generated.privateInitiations);
+        await triggerGroupPrivateInitiations(conversationById(conversationId) ?? conversation, generated.privateInitiations);
       }
       void maybeAutoCaptureConversationMemory(conversationId);
       return generatedMessages;
@@ -4850,6 +5088,7 @@ export const useAppStore = defineStore('app', () => {
   async function deleteGroupConversation(conversationId: string) {
     const conversation = conversationById(conversationId);
     if (!conversation || conversation.kind !== 'group') return false;
+    await ensureAllMessagesLoaded();
     cancelConversationReply(conversationId);
     const relatedMessages = messages.value.filter((message) => message.conversationId === conversationId || message.sourceConversationId === conversationId);
     const relatedSettings = conversationSettings.value.filter((entry) => entry.conversationId === conversationId);
@@ -4929,6 +5168,7 @@ export const useAppStore = defineStore('app', () => {
   async function deleteCharacterProfile(characterId: string) {
     const character = characterById(characterId);
     if (!character) return false;
+    await ensureAllMessagesLoaded();
     const roleOperations = useRoleOperationsStore();
 
     const now = Date.now();
@@ -5146,6 +5386,7 @@ export const useAppStore = defineStore('app', () => {
   async function clearCharacterHistory(characterId: string) {
     const character = characterById(characterId);
     if (!character) return false;
+    await ensureAllMessagesLoaded();
 
     const conversation = conversations.value.find((entry) => entry.charId === characterId);
     const conversationId = conversation?.id ?? '';
@@ -5473,29 +5714,93 @@ export const useAppStore = defineStore('app', () => {
     return backup;
   }
 
-  async function importBackupSnapshot(snapshot: AppSnapshot, options: ImportBackupOptions = {}): Promise<ImportBackupResult> {
-    await options.onProgress?.('正在整理导入数据', 45);
-    const normalizedSnapshot = keepDeviceBackupSettings(normalizeSnapshotForRestore(snapshot));
-    const slimmedForMobile = false;
-    const restorableSnapshot = stripRestoreEmbeddingCache(normalizedSnapshot);
-    const preparedSnapshot = prepareSnapshotForStore(restorableSnapshot);
-    const persistentStorageGranted = await requestPersistentStorage();
-    await options.onProgress?.('正在写入本地数据库', 75);
-
-    try {
-      await replaceSnapshot(preparedSnapshot);
-    } catch (error) {
-      throw normalizeImportPersistenceError(error);
+  async function createBackupArchive(onProgress?: BackupProgressCallback): Promise<LinkBackupArchive> {
+    if (!ready.value) await hydrate();
+    const createdOperation = localBackupOperation.value === 'idle';
+    if (!createdOperation && (localBackupOperation.value !== 'exporting' || localBackupOperationOwner.value !== 'external')) {
+      throw new Error('已有本地备份操作正在进行，请完成后再试。');
     }
+    if (createdOperation) {
+      localBackupOperation.value = 'exporting';
+      localBackupOperationOwner.value = 'store';
+    }
+    try {
+      await onProgress?.('正在读取本地数据库', 8);
+      const sourceSnapshot = await loadSnapshot();
+      const storedMediaTotal = collectStoredMediaLocators(sourceSnapshot).size;
+      let storedMediaCompleted = 0;
+      let lastMediaProgress = -1;
+      await onProgress?.(storedMediaTotal ? `正在整理本地媒体 0/${storedMediaTotal}` : '本地媒体整理完成', storedMediaTotal ? 15 : 52);
 
-    await options.onProgress?.('正在刷新本地数据', 92);
-    markRestoredGlobalNoticesSeen(preparedSnapshot);
-    applySnapshotToStore(preparedSnapshot);
-    const roleOperations = useRoleOperationsStore();
-    roleOperations.applySnapshot(preparedSnapshot);
-    queueMissingStickerImageCaches(preparedSnapshot.stickers);
-    void refreshEnabledVendorModels();
-    return { slimmedForMobile, persistentStorageGranted };
+      const normalizedVoomPosts = sourceSnapshot.voomPosts.map((post) => normalizeStoredVoomPostIdentityReferences(post));
+      const backupSnapshot = await compactSnapshotMediaForBackup({
+        ...sourceSnapshot,
+        messages: sourceSnapshot.messages
+          .map((message) => normalizeStoredMessageAuthorReference(message))
+          .map((message) => normalizeStoredVoomEventMessage(message, normalizedVoomPosts)),
+        voomPosts: normalizedVoomPosts,
+        smallTheaters: normalizeStoredSmallTheaters(sourceSnapshot.smallTheaters ?? []),
+        musicCommentThreads: normalizeStoredMusicCommentThreads(sourceSnapshot.musicCommentThreads ?? []),
+        favorites: normalizeFavorites(sourceSnapshot.favorites ?? [])
+      }, onProgress);
+      await onProgress?.('正在清洗敏感配置', 87);
+      const archive = await createLinkBackupArchive(backupSnapshot, {
+        onMediaResolved: async () => {
+          storedMediaCompleted += 1;
+          const percent = storedMediaTotal ? 88 + Math.round(storedMediaCompleted / storedMediaTotal * 5) : 93;
+          if (percent === lastMediaProgress) return;
+          lastMediaProgress = percent;
+          await onProgress?.(`正在整理本地媒体 ${Math.min(storedMediaCompleted, storedMediaTotal)}/${storedMediaTotal}`, percent);
+        }
+      });
+      await onProgress?.('备份内容准备完成', 94);
+      return archive;
+    } finally {
+      if (createdOperation) {
+        localBackupOperation.value = 'idle';
+        localBackupOperationOwner.value = 'idle';
+      }
+    }
+  }
+
+  async function importBackupSnapshot(snapshot: AppSnapshot, options: ImportBackupOptions = {}): Promise<ImportBackupResult> {
+    const createdOperation = localBackupOperation.value === 'idle';
+    if (!createdOperation && (localBackupOperation.value !== 'importing' || localBackupOperationOwner.value !== 'external')) {
+      throw new Error('已有本地备份操作正在进行，请完成后再试。');
+    }
+    if (createdOperation) {
+      localBackupOperation.value = 'importing';
+      localBackupOperationOwner.value = 'store';
+    }
+    try {
+      await options.onProgress?.('正在整理导入数据', 45);
+      const normalizedSnapshot = keepDeviceBackupSettings(migrateChatMemoryDefaultsInSnapshot(normalizeSnapshotForRestore(snapshot)));
+      const slimmedForMobile = false;
+      const restorableSnapshot = stripRestoreEmbeddingCache(normalizedSnapshot);
+      const preparedSnapshot = prepareSnapshotForStore(restorableSnapshot);
+      const persistentStorageGranted = await requestPersistentStorage();
+      await options.onProgress?.('正在写入本地数据库', 75);
+
+      try {
+        await replaceSnapshot(preparedSnapshot);
+      } catch (error) {
+        throw normalizeImportPersistenceError(error);
+      }
+
+      await options.onProgress?.('正在刷新本地数据', 92);
+      markRestoredGlobalNoticesSeen(preparedSnapshot);
+      applySnapshotToStore(preparedSnapshot);
+      const roleOperations = useRoleOperationsStore();
+      roleOperations.applySnapshot(preparedSnapshot);
+      queueMissingStickerImageCaches(preparedSnapshot.stickers);
+      void refreshEnabledVendorModels();
+      return { slimmedForMobile, persistentStorageGranted };
+    } finally {
+      if (createdOperation) {
+        localBackupOperation.value = 'idle';
+        localBackupOperationOwner.value = 'idle';
+      }
+    }
   }
 
   async function saveCloudBackupState(overrides: Partial<AppSettings['cloudBackup']>) {
@@ -5527,17 +5832,17 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function runCloudBackup(reason: 'manual' | 'auto' = 'manual') {
-    if (cloudBackupRunning) return false;
+    if (cloudBackupRunning.value || localBackupOperation.value !== 'idle') return false;
     if (!settings.value) throw new Error('设置尚未载入。');
     const config = settings.value.cloudBackup;
     if (!isCloudBackupConnected(config)) throw new Error('请先连接一个用户自有云盘。');
 
-    cloudBackupRunning = true;
+    cloudBackupRunning.value = true;
     await saveCloudBackupState({ lastBackupStatus: 'running', lastBackupError: '' });
     await saveCloudBackupProgress('uploading', reason === 'auto' ? '正在准备自动加密备份' : '正在准备加密备份', 3);
 
     try {
-      const backup = await createBackupFile(async (label, percent) => {
+      const backup = await createBackupArchive(async (label, percent) => {
         await saveCloudBackupProgress('uploading', label, 3 + percent * 0.3);
       });
       let lastProgress = -1;
@@ -5573,17 +5878,17 @@ export const useAppStore = defineStore('app', () => {
       });
       throw error;
     } finally {
-      cloudBackupRunning = false;
+      cloudBackupRunning.value = false;
     }
   }
 
   async function restoreCloudBackup(options: ImportBackupOptions = {}) {
-    if (cloudBackupRunning) return false;
+    if (cloudBackupRunning.value || localBackupOperation.value !== 'idle') return false;
     if (!settings.value) throw new Error('设置尚未载入。');
     const config = settings.value.cloudBackup;
     if (!isCloudBackupConnected(config)) throw new Error('请先连接一个用户自有云盘。');
 
-    cloudBackupRunning = true;
+    cloudBackupRunning.value = true;
     await saveCloudBackupState({ lastBackupStatus: 'running', lastBackupError: '' });
     await saveCloudBackupProgress('downloading', '正在下载云端密文', 5);
 
@@ -5624,7 +5929,7 @@ export const useAppStore = defineStore('app', () => {
       });
       throw error;
     } finally {
-      cloudBackupRunning = false;
+      cloudBackupRunning.value = false;
     }
   }
 
@@ -5715,13 +6020,13 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function runGitHubBackup(reason: 'manual' | 'auto' = 'manual') {
-    if (githubBackupRunning) return false;
+    if (githubBackupRunning.value || localBackupOperation.value !== 'idle') return false;
     if (!settings.value) throw new Error('设置尚未载入。');
 
     const config = settings.value.githubBackup;
     if (!config.token || !config.owner || !config.repo) throw new Error('请先连接 GitHub 并创建备份仓库。');
 
-    githubBackupRunning = true;
+    githubBackupRunning.value = true;
     await saveGitHubBackupState({ lastBackupStatus: 'running', lastBackupError: '' });
     await saveGitHubBackupProgress('checking', reason === 'auto' ? '正在准备自动备份' : '正在准备手动备份', 10);
 
@@ -5737,7 +6042,7 @@ export const useAppStore = defineStore('app', () => {
         repo: repository.repo,
         branch: repository.branch || config.branch || 'main'
       });
-      const backup = await createBackupFile(async (label, percent) => {
+      const backup = await createBackupArchive(async (label, percent) => {
         await saveGitHubBackupProgress('checking', label, 27 + percent * 0.42);
       });
       const activeConfig = settings.value?.githubBackup ?? config;
@@ -5782,18 +6087,18 @@ export const useAppStore = defineStore('app', () => {
       await saveGitHubBackupProgress('failed', formatGitHubBackupError(error), 100);
       throw error;
     } finally {
-      githubBackupRunning = false;
+      githubBackupRunning.value = false;
     }
   }
 
   async function importGitHubBackup(ref = '') {
-    if (githubBackupRunning) return false;
+    if (githubBackupRunning.value || localBackupOperation.value !== 'idle') return false;
     if (!settings.value) throw new Error('设置尚未载入。');
 
     const config = settings.value.githubBackup;
     if (!config.token || !config.owner || !config.repo) throw new Error('请先连接 GitHub 并创建备份仓库。');
 
-    githubBackupRunning = true;
+    githubBackupRunning.value = true;
     await saveGitHubBackupState({ lastBackupStatus: 'running', lastBackupError: '' });
     await saveGitHubBackupProgress('downloading', '正在下载 GitHub 备份', 25);
 
@@ -5803,28 +6108,18 @@ export const useAppStore = defineStore('app', () => {
         downloadProgressPercent = Math.max(downloadProgressPercent, percent);
         await saveGitHubBackupProgress('downloading', label, downloadProgressPercent);
       };
-      const backupText = ref
-        ? await downloadGitHubBackupVersion({
-            token: config.token,
-            owner: config.owner,
-            repo: config.repo,
-            branch: config.branch,
-            path: config.path
-          }, ref, { onProgress: onDownloadProgress })
-        : await downloadGitHubBackup({
-            token: config.token,
-            owner: config.owner,
-            repo: config.repo,
-            branch: config.branch,
-            path: config.path
-          }, { onProgress: onDownloadProgress });
+      const backupFile = await downloadGitHubBackupFile({
+        token: config.token,
+        owner: config.owner,
+        repo: config.repo,
+        branch: config.branch,
+        path: config.path
+      }, ref, { onProgress: onDownloadProgress });
       await saveGitHubBackupProgress('restoring', '正在解析 GitHub 备份', 76);
-      const backupFile = parseLinkBackupFileText(backupText);
       const currentBackupConfig = settings.value.githubBackup;
       await saveGitHubBackupProgress('restoring', '正在恢复 GitHub 备份到本地', 77);
       let restoreProgressPercent = 76;
       await importBackupSnapshot(backupFile.snapshot, {
-        sourceByteSize: new Blob([backupText]).size,
         onProgress: async (label, percent) => {
           const mappedPercent = 76 + Math.round(Math.min(100, Math.max(0, percent)) * 0.18);
           restoreProgressPercent = Math.max(restoreProgressPercent, mappedPercent);
@@ -5856,13 +6151,26 @@ export const useAppStore = defineStore('app', () => {
       await saveGitHubBackupProgress('failed', formatGitHubBackupError(error), 100);
       throw error;
     } finally {
-      githubBackupRunning = false;
+      githubBackupRunning.value = false;
     }
   }
 
   async function hasGitHubBackup() {
     const history = await syncGitHubBackupHistory(3);
     return history.length > 0;
+  }
+
+  function beginLocalBackupOperation(operation: Exclude<typeof localBackupOperation.value, 'idle'>) {
+    if (localBackupOperation.value !== 'idle') return false;
+    localBackupOperation.value = operation;
+    localBackupOperationOwner.value = 'external';
+    return true;
+  }
+
+  function endLocalBackupOperation() {
+    if (localBackupOperationOwner.value !== 'external') return;
+    localBackupOperation.value = 'idle';
+    localBackupOperationOwner.value = 'idle';
   }
 
   async function saveSettings(nextSettings: AppSettings) {
@@ -5910,6 +6218,17 @@ export const useAppStore = defineStore('app', () => {
     generatedImages.value = generatedImages.value.filter((entry) => entry.id !== imageId);
     await deleteEntity('generatedImages', imageId);
     queueStoredMediaPrune();
+  }
+
+  async function deleteGeneratedImagesByUrl(imageUrl: string) {
+    const normalizedImageUrl = imageUrl.trim();
+    if (!normalizedImageUrl) return 0;
+    const matchingIds = generatedImages.value.filter((entry) => entry.imageUrl === normalizedImageUrl).map((entry) => entry.id);
+    if (!matchingIds.length) return 0;
+    const matchingIdSet = new Set(matchingIds);
+    generatedImages.value = generatedImages.value.filter((entry) => !matchingIdSet.has(entry.id));
+    await Promise.all(matchingIds.map((id) => deleteEntity('generatedImages', id)));
+    return matchingIds.length;
   }
 
   async function refreshEnabledVendorModels() {
@@ -6330,6 +6649,9 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function cleanupData(action: DataCleanupAction) {
+    if (['message-media', 'user-sent-images', 'image-candidates', 'voice-audio'].includes(action)) {
+      await ensureAllMessagesLoaded();
+    }
     if (action === 'generated-images') return finishDataCleanup(await clearDataSections(['generatedImages']));
 
     if (action === 'message-media') {
@@ -6397,6 +6719,7 @@ export const useAppStore = defineStore('app', () => {
     let changed = 0;
 
     if (sectionSet.has('messages')) {
+      await ensureAllMessagesLoaded();
       changed += await deleteMessages(messages.value.map((message) => message.id));
     }
     if (sectionSet.has('favorites')) {
@@ -6916,6 +7239,7 @@ export const useAppStore = defineStore('app', () => {
     const requestId = createId('gobang-request');
     const requestRevision = sourceGame.revision ?? sourceGame.moves.length;
     activeGobangRequestIds.set(sourceGame.gameId, requestId);
+    activeGobangRequestCount.value += 1;
     const requestingGame = updateGobangApiState(sourceGame, {
       status: 'requesting',
       requestId,
@@ -6969,7 +7293,10 @@ export const useAppStore = defineStore('app', () => {
       }
       throw error;
     } finally {
-      if (activeGobangRequestIds.get(sourceGame.gameId) === requestId) activeGobangRequestIds.delete(sourceGame.gameId);
+      if (activeGobangRequestIds.get(sourceGame.gameId) === requestId) {
+        activeGobangRequestIds.delete(sourceGame.gameId);
+        activeGobangRequestCount.value = Math.max(0, activeGobangRequestCount.value - 1);
+      }
     }
   }
 
@@ -7240,13 +7567,21 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function captureConversationMemory(conversationId: string, options: { force?: boolean; bypassBrainLock?: boolean } = {}): Promise<MemoryEpisode | null> {
+    await ensureConversationMessagesLoaded(conversationId);
     const conversation = conversationById(conversationId);
     const character = conversation ? characterById(conversation.charId) : null;
     const boundUser = conversation ? userById(conversation.userId) : null;
-    if (!conversation || !character || !boundUser) return null;
-    if (conversation.kind === 'group') return null;
+    if (!conversation || !character || !boundUser) {
+      setMemoryCaptureStatus(conversationId, { phase: 'unavailable', message: '会话、角色或用户资料尚未准备好。' });
+      return null;
+    }
+    if (conversation.kind === 'group') {
+      setMemoryCaptureStatus(conversationId, { phase: 'unavailable', message: '群聊暂不使用角色私聊 brain，群消息不会写入这页角色日记。' });
+      return null;
+    }
     const brainId = createMemoryBrainId(character.id, boundUser.id);
     if (!options.bypassBrainLock && (capturingMemoryBrainIds.has(brainId) || rebuildingMemoryBrainIds.has(brainId))) {
+      setMemoryCaptureStatus(conversationId, { phase: 'capturing', message: '同一角色的另一段记忆正在写入，当前请求已排队。' });
       return new Promise<MemoryEpisode | null>((resolve, reject) => {
         const request = pendingMemoryCaptureRequests.get(conversationId) ?? { force: false, waiters: [] };
         request.force ||= Boolean(options.force);
@@ -7255,9 +7590,22 @@ export const useAppStore = defineStore('app', () => {
       });
     }
     const chatSettings = settingsForConversation(conversationId);
-    if (!chatSettings.memory.enabled || (!options.force && !chatSettings.memory.autoCapture)) return null;
+    if (!chatSettings.memory.enabled) {
+      setMemoryCaptureStatus(conversationId, { phase: 'disabled', message: '角色记忆已关闭，不会自动写入或召回。' });
+      return null;
+    }
+    if (!options.force && !chatSettings.memory.autoCapture) {
+      setMemoryCaptureStatus(conversationId, { phase: 'disabled', message: '自动写日记已关闭，可在记忆页手动写入最新对话。' });
+      return null;
+    }
     const modelOverride = getMemorySummaryModelOverride(chatSettings);
     if (!modelOverride) {
+      setMemoryCaptureStatus(conversationId, {
+        phase: 'waiting-model',
+        message: '尚未配置“总结、图谱模型”，自动记忆暂时不会写入。',
+        lastAttemptAt: Date.now(),
+        lastError: options.force ? '请先在模型切换中配置“总结、图谱模型”。记忆不会回退使用线上或线下聊天模型。' : ''
+      });
       if (options.force) throw new Error('请先在模型切换中配置“总结、图谱模型”。记忆不会回退使用线上或线下聊天模型。');
       return null;
     }
@@ -7277,19 +7625,31 @@ export const useAppStore = defineStore('app', () => {
       }))
       .filter((entry) => entry.messages.length && entry.messages.some((message) => !capturedMessageIds.has(message.id)));
     const threshold = Math.max(2, chatSettings.memory.captureEvery);
-    if (!uncapturedFloors.length) return null;
-    const firstMode = uncapturedFloors[0].messages[0]?.mode;
-    const modeSegment: typeof uncapturedFloors = [];
-    for (const floor of uncapturedFloors) {
-      if (floor.messages[0]?.mode !== firstMode) break;
-      modeSegment.push(floor);
+    if (!uncapturedFloors.length) {
+      const previous = memoryCaptureStatuses.value[conversationId];
+      setMemoryCaptureStatus(conversationId, {
+        phase: previous?.lastSuccessAt ? 'completed' : 'idle',
+        message: previous?.lastSuccessAt ? '所有已结束的对话都已经编码。' : '暂时没有尚未编码的完整楼层。',
+        uncapturedFloors: 0
+      });
+      return null;
     }
-    const selectedFloors = selectMemoryCaptureFloors(modeSegment, threshold, {
+    setMemoryCaptureStatus(conversationId, { uncapturedFloors: uncapturedFloors.length });
+    const selectedFloors = selectMemoryCaptureFloors(uncapturedFloors, threshold, {
       force: options.force,
-      forceLimit: Math.max(12, threshold),
-      segmentClosed: modeSegment.length < uncapturedFloors.length
+      forceLimit: Math.max(12, threshold)
     });
-    if (!selectedFloors.length) return null;
+    if (!selectedFloors.length) {
+      const endsWithUser = uncapturedFloors.at(-1)?.messages.at(-1)?.sender === 'user';
+      setMemoryCaptureStatus(conversationId, {
+        phase: endsWithUser ? 'waiting-reply' : 'waiting-threshold',
+        message: endsWithUser
+          ? `已积累 ${uncapturedFloors.length} 个未编码楼层，正在等待角色回复形成完整楼层。`
+          : `已积累 ${uncapturedFloors.length} 个未编码楼层，达到 ${threshold} 个后自动写入。`,
+        uncapturedFloors: uncapturedFloors.length
+      });
+      return null;
+    }
     const sourceMessages = selectedFloors.flatMap((entry) => entry.messages);
     const sourceHash = createMemorySourceHash(sourceMessages);
     const existingEpisode = graph.episodes.find((episode) => episode.sourceHash === sourceHash
@@ -7301,6 +7661,13 @@ export const useAppStore = defineStore('app', () => {
     const userName = getUserAiName(boundUser);
     capturingMemoryConversationIds.add(conversationId);
     capturingMemoryBrainIds.add(brainId);
+    setMemoryCaptureStatus(conversationId, {
+      phase: 'capturing',
+      message: `正在编码第 ${startFloor}–${endFloor} 楼的记忆。`,
+      uncapturedFloors: uncapturedFloors.length,
+      lastAttemptAt: Date.now(),
+      lastError: ''
+    });
     try {
       const captureNow = Date.now();
       const timeSnapshot = createUserTimeSnapshot(new Date(captureNow));
@@ -7346,7 +7713,14 @@ export const useAppStore = defineStore('app', () => {
       };
       const latestActiveMessages = getConversationActiveMessages(messagesForConversation(conversationId))
         .filter((message) => message.replyVariantState !== 'inactive' && message.status !== 'failed');
-      if (!isMemorySourceSnapshotCurrent(sourceMessages, latestActiveMessages)) return null;
+      if (!isMemorySourceSnapshotCurrent(sourceMessages, latestActiveMessages)) {
+        setMemoryCaptureStatus(conversationId, {
+          phase: 'error',
+          message: '对话在记忆编码期间发生变化，已安全放弃本次写入。',
+          lastError: 'source snapshot changed'
+        });
+        return null;
+      }
       const latestGraph = memoryGraphForConversation(conversationId);
       const latestExistingEpisode = latestGraph.episodes.find((episode) => episode.sourceHash === sourceHash
         && (episode.status === 'active' || (episode.status === 'forgotten' && episode.forgottenReason !== 'source-invalidated')));
@@ -7376,7 +7750,22 @@ export const useAppStore = defineStore('app', () => {
           console.warn('Memory assertion embeddings fell back to lexical recall.', error);
         }
       }
+      setMemoryCaptureStatus(conversationId, {
+        phase: 'completed',
+        message: `已写入「${upserts.episode.title}」，本批 ${sourceMessages.length} 条消息已建立证据关联。`,
+        uncapturedFloors: Math.max(0, uncapturedFloors.length - selectedFloors.length),
+        lastSuccessAt: Date.now(),
+        lastEpisodeId: upserts.episode.id,
+        lastError: ''
+      });
       return upserts.episode;
+    } catch (error) {
+      setMemoryCaptureStatus(conversationId, {
+        phase: 'error',
+        message: error instanceof Error ? error.message : '记忆编码失败。',
+        lastError: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
     } finally {
       capturingMemoryConversationIds.delete(conversationId);
       capturingMemoryBrainIds.delete(brainId);
@@ -7726,9 +8115,9 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  async function maybeAutoCaptureConversationMemory(conversationId: string, force = false) {
+  async function maybeAutoCaptureConversationMemory(conversationId: string) {
     try {
-      await captureConversationMemory(conversationId, { force });
+      await captureConversationMemory(conversationId);
     } catch (error) {
       console.error('Temporal memory capture failed.', error);
       showConfigAlert(error instanceof Error ? error.message : '记忆生成失败。', '记忆生成失败', {
@@ -7740,6 +8129,10 @@ export const useAppStore = defineStore('app', () => {
         }
       });
     }
+  }
+
+  async function flushConversationMemory(conversationId: string) {
+    return await maybeAutoCaptureConversationMemory(conversationId);
   }
 
   async function setMemoryAssertionPinned(assertionId: string, pinned: boolean) {
@@ -8799,10 +9192,13 @@ export const useAppStore = defineStore('app', () => {
             if (message.sender === 'char' && message.mode === 'online') message.readAt = null;
           });
         }
-        messages.value.push(...charMessages);
-        await Promise.all(charMessages.map((message) => putEntity('messages', message)));
+        const deliveredMessages = await publishReplyBatch(conversationId, charMessages, {
+          stageOnline: conversation.activeMode === 'online',
+          cancelVersion: replyCancelVersion
+        });
+        if (!deliveredMessages.length) return [];
         syncPendingIncomingCall();
-        const commerceMessages = charMessages.filter((message): message is ChatMessage & { commerce: ChatCommerceAttachment } => Boolean(message.commerce));
+        const commerceMessages = deliveredMessages.filter((message): message is ChatMessage & { commerce: ChatCommerceAttachment } => Boolean(message.commerce));
         if (commerceMessages.length) {
           const commerceStore = useCommerceStore();
           await commerceStore.ensureReady(users.value, characters.value);
@@ -8815,26 +9211,27 @@ export const useAppStore = defineStore('app', () => {
             sourceMessageId: message.id
           })));
         }
-        const incomingCharMessages = charMessages.filter((message) => message.sender === 'char');
+        const incomingCharMessages = deliveredMessages.filter((message) => message.sender === 'char');
         if (incomingCharMessages.length) notifyCharacterMessages(conversation, incomingCharMessages);
-        const latestCharMessage = charMessages[charMessages.length - 1];
+        const latestCharMessage = deliveredMessages[deliveredMessages.length - 1];
         const latestConversation = conversationById(conversationId) ?? conversation;
         const nextConversation = {
           ...latestConversation,
           updatedAt: latestCharMessage.createdAt,
-          unreadCount: unreadCountAfterIncomingMessage(latestConversation, charMessages.length),
+          unreadCount: unreadCountAfterIncomingMessage(latestConversation, deliveredMessages.length),
           activeMode: conversation.activeMode
         };
         const index = conversations.value.findIndex((item) => item.id === conversationId);
         conversations.value[index] = nextConversation;
         await putEntity('conversations', nextConversation);
+        if (deliveredMessages.length !== charMessages.length) return [];
       } else {
         await touchConversationAfterMessageChange(conversationId);
       }
 
       await applyCharacterRelationshipAction(character.id, relationshipAction);
 
-      void maybeAutoCaptureConversationMemory(conversationId, Boolean(parsedReply.mcpOperations?.length));
+      void maybeAutoCaptureConversationMemory(conversationId);
 
       if (chatSettings.autoGenerateTheater && shouldAutoGenerateMoment(chatSettings.theaterFrequency)) {
         void createSmallTheaterFromConversation(conversationId, undefined, { silent: true }).catch((error) => {
@@ -10252,7 +10649,7 @@ export const useAppStore = defineStore('app', () => {
     return nextMessage;
   }
 
-  async function regenerateChatMessageImage(messageId: string, description: string) {
+  async function regenerateChatMessageImage(messageId: string, description: string, generationPrompt?: string) {
     const normalizedMessageId = messageId.trim();
     const imageDescription = description.trim();
     if (regeneratingChatImageMessageIds.has(normalizedMessageId)) {
@@ -10267,7 +10664,9 @@ export const useAppStore = defineStore('app', () => {
     }
     regeneratingChatImageMessageIds.add(normalizedMessageId);
     try {
-      const imageGenerationPrompt = existingMessage.image.generationPrompt ?? existingMessage.image.candidates?.at(-1)?.generationPrompt ?? '';
+      const imageGenerationPrompt = generationPrompt === undefined
+        ? existingMessage.image.generationPrompt ?? existingMessage.image.candidates?.at(-1)?.generationPrompt ?? ''
+        : generationPrompt;
       const characterId = conversationById(existingMessage.conversationId)?.charId ?? '';
       const candidate = await generateChatImageCandidate(imageDescription, imageGenerationPrompt, characterId);
       if (!candidate) return null;
@@ -10299,7 +10698,44 @@ export const useAppStore = defineStore('app', () => {
     });
   }
 
-  async function regenerateVoomPostImage(postId: string, description: string) {
+  async function deleteChatMessageImageCandidate(messageId: string, candidateId: string, imageUrl: string) {
+    const normalizedMessageId = messageId.trim();
+    const normalizedImageUrl = imageUrl.trim();
+    if (!normalizedMessageId || !normalizedImageUrl) return null;
+    if (regeneratingChatImageMessageIds.has(normalizedMessageId)) {
+      showConfigAlert('正在重新生成聊天图片，请等待当前生成完成。', '正在生成');
+      return null;
+    }
+    const existingMessage = messages.value.find((message) => message.id === normalizedMessageId);
+    const existingImage = existingMessage?.image;
+    if (!existingMessage || !existingImage) return null;
+    const deletedCandidate = existingImage.candidates?.find((candidate) => candidate.id === candidateId || candidate.image === normalizedImageUrl);
+    const remainingCandidates = (existingImage.candidates ?? []).filter((candidate) => candidate.id !== candidateId && candidate.image !== normalizedImageUrl);
+    const deletesCurrentImage = existingImage.url === normalizedImageUrl;
+    let nextImage: ChatImageAttachment;
+
+    if (deletesCurrentImage) {
+      const fallbackCandidate = remainingCandidates.at(-1);
+      nextImage = fallbackCandidate
+        ? { ...imageAttachmentFromCandidate(fallbackCandidate), candidates: remainingCandidates }
+        : {
+            kind: 'description',
+            description: deletedCandidate?.description || existingImage.description,
+            generationPrompt: deletedCandidate?.generationPrompt ?? existingImage.generationPrompt,
+            provider: 'mock',
+            candidates: []
+          };
+    } else {
+      nextImage = { ...existingImage, candidates: remainingCandidates };
+    }
+
+    const nextMessage = await updateChatMessageImage(normalizedMessageId, nextImage);
+    await deleteGeneratedImagesByUrl(normalizedImageUrl);
+    queueStoredMediaPrune();
+    return nextMessage;
+  }
+
+  async function regenerateVoomPostImage(postId: string, description: string, generationPrompt?: string) {
     const normalizedPostId = postId.trim();
     if (regeneratingVoomImagePostIds.has(normalizedPostId)) {
       showConfigAlert('正在重新生成 VOOM 配图，请等待当前生成完成。', '正在生成');
@@ -10327,7 +10763,7 @@ export const useAppStore = defineStore('app', () => {
       scope: 'voom',
       characterId: post.charId,
       description: imageDescription,
-      generationPrompt: post.imageGenerationPrompt,
+      generationPrompt: generationPrompt === undefined ? post.imageGenerationPrompt : generationPrompt,
       basePrompt: promptPreset.positivePrompt,
       template: promptPreset.voomTemplate,
       post
@@ -10553,10 +10989,64 @@ export const useAppStore = defineStore('app', () => {
       ...post,
       image: candidate.image,
       imageDescription: candidate.description || post.imageDescription,
+      imageGenerationPrompt: candidate.generationPrompt,
+      imageNegativePrompt: candidate.negativePrompt,
+      imageReferenceImage: candidate.referenceImage,
+      imageSeed: candidate.seed,
       imageProvider: candidate.provider || post.imageProvider,
       imageCandidates: post.imageCandidates
     };
     await saveVoomPost(nextPost);
+    return nextPost;
+  }
+
+  async function deleteVoomPostImageCandidate(postId: string, candidateId: string, imageUrl: string) {
+    const normalizedPostId = postId.trim();
+    const normalizedImageUrl = imageUrl.trim();
+    if (!normalizedPostId || !normalizedImageUrl) return null;
+    if (regeneratingVoomImagePostIds.has(normalizedPostId)) {
+      showConfigAlert('正在重新生成 VOOM 配图，请等待当前生成完成。', '正在生成');
+      return null;
+    }
+    const post = voomPosts.value.find((entry) => entry.id === normalizedPostId);
+    if (!post) return null;
+    const deletedCandidate = post.imageCandidates?.find((candidate) => candidate.id === candidateId || candidate.image === normalizedImageUrl);
+    const remainingCandidates = (post.imageCandidates ?? []).filter((candidate) => candidate.id !== candidateId && candidate.image !== normalizedImageUrl);
+    const deletesCurrentImage = post.image === normalizedImageUrl;
+    let nextPost: VoomPost;
+
+    if (deletesCurrentImage) {
+      const fallbackCandidate = remainingCandidates.at(-1);
+      nextPost = fallbackCandidate
+        ? {
+            ...post,
+            image: fallbackCandidate.image,
+            imageDescription: fallbackCandidate.description || post.imageDescription,
+            imageGenerationPrompt: fallbackCandidate.generationPrompt,
+            imageNegativePrompt: fallbackCandidate.negativePrompt,
+            imageReferenceImage: fallbackCandidate.referenceImage,
+            imageSeed: fallbackCandidate.seed,
+            imageProvider: fallbackCandidate.provider,
+            imageCandidates: remainingCandidates
+          }
+        : {
+            ...post,
+            image: undefined,
+            imageDescription: deletedCandidate?.description || post.imageDescription || post.content,
+            imageGenerationPrompt: deletedCandidate?.generationPrompt ?? post.imageGenerationPrompt,
+            imageNegativePrompt: undefined,
+            imageReferenceImage: undefined,
+            imageSeed: undefined,
+            imageProvider: undefined,
+            imageCandidates: []
+          };
+    } else {
+      nextPost = { ...post, imageCandidates: remainingCandidates };
+    }
+
+    await saveVoomPost(nextPost);
+    await deleteGeneratedImagesByUrl(normalizedImageUrl);
+    queueStoredMediaPrune();
     return nextPost;
   }
 
@@ -10836,6 +11326,11 @@ export const useAppStore = defineStore('app', () => {
   return {
     ready,
     loadingReply,
+    appUpdateBlockers,
+    setAppUpdateTransientOperation,
+    localBackupOperation,
+    beginLocalBackupOperation,
+    endLocalBackupOperation,
     replyingVoomCommentPostIds,
     configAlert,
     users,
@@ -10886,6 +11381,8 @@ export const useAppStore = defineStore('app', () => {
     clearActiveCall,
     setActiveConversation,
     messagesForConversation,
+    ensureConversationMessagesLoaded,
+    loadEarlierConversationMessages,
     profileThemesForCharacter,
     enabledProfileThemesForCharacter,
     thoughtChainThemes,
@@ -10907,7 +11404,9 @@ export const useAppStore = defineStore('app', () => {
     hiddenMessageIdsForConversation,
     memoryContextForConversation,
     memoryCompressionStatsForConversation,
+    memoryCaptureStatusForConversation,
     captureConversationMemory,
+    flushConversationMemory,
     updateMemoryEpisode,
     deleteMemoryEpisode,
     regenerateMemoryEpisode,
@@ -10981,6 +11480,7 @@ export const useAppStore = defineStore('app', () => {
     saveWorldBook,
     deleteWorldBook,
     createBackupFile,
+    createBackupArchive,
     importBackupSnapshot,
     runCloudBackup,
     restoreCloudBackup,
@@ -11048,6 +11548,7 @@ export const useAppStore = defineStore('app', () => {
     rejectOfflineInvitation,
     regenerateChatMessageImage,
     applyChatMessageImageCandidate,
+    deleteChatMessageImageCandidate,
     createUserVoomPost,
     createMomentFromConversation,
     ensureProfileThemesForCharacter,
@@ -11079,6 +11580,7 @@ export const useAppStore = defineStore('app', () => {
     runSmallTheaterAutoCleanupForCharacters,
     regenerateVoomPostImage,
     applyVoomPostImageCandidate,
+    deleteVoomPostImageCandidate,
     cleanupVoomPostsForCharacters,
     runVoomAutoCleanupForCharacters,
     addVoomComment,

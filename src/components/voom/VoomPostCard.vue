@@ -78,54 +78,29 @@
       </article>
     </div>
 
-    <AppModal v-model="showVisualModal" title="VOOM 配图" variant="ins">
-      <section class="visual-viewer" :class="{ flipped: visualFlipped }" :style="visualStyle">
-        <button class="visual-flip-card" type="button" @click="toggleVisualFlip">
-          <span class="visual-face visual-image-face">
-            <img v-if="modalImageSrc && !isBrokenImageSource(modalImageSrc)" :src="modalImageSrc" :alt="selectedVisualDescription" decoding="async" @error="markBrokenImageSource(modalImageSrc)" />
-            <span v-else>{{ selectedVisualDescription }}</span>
-          </span>
-          <span class="visual-face visual-text-face">
-            <span>{{ descriptionDraft || selectedVisualDescription }}</span>
-          </span>
-        </button>
-
-        <div v-if="visualCandidates.length" class="visual-history" aria-label="VOOM 配图历史">
-          <button
-            v-for="(candidate, index) in visualCandidates"
-            :key="candidate.id"
-            class="visual-thumb"
-            :class="{ active: candidate.id === selectedCandidateId }"
-            type="button"
-            :aria-label="`查看配图 ${index + 1}`"
-            @click="selectCandidate(candidate.id)"
-          >
-            <img :src="candidate.image" :alt="candidate.description || 'VOOM 配图'" loading="lazy" decoding="async" @error="markBrokenImageSource(candidate.image)" />
-          </button>
-        </div>
-
-        <label v-if="canRegenerateImage" class="visual-description-field">
-          <span>Description</span>
-          <textarea v-model="descriptionDraft" maxlength="500" placeholder="修改配图描述后重新生成。"></textarea>
-        </label>
-
-        <div class="visual-actions">
-          <button class="visual-secondary" type="button" @click="toggleVisualFlip">翻转</button>
-          <button class="visual-secondary" type="button" :disabled="!modalImageSrc || modalImageSrc === '/load.jpg'" @click="downloadCurrentVisual">下载</button>
-          <button class="visual-secondary" type="button" :disabled="regeneratingImage || !canApplySelectedCandidate" @click="applySelectedCandidate">应用</button>
-          <button
-            class="visual-primary"
-            type="button"
-            :class="{ busy: regeneratingImage }"
-            :aria-disabled="regeneratingImage || !canRegenerateImage"
-            :disabled="regeneratingImage || !canRegenerateImage || !descriptionDraft.trim()"
-            @click="regenerateImage"
-          >
-            <LoaderCircle v-if="regeneratingImage" class="loading-icon" :size="15" />
-            <span>{{ regeneratingImage ? '生成中' : '重新生成' }}</span>
-          </button>
-        </div>
-      </section>
+    <AppModal v-model="showVisualModal" title="VOOM 图片日记" :show-header="false" variant="image-journal">
+      <GeneratedImageFlipViewer
+        v-model:flipped="visualFlipped"
+        v-model:description="descriptionDraft"
+        v-model:generation-prompt="generationPromptDraft"
+        :image-src="modalImageSrc === '/load.jpg' ? '' : modalImageSrc"
+        :candidates="visualCandidates"
+        :selected-id="selectedCandidateId"
+        :applied-image-src="post.image"
+        :aspect-ratio="visualAspectRatio"
+        item-label="VOOM 配图"
+        :can-regenerate="canRegenerateImage"
+        :regenerating="regeneratingImage"
+        :can-apply="canApplySelectedCandidate"
+        :can-delete="Boolean(modalImageSrc && modalImageSrc !== '/load.jpg')"
+        :download-disabled="modalImageSrc === '/load.jpg'"
+        @select="selectCandidate"
+        @download="downloadCurrentVisual"
+        @apply="applySelectedCandidate"
+        @regenerate="regenerateImage"
+        @delete="deleteSelectedCandidate"
+        @image-error="markBrokenImageSource"
+      />
     </AppModal>
   </article>
 </template>
@@ -134,6 +109,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { BotMessageSquare, Heart, LoaderCircle, MessageCircle, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
+import GeneratedImageFlipViewer from '@/components/image/GeneratedImageFlipViewer.vue';
 import type { VoomPost } from '@/types/domain';
 import { downloadImageUrl } from '@/utils/download';
 import { formatRelativeDate } from '@/utils/time';
@@ -157,8 +133,9 @@ const emit = defineEmits<{
   'toggle-like': [postId: string];
   comment: [postId: string, content: string, parentId?: string];
   'reply-thread': [postId: string];
-  'regenerate-image': [postId: string, description: string];
+  'regenerate-image': [postId: string, description: string, generationPrompt: string];
   'apply-image': [postId: string, candidateId: string];
+  'delete-image': [postId: string, candidateId: string, imageUrl: string];
   'busy-action': [message: string, title: string];
   'delete-post': [postId: string];
 }>();
@@ -169,6 +146,7 @@ const replyParentId = ref('');
 const showVisualModal = ref(false);
 const visualFlipped = ref(false);
 const descriptionDraft = ref('');
+const generationPromptDraft = ref('');
 const selectedCandidateId = ref('');
 const brokenImageSources = ref<string[]>([]);
 const lastCandidateCount = ref(0);
@@ -193,6 +171,10 @@ const visualCandidates = computed(() => {
       id: `${props.post.id}-current-image`,
       image: props.post.image,
       description: props.post.imageDescription || props.post.content,
+      generationPrompt: props.post.imageGenerationPrompt,
+      negativePrompt: props.post.imageNegativePrompt,
+      referenceImage: props.post.imageReferenceImage,
+      seed: props.post.imageSeed,
       provider: props.post.imageProvider || 'local',
       createdAt: props.post.createdAt
     });
@@ -200,7 +182,6 @@ const visualCandidates = computed(() => {
   return candidates;
 });
 const selectedCandidate = computed(() => visualCandidates.value.find((candidate) => candidate.id === selectedCandidateId.value) ?? visualCandidates.value.find((candidate) => candidate.image === props.post.image));
-const selectedVisualDescription = computed(() => selectedCandidate.value?.description || visualDescription.value);
 const modalImageSrc = computed(() => props.post.image === '/load.jpg' ? '/load.jpg' : selectedCandidate.value?.image || props.post.image || '/load.jpg');
 const canApplySelectedCandidate = computed(() => Boolean(selectedCandidate.value && selectedCandidate.value.image !== props.post.image && !selectedCandidate.value.id.endsWith('-current-image')));
 const visualAspectRatio = computed(() => {
@@ -302,16 +283,16 @@ function isComposerFor(parentId = '') {
 }
 
 function openVisualModal() {
-  descriptionDraft.value = visualDescription.value;
   lastCandidateCount.value = visualCandidates.value.length;
   selectedCandidateId.value = visualCandidates.value.find((candidate) => candidate.image === props.post.image)?.id ?? visualCandidates.value[0]?.id ?? '';
+  syncVisualDrafts();
   visualFlipped.value = !props.post.image;
   showVisualModal.value = true;
 }
 
 function selectCandidate(candidateId: string) {
   selectedCandidateId.value = candidateId;
-  visualFlipped.value = false;
+  syncVisualDrafts(visualCandidates.value.find((candidate) => candidate.id === candidateId));
 }
 
 function applySelectedCandidate() {
@@ -321,10 +302,6 @@ function applySelectedCandidate() {
   }
   if (!selectedCandidate.value || !canApplySelectedCandidate.value) return;
   emit('apply-image', props.post.id, selectedCandidate.value.id);
-}
-
-function toggleVisualFlip() {
-  visualFlipped.value = !visualFlipped.value;
 }
 
 function isBrokenImageSource(source: string | undefined) {
@@ -346,8 +323,18 @@ function regenerateImage() {
     return;
   }
   if (!description) return;
-  emit('regenerate-image', props.post.id, description);
+  emit('regenerate-image', props.post.id, description, generationPromptDraft.value.trim());
   visualFlipped.value = false;
+}
+
+function syncVisualDrafts(candidate = selectedCandidate.value) {
+  descriptionDraft.value = candidate?.description || visualDescription.value;
+  generationPromptDraft.value = candidate?.generationPrompt ?? props.post.imageGenerationPrompt ?? '';
+}
+
+function deleteSelectedCandidate() {
+  if (!modalImageSrc.value || modalImageSrc.value === '/load.jpg') return;
+  emit('delete-image', props.post.id, selectedCandidateId.value, modalImageSrc.value);
 }
 
 async function downloadCurrentVisual() {
@@ -428,6 +415,7 @@ watch(() => visualCandidates.value.length, (count, previousCount) => {
   }
   if (count > previousCount && count > lastCandidateCount.value) {
     selectedCandidateId.value = visualCandidates.value[count - 1]?.id ?? selectedCandidateId.value;
+    syncVisualDrafts();
     visualFlipped.value = false;
   }
   lastCandidateCount.value = count;
@@ -435,6 +423,7 @@ watch(() => visualCandidates.value.length, (count, previousCount) => {
 watch(() => props.post.image, () => {
   if (!showVisualModal.value) return;
   selectedCandidateId.value = visualCandidates.value.find((candidate) => candidate.image === props.post.image)?.id ?? '';
+  syncVisualDrafts();
   visualFlipped.value = false;
 });
 
@@ -583,154 +572,6 @@ time {
   font-weight: 700;
   line-height: 1.6;
   text-align: center;
-}
-
-.visual-viewer {
-  display: grid;
-  gap: 12px;
-}
-
-.visual-flip-card {
-  position: relative;
-  width: 100%;
-  aspect-ratio: var(--voom-image-ratio, 1 / 1);
-  padding: 0;
-  border-radius: 18px;
-  background: transparent;
-  perspective: 1000px;
-}
-
-.visual-history {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.visual-thumb {
-  flex: 0 0 54px;
-  width: 54px;
-  height: 54px;
-  padding: 2px;
-  border: 2px solid transparent;
-  border-radius: 10px;
-  background: #f1f3f5;
-}
-
-.visual-thumb.active {
-  border-color: #171717;
-  background: #ffffff;
-}
-
-.visual-thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: 7px;
-  object-fit: cover;
-}
-
-.visual-face {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid #edf0f2;
-  border-radius: 18px;
-  background: #ffffff;
-  backface-visibility: hidden;
-  transition: transform 0.28s ease;
-}
-
-.visual-image-face {
-  transform: rotateY(0deg);
-}
-
-.visual-text-face {
-  padding: 20px;
-  transform: rotateY(180deg);
-  color: #222222;
-  font-size: 14px;
-  font-weight: 800;
-  line-height: 1.65;
-  text-align: center;
-  white-space: pre-wrap;
-}
-
-.visual-viewer.flipped .visual-image-face {
-  transform: rotateY(180deg);
-}
-
-.visual-viewer.flipped .visual-text-face {
-  transform: rotateY(360deg);
-}
-
-.visual-image-face img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #f4f5f6;
-}
-
-.visual-description-field {
-  display: grid;
-  gap: 6px;
-}
-
-.visual-description-field > span {
-  color: #686b70;
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.visual-description-field textarea {
-  min-height: 86px;
-  padding: 10px;
-  border: 1px solid #edf0f2;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #171717;
-  line-height: 1.55;
-  resize: vertical;
-}
-
-.visual-actions {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.visual-secondary,
-.visual-primary {
-  display: inline-grid;
-  grid-auto-flow: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 0;
-  min-height: 40px;
-  padding-inline: 4px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.visual-secondary {
-  background: #f1f3f5;
-  color: #4f555c;
-}
-
-.visual-primary {
-  background: #171717;
-  color: #ffffff;
-}
-
-.visual-primary:disabled,
-.visual-primary.busy {
-  cursor: progress;
-  opacity: 0.68;
 }
 
 footer {

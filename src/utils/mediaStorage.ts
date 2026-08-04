@@ -44,7 +44,7 @@ const recentlyStoredMediaLocators = new Map<string, number>();
 let indexedDbPromise: Promise<IDBDatabase | null> | null = null;
 
 function getBasePath() {
-  const base = String(import.meta.env.BASE_URL || '/').trim() || '/';
+  const base = String(import.meta.env?.BASE_URL || '/').trim() || '/';
   if (base === '.' || base === './') return '/';
   const normalizedBase = /^https?:\/\//i.test(base)
     ? new URL(base).pathname
@@ -335,6 +335,10 @@ async function readStoredMediaBlob(locator: LinkMediaLocator, source: string) {
 
 async function storeMediaBlob(blob: Blob) {
   const id = `${await blobHash(blob)}.${extensionFromMimeType(blob.type)}`;
+  return await storeMediaBlobWithId(id, blob);
+}
+
+async function storeMediaBlobWithId(id: string, blob: Blob) {
   const opfsUrl = createStoredMediaUrl('opfs', id);
   rememberStoredMediaUrl(opfsUrl);
   try {
@@ -362,6 +366,12 @@ async function storeMediaBlob(blob: Blob) {
 
 export async function storeLocalMediaBlob(blob: Blob) {
   return await storeMediaBlob(blob);
+}
+
+export async function storeLocalMediaBlobWithId(id: string, blob: Blob) {
+  const normalizedId = id.trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!normalizedId) return '';
+  return await storeMediaBlobWithId(normalizedId, blob);
 }
 
 async function externalizeMediaString(value: string, minBytes: number) {

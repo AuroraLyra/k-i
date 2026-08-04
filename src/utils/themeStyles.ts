@@ -12,8 +12,10 @@ const exportPosterWidth = 1080;
 const exportPosterHeight = 1350;
 
 export type ThemeStyleExportScope = 'global' | 'online' | 'offline';
+export const themeStyleTemplateVersion = '2026.08.03';
 
 export const defaultGlobalThemeCss = `/* LINK 默认全站样式（安全模式）。
+  模板版本：${themeStyleTemplateVersion}，适配当前 Themes 全局、线上、线下分层与新版页面结构。
   默认状态不会覆盖任何页面或弹窗，Home、VOOM、Services、Settings 等页面继续使用各自原本的内置样式。
 
   点击右上角 + 新建全站样式时，会提供可编辑的完整起始模板；只有保存并主动应用自定义预设后，才会覆盖整个网站。
@@ -30,6 +32,7 @@ export const defaultGlobalThemeCss = `/* LINK 默认全站样式（安全模式�
 `;
 
 export const globalThemeStarterCss = `/* LINK 全站自定义样式起始模板。
+  模板版本：${themeStyleTemplateVersion}，适配当前全局页面、AppModal、抽屉、浮层及 Themes 分层结构。
   这份样式作用于整个网站：所有子页面、顶部栏、底部导航、卡片、表单、按钮、弹窗、抽屉、浮层和提示。
   保存并应用后才会生效；线上与线下主题会在它之后加载，可继续覆盖聊天页和线下阅读页的专用细节。
 
@@ -216,19 +219,22 @@ body :is(.action-menu, .context-menu, .tool-popover, .picker-popover, .notice-pa
 `;
 
 export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
+  模板版本：${themeStyleTemplateVersion}，适配当前虚拟消息列表、消息分组、Chat Settings 与 Stickers 结构。
   复制后可自由修改；聊天页建议保留 .chat-room 前缀，聊天设置保留 .chat-settings-page 前缀，Stickers 弹窗保留 .sticker-keyboard-layer 前缀，避免影响其他页面。
 
   小白改法：
   1. 想改整页底色，搜 .chat-room，改 background。
   2. 想改顶部栏，搜 .chat-header；顶部按钮搜 .icon-button。
   3. 想改聊天气泡，搜 .bubble；自己的气泡搜 .message-row.user .bubble。
-  4. 想改消息里的安全 HTML（如 details/summary/p），搜 .message-html-content。
-  5. 想改 5 分钟时间分割，搜 .message-time-divider。
-  6. 想改底部输入栏，搜 .composer；输入框搜 .composer-input；发送按钮搜 .send-button。
-  7. 想改输入框里的表情包笑脸按钮，搜 .sticker-button；只改笑脸图标搜 .sticker-button svg。
-  8. 想改 Stickers 弹窗，搜 .sticker-keyboard-layer；贴纸卡片搜 .sticker-tile。
-  9. 想改 Chat Settings，搜 .chat-settings-page；设置卡片搜 .settings-block，开关搜 .switch-card。
-  10. 常用属性：background 改背景，color 改文字，width/height 改大小，stroke-width 改图标粗细，border-radius 改圆角，box-shadow 改阴影。 */
+  4. 想分开单条/首条/中间/尾条，使用 .message-group-single/first/middle/last；只改气泡可使用 .bubble-group-*，只改气泡容器可使用 .bubble-wrap-group-*。
+  5. 当前消息由虚拟列表承载，不要再使用 + .message-row 判断前后消息；旧版相邻选择器会在应用主题时自动兼容。
+  6. 想改消息里的安全 HTML（如 details/summary/p），搜 .message-html-content。
+  7. 想改 5 分钟时间分割，搜 .message-time-divider。
+  8. 想改底部输入栏，搜 .composer；输入框搜 .composer-input；发送按钮搜 .send-button。
+  9. 想改输入框里的表情包笑脸按钮，搜 .sticker-button；只改笑脸图标搜 .sticker-button svg。
+  10. 想改 Stickers 弹窗，搜 .sticker-keyboard-layer；贴纸卡片搜 .sticker-tile。
+  11. 想改 Chat Settings，搜 .chat-settings-page；设置卡片搜 .settings-block，开关搜 .switch-card。
+  12. 常用属性：background 改背景，color 改文字，width/height 改大小，stroke-width 改图标粗细，border-radius 改圆角，box-shadow 改阴影。 */
 .chat-room {
   --online-ink: #111111;
   --online-muted: #727a82;
@@ -305,6 +311,12 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
   backdrop-filter: blur(12px);
 }
 
+/*
+  消息组稳定钩子：
+  行：.message-group-single / .message-group-first / .message-group-middle / .message-group-last
+  气泡：.bubble-group-single / .bubble-group-first / .bubble-group-middle / .bubble-group-last
+  容器：.bubble-wrap-group-single / .bubble-wrap-group-first / .bubble-wrap-group-middle / .bubble-wrap-group-last
+*/
 .chat-room .message-row {
   gap: 10px;
   margin: 7px 0;
@@ -1725,15 +1737,17 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 `;
 
 export const defaultOfflineThemeCss = `/* LINK 线下页默认完整样式。
+  模板版本：${themeStyleTemplateVersion}，适配当前楼层流、剧情选项、章节工具与线下输入栏结构。
   复制后可自由修改；建议所有选择器都保留 .offline-room 前缀，避免影响其他页面。
 
   小白改法：
   1. 想改整页底色，搜 .offline-room，改 background。
   2. 想改顶部栏，搜 .offline-topbar；顶部图标按钮搜 .offline-icon-button。
   3. 想改用户与角色的黑灰，改 --offline-user-accent、--offline-user-mark、--offline-character-accent、--offline-character-mark。
-  4. 想改剧情选项，搜 .plot-choice-panel 和 .plot-choice-list button。
-  5. 想改底部输入栏，搜 .offline-composer；输入文字框搜 .offline-composer textarea；发送按钮搜 .send-button。
-  6. 常用属性：background 改背景，color 改文字，border-radius 改圆角，padding 改内边距，box-shadow 改阴影。 */
+  4. 想分别改用户楼层和角色楼层，搜 .chapter-entry--user 与 .chapter-entry--char；楼层操作搜 .chapter-entry-tools。
+  5. 想改剧情选项，搜 .plot-choice-panel 和 .plot-choice-list button。
+  6. 想改底部输入栏，搜 .offline-composer；输入文字框搜 .offline-composer textarea；发送按钮搜 .send-button。
+  7. 常用属性：background 改背景，color 改文字，border-radius 改圆角，padding 改内边距，box-shadow 改阴影。 */
 .offline-room {
   --offline-ink: #272727;
   --offline-muted: #999999;

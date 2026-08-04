@@ -282,3 +282,24 @@ export interface MemoryCompressionStats {
   recallTokenEstimate: number;
   recallTokenBudget: number;
 }
+
+export type MemoryCaptureStatusPhase =
+  | 'idle'
+  | 'disabled'
+  | 'unavailable'
+  | 'waiting-threshold'
+  | 'waiting-reply'
+  | 'waiting-model'
+  | 'capturing'
+  | 'completed'
+  | 'error';
+
+export interface MemoryCaptureStatus {
+  phase: MemoryCaptureStatusPhase;
+  message: string;
+  uncapturedFloors: number;
+  lastAttemptAt: number;
+  lastSuccessAt: number;
+  lastError: string;
+  lastEpisodeId: string;
+}

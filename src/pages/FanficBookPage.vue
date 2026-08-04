@@ -39,13 +39,24 @@
       <section class="chapter-section">
         <header class="section-title"><span><small>CONTENTS</small><h2>章节目录</h2></span><em>{{ chapterList.length }} CHAPTERS</em></header>
         <div v-if="chapterList.length" class="chapter-list">
-          <button v-for="chapter in chapterList" :key="chapter.id" type="button" @click="openChapter(chapter.id)">
-            <span class="chapter-order">{{ String(chapter.order).padStart(2, '0') }}</span>
-            <span><strong>{{ chapter.title }}</strong><small>{{ chapter.wordCount }} 字 · {{ chapter.hotspots.length }} 个评论点 · {{ fanficStore.commentsForChapter(chapter.id).length }} 条章评</small></span>
-            <ChevronRight :size="16" />
-          </button>
+          <article v-for="chapter in chapterList" :key="chapter.id" :class="{ busy: chapterOperationId === chapter.id }">
+            <button class="chapter-open" type="button" @click="openChapter(chapter.id)">
+              <span class="chapter-order">{{ String(chapter.order).padStart(2, '0') }}</span>
+              <span><strong>{{ chapter.title }}</strong><small>{{ chapter.wordCount }} 字 · {{ chapter.hotspots.length }} 个评论点 · {{ fanficStore.commentsForChapter(chapter.id).length }} 条章评</small></span>
+              <ChevronRight :size="16" />
+            </button>
+            <button class="chapter-more" type="button" :aria-label="`管理第 ${chapter.order} 章`" :disabled="Boolean(chapterOperationId)" @click.stop="toggleChapterActions(chapter.id)">
+              <LoaderCircle v-if="chapterOperationId === chapter.id" class="spin" :size="15" />
+              <MoreHorizontal v-else :size="17" />
+            </button>
+            <section v-if="chapterActionId === chapter.id" class="chapter-action-menu">
+              <button type="button" :disabled="Boolean(chapterOperationId)" @click="regenerateChapter(chapter)">重新生成本章</button>
+              <button class="danger" type="button" :disabled="Boolean(chapterOperationId)" @click="removeChapter(chapter)">删除本章</button>
+            </section>
+          </article>
         </div>
         <section v-else class="chapter-empty"><Feather :size="24" /><strong>第一章还未完成</strong><p>{{ latestJob?.error || '可以根据作品设定继续生成第一章与高潮评论点。' }}</p></section>
+        <p v-if="chapterOperationError" class="chapter-operation-error">{{ chapterOperationError }}</p>
       </section>
 
       <section v-if="book.status !== 'completed'" class="next-chapter-card">
@@ -85,6 +96,7 @@ import { ArrowRight, BookOpenText, BookX, ChevronLeft, ChevronRight, CircleAlert
 import FanficBookCover from '@/components/fanfic/FanficBookCover.vue';
 import FanficCommentList from '@/components/fanfic/FanficCommentList.vue';
 import { useFanficStore } from '@/stores/fanficStore';
+import type { FanficChapter } from '@/types/domain';
 
 const props = defineProps<{ bookId: string }>();
 const router = useRouter();
@@ -97,6 +109,9 @@ const customDirection = ref('');
 const generateError = ref('');
 const commentDraft = ref('');
 const replyTargetId = ref('');
+const chapterActionId = ref('');
+const chapterOperationId = ref('');
+const chapterOperationError = ref('');
 
 const book = computed(() => fanficStore.bookById(props.bookId));
 const chapterList = computed(() => fanficStore.chaptersForBook(props.bookId));
@@ -118,6 +133,11 @@ onMounted(async () => {
 function goBack() { void router.push({ name: 'fanfic' }); }
 function openChapter(chapterId: string) { void router.push({ name: 'fanfic-reader', params: { bookId: props.bookId, chapterId } }); }
 
+function toggleChapterActions(chapterId: string) {
+  chapterActionId.value = chapterActionId.value === chapterId ? '' : chapterId;
+  chapterOperationError.value = '';
+}
+
 function continueReading() {
   const target = chapterList.value.find((chapter) => chapter.id === book.value?.lastReadChapterId) ?? chapterList.value[0];
   if (target) openChapter(target.id);
@@ -137,6 +157,35 @@ async function generateChapter() {
     generateError.value = error instanceof Error ? error.message : '章节生成失败。';
   } finally {
     generating.value = false;
+  }
+}
+
+async function regenerateChapter(chapter: FanficChapter) {
+  chapterActionId.value = '';
+  if (!window.confirm(`重新生成第 ${chapter.order} 章《${chapter.title}》？\n\n成功后会替换本章正文、高潮点和本章评论；后续章节会保留。生成失败时原章不会丢失。`)) return;
+  chapterOperationId.value = chapter.id;
+  chapterOperationError.value = '';
+  try {
+    await fanficStore.regenerateChapter(chapter.id);
+    openChapter(chapter.id);
+  } catch (error) {
+    chapterOperationError.value = error instanceof Error ? error.message : '章节重新生成失败，原章已保留。';
+  } finally {
+    chapterOperationId.value = '';
+  }
+}
+
+async function removeChapter(chapter: FanficChapter) {
+  chapterActionId.value = '';
+  if (!window.confirm(`删除第 ${chapter.order} 章《${chapter.title}》及本章全部评论？\n\n后续章节会保留并自动前移编号。此操作无法撤销。`)) return;
+  chapterOperationId.value = chapter.id;
+  chapterOperationError.value = '';
+  try {
+    await fanficStore.deleteChapter(chapter.id);
+  } catch (error) {
+    chapterOperationError.value = error instanceof Error ? error.message : '章节删除失败。';
+  } finally {
+    chapterOperationId.value = '';
   }
 }
 
@@ -208,13 +257,21 @@ async function submitComment() {
 .section-title { display: flex; align-items: end; justify-content: space-between; }
 .section-title > span { display: grid; gap: 1px; }
 .section-title em { color: #9d9294; font-size: 8px; font-style: normal; letter-spacing: .08em; }
-.chapter-list { display: grid; overflow: hidden; border: 1px solid rgba(67,57,59,.05); border-radius: 21px; background: rgba(255,255,255,.6); }
-.chapter-list button { display: grid; grid-template-columns: 34px minmax(0,1fr) 18px; align-items: center; gap: 10px; min-height: 64px; padding: 9px 12px; text-align: left; }
-.chapter-list button + button { border-top: 1px solid rgba(68,59,61,.06); }
+.chapter-list { display: grid; overflow: visible; border: 1px solid rgba(67,57,59,.05); border-radius: 21px; background: rgba(255,255,255,.6); }
+.chapter-list > article { position: relative; display: grid; grid-template-columns: minmax(0,1fr) 42px; min-width: 0; }
+.chapter-list > article + article { border-top: 1px solid rgba(68,59,61,.06); }
+.chapter-list > article.busy { opacity: .66; }
+.chapter-open { display: grid; grid-template-columns: 34px minmax(0,1fr) 18px; align-items: center; gap: 10px; min-width: 0; min-height: 64px; padding: 9px 4px 9px 12px; text-align: left; }
+.chapter-more { display: grid; place-items: center; width: 34px; height: 34px; margin: auto 7px auto 0; border-radius: 50%; color: #887c7e; }
+.chapter-more:disabled { opacity: .5; }
+.chapter-action-menu { position: absolute; top: calc(50% + 19px); right: 8px; z-index: 12; display: grid; width: 138px; padding: 5px; border: 1px solid rgba(59,50,52,.08); border-radius: 13px; background: rgba(255,255,255,.98); box-shadow: 0 15px 38px rgba(49,41,43,.16); }
+.chapter-action-menu button { min-height: 36px; padding: 0 10px; border-radius: 9px; color: #655b5d; font-size: 9px; text-align: left; }
+.chapter-action-menu .danger { color: #a05459; }
 .chapter-order { font-family: Georgia, serif; color: #ad9398; font-size: 13px; font-style: italic; }
-.chapter-list button > span:nth-child(2) { display: grid; gap: 4px; min-width: 0; }
+.chapter-open > span:nth-child(2) { display: grid; gap: 4px; min-width: 0; }
 .chapter-list strong { overflow: hidden; font-family: Georgia, "Songti SC", serif; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .chapter-list small { color: #998e90; font-size: 8px; }
+.chapter-operation-error { margin: 0; padding: 9px 11px; border-radius: 11px; background: #f8e9e9; color: #945b61; font-size: 9px; line-height: 1.5; }
 .chapter-empty { display: grid; place-items: center; gap: 6px; padding: 28px; border: 1px dashed #d8cfcc; border-radius: 21px; color: #8c8082; text-align: center; }
 .chapter-empty p { margin: 0; font-size: 9px; line-height: 1.5; }
 .next-chapter-card { display: grid; gap: 12px; background: linear-gradient(145deg, #f1e3e6, #e6eee7); }

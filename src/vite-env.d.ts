@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+declare const __LINK_WEB_BUILD__: string;
+
 interface ImportMetaEnv {
 	readonly VITE_ACCESS_CONTROL_ENABLED?: string;
 	readonly VITE_ANDROID_VERSION_CODE?: string;

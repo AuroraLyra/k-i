@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { FilePicker } from '@capawesome/capacitor-file-picker';
+import { dataUrlToBlob } from '@/utils/mediaStorage';
 
 const nativeShareDirectory = 'exports';
 const nativeShareFileMaxAgeMs = 24 * 60 * 60 * 1000;
@@ -112,26 +113,11 @@ export async function pickNativePngFile(): Promise<File | null | undefined> {
   return base64File(pickedFile.data, pickedFile.name, pickedFile.mimeType, pickedFile.modifiedAt);
 }
 
-export async function pickNativeJsonFile(): Promise<File | null | undefined> {
-  if (!isNativeFilePickerAvailable()) return undefined;
-  const result = await FilePicker.pickFiles({ types: ['application/json', 'text/json'], readData: true });
-  const pickedFile = result.files[0];
-  if (!pickedFile) return null;
-  if (pickedFile.blob) {
-    return new File([pickedFile.blob], pickedFile.name || 'BabyLink-thought-chain.json', {
-      type: pickedFile.mimeType || pickedFile.blob.type || 'application/json',
-      lastModified: pickedFile.modifiedAt || Date.now()
-    });
-  }
-  if (!pickedFile.data) throw new Error('系统文件选择器没有返回 JSON 内容。');
-  return base64File(pickedFile.data, pickedFile.name, pickedFile.mimeType || 'application/json', pickedFile.modifiedAt);
-}
-
 export async function shareNativeDataUrl(dataUrl: string, fileName: string) {
   if (!isNativeFileShareAvailable()) return false;
-  const response = await fetch(dataUrl);
-  if (!response.ok) throw new Error('分享文件转换失败。');
-  return await shareNativeFile(await response.blob(), fileName);
+  const normalizedDataUrl = dataUrl.trim();
+  if (!/^data:[^,]+,/i.test(normalizedDataUrl)) throw new Error('分享文件格式无效。');
+  return await shareNativeFile(dataUrlToBlob(normalizedDataUrl), fileName);
 }
 
 export async function shareNativeFile(blob: Blob, fileName: string) {

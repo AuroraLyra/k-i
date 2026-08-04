@@ -1,7 +1,7 @@
 import { fileURLToPath, URL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -16,6 +16,34 @@ const imageDownloadPath = '/__image-download';
 const assetDownloadPath = '/__asset-download';
 const appServerProxyTarget = process.env.LINK_SERVER_PROXY_TARGET || 'http://127.0.0.1:3000';
 const mcpProxyJobTtlMs = 15 * 60 * 1000;
+const webBuildId = process.env.LINK_WEB_BUILD?.trim()
+  || process.env.GITHUB_SHA?.slice(0, 12)
+  || `local-${process.env.npm_package_version ?? '0.1.0'}-${new Date().toISOString()}`;
+const minAndroidNativeBuild = Math.max(0, Math.round(Number(process.env.LINK_MIN_ANDROID_NATIVE_BUILD) || 0));
+const minIosNativeBuild = Math.max(0, Math.round(Number(process.env.LINK_MIN_IOS_NATIVE_BUILD) || 0));
+
+function releaseManifestPlugin(): Plugin {
+  return {
+    name: 'link-release-manifest',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'release-manifest.json',
+        source: JSON.stringify({
+          schemaVersion: 1,
+          webBuildId,
+          apiSchemaVersion: 1,
+          minDbVersion: 21,
+          minNativeBuild: {
+            android: minAndroidNativeBuild,
+            ios: minIosNativeBuild
+          },
+          generatedAt: new Date().toISOString()
+        }, null, 2)
+      });
+    }
+  };
+}
 
 interface DevMcpProxyJobResponse {
   status: number;
@@ -677,8 +705,9 @@ export default defineConfig({
       }
     },
     vue(),
+    releaseManifestPlugin(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['link-icon.png', 'link-icon-192.png', 'link-icon-maskable.png', 'default-ringtone.mp3', 'link-sw-events.js'],
       manifest: {
         id: base,
@@ -708,16 +737,23 @@ export default defineConfig({
         ]
       },
       workbox: {
-        skipWaiting: true,
-        clientsClaim: true,
+        skipWaiting: false,
+        clientsClaim: false,
         cleanupOutdatedCaches: true,
         importScripts: ['link-sw-events.js'],
         navigateFallback: `${base}index.html`,
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
-        globPatterns: ['**/*.{js,css,html,svg,png,jpg,jpeg,webp,avif,gif,ico,woff,woff2,mp3,m4a,ogg,wav}']
+        globPatterns: ['**/*.{js,css,html,svg,png,jpg,jpeg,webp,avif,gif,ico,woff,woff2,mp3,m4a,ogg,wav}'],
+        runtimeCaching: [{
+          urlPattern: /release-manifest\.json$/,
+          handler: 'NetworkOnly'
+        }]
       }
     })
   ],
+  define: {
+    __LINK_WEB_BUILD__: JSON.stringify(webBuildId)
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))

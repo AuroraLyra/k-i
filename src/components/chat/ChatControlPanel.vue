@@ -354,6 +354,25 @@
         <section class="settings-block">
           <header class="section-header">
             <div>
+              <span>Role guidance</span>
+              <strong>角色与世界引导</strong>
+            </div>
+          </header>
+          <p class="time-awareness-note">仅影响该角色的线上聊天；五项默认全部开启，可分别关闭。</p>
+          <template v-for="group in offlineGuidanceGroups" :key="group.id">
+            <label v-for="item in group.items" :key="item.key" class="switch-card wide">
+              <input :checked="draft.onlineGuidance[item.key]" type="checkbox" @change="updateOnlineGuidanceToggle(item.key, $event)" />
+              <span class="switch-track"></span>
+              <div>
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.description }}</span>
+              </div>
+            </label>
+          </template>
+        </section>
+        <section class="settings-block">
+          <header class="section-header">
+            <div>
               <span>Request recovery</span>
               <strong>请求保护</strong>
             </div>
@@ -629,6 +648,7 @@ import { Plus } from 'lucide-vue-next';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import CharacterMemoryGraphPanel from '@/components/chat/CharacterMemoryGraphPanel.vue';
 import AvatarCropperModal from '@/components/image/AvatarCropperModal.vue';
+import { offlineGuidanceGroups, type RoleGuidanceSettingKey } from '@/data/offlineGuidance';
 import { callAudioAccept, createCallAudioAsset } from '@/services/callExperience';
 import { useAppStore } from '@/stores/appStore';
 import type { CharacterImageProfile, CharacterPhotoRecord, CharacterProfile, ChatAppearanceSettings, ConversationSettings, McpServerConfig, ThemeStylePreset, VoomImageMode } from '@/types/domain';
@@ -884,6 +904,11 @@ function createThemeStyleOptions(scope: ThemeStyleBindingScope, presets: ThemeSt
 
 function saveDraft() {
   void store.saveConversationSettings({ ...draft, conversationId: props.conversationId });
+}
+
+function updateOnlineGuidanceToggle(key: RoleGuidanceSettingKey, event: Event) {
+  draft.onlineGuidance[key] = (event.target as HTMLInputElement).checked;
+  saveDraft();
 }
 
 function clampRgbValue(value: number) {

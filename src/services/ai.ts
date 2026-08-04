@@ -14,6 +14,8 @@ import { formatContentWithChineseTranslation, normalizeTranslationText } from '@
 import { getVoomFrequencyChance, stripVoomCommentReplyPrefix } from '@/utils/voom';
 import { normalizeCoupleSpaceSnapshot } from '@/utils/coupleSpace';
 import { extractThoughtChainContent } from '@/utils/thoughtChainThemes';
+import { isLocalMediaCacheUrl, resolveLocalMediaBlob } from '@/utils/mediaStorage';
+import { classifyTextApiHttpError, TextApiRequestError, type TextApiErrorClassification } from '@/utils/textApiErrors';
 import { executeMcpTools, resolveMcpTools, type ResolvedMcpTool } from './mcp';
 import { buildMomentPrompt, buildPrompt } from './prompt';
 import { prependTabooWorldBookPrompt } from './tabooWorldBook';
@@ -717,8 +719,22 @@ function waitForTextApiRetry() {
   });
 }
 
-function shouldRetryTextApiResponse(response: Response) {
-  return response.status === 405 || response.status === 429 || response.status >= 500;
+async function classifyTextApiResponseError(response: Response) {
+  let payload = '';
+  try {
+    payload = await response.clone().text();
+  } catch {}
+  return classifyTextApiHttpError(response.status, payload);
+}
+
+function createTextApiErrorClassificationHint(classification: TextApiErrorClassification) {
+  if (classification.category === 'content-blocked') {
+    return '供应商已按内容策略拒绝当前提示词；这不是网络故障，本次请求不会自动重试。请切换允许当前内容的模型，或调整触发拦截的对话内容后再试。';
+  }
+  if (classification.category === 'authentication') return '鉴权被拒绝，本次请求不会自动重试。请检查 API Key、账号权限和模型访问权限。';
+  if (classification.category === 'rate-limited') return '请求受到频率限制；系统只会进行有限重试，持续出现时请稍后再试。';
+  if (classification.category === 'response-format-unsupported') return '当前模型或兼容网关不支持结构化输出参数。';
+  return '';
 }
 
 function createTextApiStatusHint(response: Response, endpoint: string) {
@@ -1907,11 +1923,14 @@ async function snapshotImageDataUrlAsPng(dataUrl: string) {
 async function prepareVisionImageUrl(url: string) {
   const trimmed = url.trim();
   if (!trimmed) return '';
-  if (!isLikelyGifImageUrl(trimmed) && !isFetchableLocalImageUrl(trimmed)) return trimmed;
+  const localBlob = isLocalMediaCacheUrl(trimmed) ? await resolveLocalMediaBlob(trimmed) : null;
+  if (!localBlob && !isLikelyGifImageUrl(trimmed) && !isFetchableLocalImageUrl(trimmed)) return trimmed;
 
-  const dataUrl = isGifDataUrl(trimmed)
-    ? trimmed
-    : await fetchGeneratedImageUrlAsDataUrl(trimmed, isLikelyGifImageUrl(trimmed) ? 'image/gif' : 'image/png');
+  const dataUrl = localBlob
+    ? await readBlobAsDataUrl(localBlob)
+    : isGifDataUrl(trimmed)
+      ? trimmed
+      : await fetchGeneratedImageUrlAsDataUrl(trimmed, isLikelyGifImageUrl(trimmed) ? 'image/gif' : 'image/png');
   return isGifDataUrl(dataUrl) ? snapshotImageDataUrlAsPng(dataUrl) : dataUrl;
 }
 
@@ -2517,25 +2536,36 @@ async function callTextApiDetailed(settings: AppSettings | undefined, prompt: st
   let requestInit = createRequestInit(Boolean(options.jsonMode));
 
   let { response, requestEndpoint } = await fetchTextEndpoint(resolved.endpoint, requestInit);
-  if (!response.ok && options.jsonMode && [400, 415, 422].includes(response.status)) {
+  let errorClassification = response.ok ? null : await classifyTextApiResponseError(response);
+  if (!response.ok && options.jsonMode && errorClassification?.responseFormatUnsupported) {
     requestInit = createRequestInit(false);
     const compatibilityResult = await fetchTextEndpoint(resolved.endpoint, requestInit);
     response = compatibilityResult.response;
     requestEndpoint = compatibilityResult.requestEndpoint;
+    errorClassification = response.ok ? null : await classifyTextApiResponseError(response);
   }
-  if (!response.ok && options.retryTransientFailures !== false && shouldRetryTextApiResponse(response)) {
+  if (!response.ok && options.retryTransientFailures !== false && errorClassification?.retryable) {
     await waitForTextApiRetry();
     const retryResult = await fetchTextEndpoint(resolved.endpoint, requestInit);
     response = retryResult.response;
     requestEndpoint = retryResult.requestEndpoint;
+    errorClassification = response.ok ? null : await classifyTextApiResponseError(response);
   }
 
   if (!response.ok) {
+    const classification = errorClassification ?? await classifyTextApiResponseError(response);
     const statusHint = createTextApiStatusHint(response, resolved.endpoint);
+    const classificationHint = createTextApiErrorClassificationHint(classification);
     if (requestEndpoint.startsWith(textProxyPath) && response.status === 502) {
-      throw new Error([await createApiErrorMessage(response, '本地文本模型代理请求失败'), statusHint].filter(Boolean).join('\n\n'));
+      throw new TextApiRequestError(
+        [await createApiErrorMessage(response, '本地文本模型代理请求失败'), statusHint, classificationHint].filter(Boolean).join('\n\n'),
+        classification
+      );
     }
-    throw new Error([await createApiErrorMessage(response, '文本模型 API 请求失败'), statusHint].filter(Boolean).join('\n\n'));
+    throw new TextApiRequestError(
+      [await createApiErrorMessage(response, '文本模型 API 请求失败'), statusHint, classificationHint].filter(Boolean).join('\n\n'),
+      classification
+    );
   }
 
   const data = await readJsonPayload(response, '文本模型 API 返回异常');
@@ -3396,6 +3426,8 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
   const prompt = mcpReply.context ? `${basePrompt}\n\n${mcpReply.context}` : basePrompt;
   const imageParts = await getPreparedVisualImageParts(input);
   const apiResult = await callTextApiDetailed(input.settings, prompt, input.modelOverride, imageParts, {
+    jsonMode: true,
+    maxTokens: 8192,
     retryTransientFailures: input.requestRecovery?.retryTransientFailures
   });
   try {

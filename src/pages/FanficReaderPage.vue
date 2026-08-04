@@ -2,9 +2,18 @@
   <section v-if="book && chapter" class="screen no-tabs reader-page fanfic-font-scope" :class="[`theme-${readerTheme}`, { 'controls-hidden': controlsHidden }]">
     <header class="reader-header">
       <button type="button" aria-label="返回同人文详情" @click="goBook"><ChevronLeft :size="21" /></button>
-      <span><small>{{ book.title }}</small><strong>第 {{ chapter.order }} 章</strong></span>
-      <button type="button" aria-label="阅读设置" @click="showSettings = !showSettings"><Type :size="19" /></button>
+      <span class="reader-header-title"><small>{{ book.title }}</small><strong>第 {{ chapter.order }} 章</strong></span>
+      <span class="reader-header-actions">
+        <button type="button" aria-label="管理本章" :disabled="chapterOperating" @click="toggleChapterActions"><LoaderCircle v-if="chapterOperating" class="spin" :size="17" /><MoreHorizontal v-else :size="19" /></button>
+        <button type="button" aria-label="阅读设置" @click="toggleSettings"><Type :size="19" /></button>
+      </span>
     </header>
+
+    <section v-if="showChapterActions" class="reader-chapter-actions">
+      <small>CHAPTER ACTIONS</small>
+      <button type="button" :disabled="chapterOperating" @click="regenerateCurrentChapter">重新生成本章</button>
+      <button class="danger" type="button" :disabled="chapterOperating" @click="deleteCurrentChapter">删除本章</button>
+    </section>
 
     <section v-if="showSettings" class="reader-settings">
       <span><small>字号</small><button type="button" @click="fontSize = Math.max(15, fontSize - 1)">A−</button><em>{{ fontSize }}</em><button type="button" @click="fontSize = Math.min(24, fontSize + 1)">A＋</button></span>
@@ -13,6 +22,7 @@
 
     <main ref="scrollContainer" class="reader-scroll" @scroll.passive="handleScroll" @click="hideFloatingPanels">
       <article class="reader-article" :style="{ '--reader-font-size': `${fontSize}px` }">
+        <p v-if="chapterOperationError" class="chapter-operation-error">{{ chapterOperationError }}</p>
         <header class="chapter-heading">
           <small>CHAPTER {{ String(chapter.order).padStart(2, '0') }}</small>
           <h1>{{ chapter.title }}</h1>
@@ -89,7 +99,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { BookX, ChevronLeft, ChevronRight, CircleAlert, Heart, ListTree, LoaderCircle, MessageCircle, MessageCircleHeart, Send, Sparkles, Type, X } from 'lucide-vue-next';
+import { BookX, ChevronLeft, ChevronRight, CircleAlert, Heart, ListTree, LoaderCircle, MessageCircle, MessageCircleHeart, MoreHorizontal, Send, Sparkles, Type, X } from 'lucide-vue-next';
 import FanficCommentList from '@/components/fanfic/FanficCommentList.vue';
 import { useFanficStore } from '@/stores/fanficStore';
 
@@ -100,6 +110,7 @@ const scrollContainer = ref<HTMLElement | null>(null);
 const fontSize = ref(18);
 const readerTheme = ref<'paper' | 'white' | 'night'>('paper');
 const showSettings = ref(false);
+const showChapterActions = ref(false);
 const controlsHidden = ref(false);
 const selectedHotspotId = ref('');
 const replyTargetId = ref('');
@@ -109,6 +120,9 @@ const customDirection = ref('');
 const generating = ref(false);
 const generateError = ref('');
 const hotspotCommentError = ref('');
+const chapterOperating = ref(false);
+const chapterOperationError = ref('');
+const suppressProgressPersistence = ref(false);
 const currentProgress = ref(0);
 let progressTimer = 0;
 let previousScrollTop = 0;
@@ -144,6 +158,8 @@ watch(() => props.chapterId, async () => {
   selectedDirection.value = '';
   customDirection.value = '';
   currentProgress.value = 0;
+  chapterOperationError.value = '';
+  suppressProgressPersistence.value = false;
   await restoreProgress();
 });
 
@@ -154,6 +170,17 @@ onBeforeUnmount(() => {
 
 function goBook() { void router.push({ name: 'fanfic-book', params: { bookId: props.bookId } }); }
 function openChapter(chapterId: string) { void router.replace({ name: 'fanfic-reader', params: { bookId: props.bookId, chapterId } }); }
+
+function toggleSettings() {
+  showSettings.value = !showSettings.value;
+  showChapterActions.value = false;
+}
+
+function toggleChapterActions() {
+  showChapterActions.value = !showChapterActions.value;
+  showSettings.value = false;
+  chapterOperationError.value = '';
+}
 
 function hotspotsAt(index: number) {
   return chapter.value?.hotspots.filter((hotspot) => {
@@ -212,7 +239,7 @@ async function submitHotspotComment() {
   replyTargetId.value = '';
 }
 
-function hideFloatingPanels() { showSettings.value = false; }
+function hideFloatingPanels() { showSettings.value = false; showChapterActions.value = false; }
 
 function handleScroll() {
   const element = scrollContainer.value;
@@ -226,7 +253,7 @@ function handleScroll() {
 }
 
 function persistProgress() {
-  if (!chapter.value) return;
+  if (!chapter.value || suppressProgressPersistence.value) return;
   const element = scrollContainer.value;
   const paragraphElements = element ? [...element.querySelectorAll<HTMLElement>('[data-paragraph-id]')] : [];
   const readingLine = (element?.scrollTop ?? 0) + 150;
@@ -261,6 +288,46 @@ async function generateNext() {
     generating.value = false;
   }
 }
+
+async function regenerateCurrentChapter() {
+  if (!chapter.value || chapterOperating.value) return;
+  showChapterActions.value = false;
+  if (!window.confirm(`重新生成第 ${chapter.value.order} 章《${chapter.value.title}》？\n\n成功后会替换本章正文、高潮点和本章评论；后续章节会保留。生成失败时原章不会丢失。`)) return;
+  chapterOperating.value = true;
+  chapterOperationError.value = '';
+  try {
+    await fanficStore.regenerateChapter(props.chapterId);
+    window.clearTimeout(progressTimer);
+    await nextTick();
+    if (scrollContainer.value) scrollContainer.value.scrollTop = 0;
+    await fanficStore.updateReadingProgress(props.bookId, props.chapterId, chapter.value?.paragraphs[0]?.id || '');
+  } catch (error) {
+    chapterOperationError.value = error instanceof Error ? error.message : '章节重新生成失败，原章已保留。';
+  } finally {
+    chapterOperating.value = false;
+  }
+}
+
+async function deleteCurrentChapter() {
+  if (!chapter.value || chapterOperating.value) return;
+  const currentChapter = chapter.value;
+  showChapterActions.value = false;
+  if (!window.confirm(`删除第 ${currentChapter.order} 章《${currentChapter.title}》及本章全部评论？\n\n后续章节会保留并自动前移编号。此操作无法撤销。`)) return;
+  chapterOperating.value = true;
+  chapterOperationError.value = '';
+  suppressProgressPersistence.value = true;
+  window.clearTimeout(progressTimer);
+  try {
+    const fallbackChapter = await fanficStore.deleteChapter(currentChapter.id);
+    if (fallbackChapter) openChapter(fallbackChapter.id);
+    else goBook();
+  } catch (error) {
+    suppressProgressPersistence.value = false;
+    chapterOperationError.value = error instanceof Error ? error.message : '章节删除失败。';
+  } finally {
+    chapterOperating.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -270,9 +337,16 @@ async function generateNext() {
 .reader-header { position: absolute; inset: 0 0 auto; z-index: 20; display: flex; align-items: center; justify-content: space-between; min-height: calc(52px + var(--safe-top)); padding: var(--safe-top) calc(10px + var(--safe-right)) 0 calc(10px + var(--safe-left)); background: color-mix(in srgb, var(--reader-bg) 90%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--reader-text) 7%, transparent); backdrop-filter: blur(14px); transition: transform .25s; }
 .controls-hidden .reader-header { transform: translateY(-100%); }
 .reader-header button { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; color: var(--reader-text); }
-.reader-header > span { display: grid; place-items: center; gap: 1px; max-width: 60%; }
+.reader-header-title { display: grid; place-items: center; gap: 1px; max-width: 60%; }
 .reader-header small { max-width: 100%; overflow: hidden; color: var(--reader-muted); font-size: 7px; font-weight: 850; letter-spacing: .08em; text-overflow: ellipsis; white-space: nowrap; }
 .reader-header strong { font-family: Georgia, "Songti SC", serif; font-size: 12px; }
+.reader-header-actions { display: flex; align-items: center; }
+.reader-header-actions button { width: 34px; height: 38px; }
+.reader-header-actions button:disabled { opacity: .55; }
+.reader-chapter-actions { position: absolute; top: calc(58px + var(--safe-top)); right: 12px; z-index: 31; display: grid; width: 158px; padding: 7px; border: 1px solid color-mix(in srgb, var(--reader-text) 8%, transparent); border-radius: 15px; background: color-mix(in srgb, var(--reader-card) 97%, transparent); box-shadow: 0 18px 42px rgba(30,25,26,.17); backdrop-filter: blur(15px); }
+.reader-chapter-actions small { padding: 4px 8px 6px; color: var(--reader-muted); font-size: 7px; font-weight: 900; letter-spacing: .12em; }
+.reader-chapter-actions button { min-height: 37px; padding: 0 9px; border-radius: 10px; color: var(--reader-text); font-size: 9px; text-align: left; }
+.reader-chapter-actions .danger { color: #a05b61; }
 .reader-settings { position: absolute; top: calc(58px + var(--safe-top)); right: 12px; z-index: 30; display: grid; gap: 10px; width: 205px; padding: 12px; border: 1px solid color-mix(in srgb, var(--reader-text) 8%, transparent); border-radius: 17px; background: color-mix(in srgb, var(--reader-card) 95%, transparent); box-shadow: 0 18px 42px rgba(30,25,26,.17); backdrop-filter: blur(15px); }
 .reader-settings > span { display: flex; align-items: center; gap: 7px; }
 .reader-settings small { width: 32px; color: var(--reader-muted); font-size: 8px; }
@@ -281,6 +355,7 @@ async function generateNext() {
 .theme-dot.paper { background: #f7f1e7; }.theme-dot.white { background: #fff; }.theme-dot.night { background: #292627; }.theme-dot.selected { border-color: #a48289; }
 .reader-scroll { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .reader-article { width: min(100%, 680px); margin: 0 auto; padding: calc(82px + var(--safe-top)) max(24px, calc((100vw - 680px) / 2)) calc(38px + var(--safe-bottom)); }
+.chapter-operation-error { margin: 0 0 18px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, #d4878f 18%, var(--reader-card)); color: color-mix(in srgb, #9b525a 84%, var(--reader-text)); font-size: 9px; line-height: 1.55; }
 .chapter-heading { display: grid; place-items: center; gap: 10px; margin-bottom: 39px; text-align: center; }
 .chapter-heading > small { color: #a48387; font-family: Georgia, serif; font-size: 9px; font-style: italic; letter-spacing: .17em; }
 .chapter-heading h1 { margin: 0; font-family: Georgia, "Songti SC", serif; font-size: 28px; font-weight: 650; line-height: 1.3; }

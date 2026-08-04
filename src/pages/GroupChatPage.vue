@@ -32,6 +32,7 @@
               :character="characterForMessage(messageEntries[virtualRow.index].message)"
               :user="conversationUser"
               :appearance="chatSettings.appearance"
+              :group-position="messageEntries[virtualRow.index].groupPosition"
               :author-avatar="avatarForMessage(messageEntries[virtualRow.index].message)"
               :author-name="messageEntries[virtualRow.index].message.authorName || '群成员'"
               :show-author-name="messageEntries[virtualRow.index].message.sender === 'char'"
@@ -73,6 +74,8 @@
       placeholder="发送消息到群聊"
       @cancel-quote="quoteTarget = null"
       @capture-photo="sendPhoto"
+      @file-picker-open="beginFilePicker"
+      @file-picker-close="endFilePicker"
       @prepare-focus="captureKeyboardScrollAnchor"
       @focus="handleComposerFocus"
       @blur="handleComposerBlur"
@@ -146,7 +149,7 @@
         </nav>
         <section v-if="imageSendTab === 'local'" class="local-image-tab">
           <label class="description-field local-image-hint-field"><span>图片补充描述（可选）</span><textarea v-model="localImageHintDraft" maxlength="500" rows="3" placeholder="可以写画面重点、场景、人物或你希望 AI 理解到的细节。"></textarea></label>
-          <button class="local-image-button" type="button" :disabled="sendingImage" @click="localImageInputRef?.click()"><span>{{ sendingImage ? '处理中' : '选择本地图片' }}</span></button>
+          <button class="local-image-button" type="button" :disabled="sendingImage" @click="openGroupLocalImagePicker"><span>{{ sendingImage ? '处理中' : '选择本地图片' }}</span></button>
           <p>图片会以真实图片发送，支持后续模型识图。</p>
         </section>
         <section v-else class="description-image-tab">
@@ -230,6 +233,7 @@ import { useAppStore } from '@/stores/appStore';
 import type { CharacterProfile, ChatMessage, ChatMessageQuote, VoomFrequency } from '@/types/domain';
 import { readChatImageFile } from '@/utils/imageFile';
 import { useKeyboardScrollGuard } from '@/utils/keyboardScrollGuard';
+import { resolveMessageGroupPositions } from '@/utils/messageGrouping';
 import { formatChatTimeDivider, shouldShowChatTimeDivider } from '@/utils/time';
 
 const props = defineProps<{ id: string }>();
@@ -303,10 +307,20 @@ const chatSurfaceStyle = computed(() => ({
   backgroundColor: chatSettings.value.appearance.backgroundColor,
   backgroundImage: chatSettings.value.appearance.backgroundImage ? `url(${chatSettings.value.appearance.backgroundImage})` : 'none'
 }));
-const messageEntries = computed(() => allVisibleMessages.value.map((message, messageIndex) => {
-  const previousMessage = allVisibleMessages.value[messageIndex - 1];
-  return { message, messageIndex, timeLabel: shouldShowChatTimeDivider(message.createdAt, previousMessage?.createdAt) ? formatChatTimeDivider(message.createdAt) : '' };
-}));
+const messageEntries = computed(() => {
+  const messages = allVisibleMessages.value;
+  const timeLabels = messages.map((message, messageIndex) => {
+    const previousMessage = messages[messageIndex - 1];
+    return shouldShowChatTimeDivider(message.createdAt, previousMessage?.createdAt) ? formatChatTimeDivider(message.createdAt) : '';
+  });
+  const groupPositions = resolveMessageGroupPositions(messages, timeLabels.map(Boolean));
+  return messages.map((message, messageIndex) => ({
+    message,
+    messageIndex,
+    timeLabel: timeLabels[messageIndex],
+    groupPosition: groupPositions[messageIndex]
+  }));
+});
 const messageVirtualizer = useVirtualizer(computed(() => ({
   count: messageEntries.value.length,
   getScrollElement: () => messageList.value,
@@ -377,7 +391,10 @@ async function saveEditedMessage() { const message = activeMessage.value; if (!m
 
 async function sendImageFile(file: File, kind: 'photo' | 'local') { const image = await readChatImageFile(file); await store.appendUserImageMessage(props.id, '[图片]', { kind, description: kind === 'photo' ? '相机照片' : '本地图片', aiHint: kind === 'local' ? localImageHintDraft.value.trim() || undefined : undefined, url: image.dataUrl, fileName: file.name, mimeType: image.mimeType, width: image.width, height: image.height }, quoteTarget.value); if (kind === 'local') localImageHintDraft.value = ''; quoteTarget.value = null; showImagePanel.value = false; }
 async function sendPhoto(file: File) { try { await sendImageFile(file, 'photo'); } catch (error) { store.showConfigAlert(error instanceof Error ? error.message : '图片读取失败。', '无法发送图片'); } }
-async function sendImageFromInput(event: Event) { const input = event.target as HTMLInputElement; const file = input.files?.[0]; input.value = ''; if (!file?.type.startsWith('image/')) return; sendingImage.value = true; try { await sendImageFile(file, 'local'); } finally { sendingImage.value = false; } }
+async function sendImageFromInput(event: Event) { endFilePicker(); const input = event.target as HTMLInputElement; const file = input.files?.[0]; input.value = ''; if (!file?.type.startsWith('image/')) return; sendingImage.value = true; try { await sendImageFile(file, 'local'); } finally { sendingImage.value = false; } }
+function beginFilePicker(kind: 'camera' | 'local' = 'local') { store.setAppUpdateTransientOperation(`group-file-picker:${props.id}`, kind === 'camera' ? '正在选择群聊相机图片' : '正在选择群聊本地图片', true); window.setTimeout(() => window.addEventListener('focus', endFilePicker, { once: true }), 0); }
+function endFilePicker() { window.setTimeout(() => store.setAppUpdateTransientOperation(`group-file-picker:${props.id}`, '', false), 250); }
+function openGroupLocalImagePicker() { beginFilePicker('local'); localImageInputRef.value?.click(); }
 async function sendDescriptionImage() { const description = imageDescriptionDraft.value.trim(); if (!description) return; sendingImage.value = true; try { await store.appendUserImageMessage(props.id, `[图片描述卡片] ${description}`, { kind: 'description', description }, quoteTarget.value); imageDescriptionDraft.value = ''; quoteTarget.value = null; showImagePanel.value = false; } finally { sendingImage.value = false; } }
 
 function blobToDataUrl(blob: Blob) { return new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result ?? '')); reader.onerror = () => reject(new Error('语音读取失败。')); reader.readAsDataURL(blob); }); }
@@ -391,6 +408,35 @@ const voiceRecordStatus = computed(() => recording.value ? '正在录音' : reco
 function formatVoiceDuration(seconds: number) { const safeSeconds = Math.max(0, Math.round(seconds)); return `${String(Math.floor(safeSeconds / 60)).padStart(2, '0')}:${String(safeSeconds % 60).padStart(2, '0')}`; }
 async function sendRecordedVoice() { const transcript = voiceTranscriptDraft.value.trim(); const audio = recordedAudio.value; if (!transcript || !audio) return; await store.appendUserVoiceMessage(props.id, { source: 'recorded', transcript, duration: audio.duration, audioUrl: audio.audioUrl, mimeType: audio.mimeType }, quoteTarget.value); voiceTranscriptDraft.value = ''; recordedAudio.value = null; quoteTarget.value = null; showVoicePanel.value = false; }
 async function sendTextVoice() { const transcript = voiceTextDraft.value.trim(); if (!transcript) return; await store.appendUserVoiceMessage(props.id, { source: 'text', transcript, duration: textVoiceDuration.value }, quoteTarget.value); voiceTextDraft.value = ''; quoteTarget.value = null; showVoicePanel.value = false; }
+
+function syncGroupTransientOperations() {
+  const conversationKey = props.id;
+  store.setAppUpdateTransientOperation(`group-draft:${conversationKey}`, '存在未发送的群聊草稿', Boolean(composerText.value.trim()) || Boolean(anonymousDraft.value.trim()));
+  store.setAppUpdateTransientOperation(`group-image:${conversationKey}`, '正在处理群聊图片或图片草稿', sendingImage.value || Boolean(localImageHintDraft.value.trim()) || Boolean(imageDescriptionDraft.value.trim()));
+  store.setAppUpdateTransientOperation(`group-recording:${conversationKey}`, '正在录音或保留群聊语音草稿', recording.value || Boolean(recordedAudio.value) || Boolean(voiceTranscriptDraft.value.trim()) || Boolean(voiceTextDraft.value.trim()));
+  store.setAppUpdateTransientOperation(`group-edit:${conversationKey}`, '存在未保存的群聊编辑', showEditModal.value && Boolean(editDraft.value.trim()));
+  store.setAppUpdateTransientOperation(`group-profile:${conversationKey}`, '存在未保存的群资料草稿', showDetails.value && Boolean(groupTitleDraft.value.trim() || groupAnnouncementDraft.value.trim()));
+  store.setAppUpdateTransientOperation(`group-regenerate:${conversationKey}`, '存在未提交的群聊回复指令', showRegenerate.value && Boolean(regenerateInstruction.value.trim()));
+}
+
+watch([
+  composerText,
+  anonymousDraft,
+  sendingImage,
+  localImageHintDraft,
+  imageDescriptionDraft,
+  recording,
+  recordedAudio,
+  voiceTranscriptDraft,
+  voiceTextDraft,
+  showEditModal,
+  editDraft,
+  showDetails,
+  groupTitleDraft,
+  groupAnnouncementDraft,
+  showRegenerate,
+  regenerateInstruction
+], syncGroupTransientOperations, { immediate: true });
 
 async function confirmRegenerate() { showRegenerate.value = false; await store.regenerateLatestGroupReply(props.id, regenerateInstruction.value); await scrollToBottom(); }
 async function confirmDeleteGroup() { const deleted = await store.deleteGroupConversation(props.id); if (deleted) await router.replace({ name: 'home' }); }
@@ -408,10 +454,45 @@ watch(() => allVisibleMessages.value.length, (nextLength, previousLength) => {
   if (!addedCount) return;
   if (shouldStickToBottom.value) void scrollToBottom();
 });
-watch(() => props.id, () => { shouldStickToBottom.value = true; void scrollToBottom(); });
+watch(() => props.id, (id, previousId) => {
+  if (previousId) {
+    store.setAppUpdateTransientOperation(`group-draft:${previousId}`, '', false);
+    store.setAppUpdateTransientOperation(`group-file-picker:${previousId}`, '', false);
+    store.setAppUpdateTransientOperation(`group-image:${previousId}`, '', false);
+    store.setAppUpdateTransientOperation(`group-recording:${previousId}`, '', false);
+    store.setAppUpdateTransientOperation(`group-edit:${previousId}`, '', false);
+    store.setAppUpdateTransientOperation(`group-profile:${previousId}`, '', false);
+    store.setAppUpdateTransientOperation(`group-regenerate:${previousId}`, '', false);
+    void store.flushConversationMemory(previousId);
+  }
+  void (async () => {
+    await store.ensureConversationMessagesLoaded(id);
+    store.setActiveConversation(id);
+    await store.markConversationRead(id);
+    shouldStickToBottom.value = true;
+    await scrollToBottom();
+  })();
+});
 watch(conversation, (value) => { groupTitleDraft.value = value?.title ?? ''; groupAnnouncementDraft.value = value?.groupAnnouncement ?? ''; }, { immediate: true });
-onMounted(async () => { store.setActiveConversation(props.id); await store.markConversationRead(props.id); await scrollToBottom(); });
-onBeforeUnmount(() => { cleanupRecording(); store.setActiveConversation(null); });
+onMounted(async () => {
+  await store.hydrate();
+  await store.ensureConversationMessagesLoaded(props.id);
+  store.setActiveConversation(props.id);
+  await store.markConversationRead(props.id);
+  await scrollToBottom();
+});
+onBeforeUnmount(() => {
+  cleanupRecording();
+  store.setAppUpdateTransientOperation(`group-draft:${props.id}`, '', false);
+  store.setAppUpdateTransientOperation(`group-file-picker:${props.id}`, '', false);
+  store.setAppUpdateTransientOperation(`group-image:${props.id}`, '', false);
+  store.setAppUpdateTransientOperation(`group-recording:${props.id}`, '', false);
+  store.setAppUpdateTransientOperation(`group-edit:${props.id}`, '', false);
+  store.setAppUpdateTransientOperation(`group-profile:${props.id}`, '', false);
+  store.setAppUpdateTransientOperation(`group-regenerate:${props.id}`, '', false);
+  void store.flushConversationMemory(props.id);
+  store.setActiveConversation(null);
+});
 </script>
 
 <style scoped>

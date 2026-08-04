@@ -157,6 +157,7 @@ function openResult(result: SearchResult) {
 
 onMounted(async () => {
   await store.hydrate();
+  await store.ensureConversationMessagesLoaded(props.id);
   await nextTick();
   searchInputRef.value?.focus();
 });

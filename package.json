@@ -17,12 +17,19 @@
     "bridge:desktop:dir": "electron-builder --dir",
     "bridge:desktop:dist": "electron-builder",
     "test:memory": "tsx --tsconfig tsconfig.app.json scripts/memory-regression.ts",
+    "test:backup": "tsx --tsconfig tsconfig.app.json scripts/backup-regression.ts",
+    "test:image-proxy-cache": "tsx --tsconfig tsconfig.app.json scripts/image-proxy-cache-regression.ts",
     "start": "node server-dist/index.js",
     "preview": "vite preview --host 0.0.0.0",
     "test:mcp-access": "tsx --tsconfig tsconfig.app.json scripts/mcp-access-regression.ts",
     "test:mcp-results": "tsx --tsconfig tsconfig.app.json scripts/mcp-results-regression.ts",
     "test:link-preview": "tsx --tsconfig tsconfig.app.json scripts/link-preview-regression.ts",
-    "test:role-operations": "tsx --tsconfig tsconfig.app.json scripts/role-operations-regression.ts"
+    "test:mobile-runtime": "tsx --tsconfig tsconfig.app.json scripts/mobile-runtime-regression.ts",
+    "test:message-pagination": "tsx --tsconfig tsconfig.app.json scripts/message-pagination-regression.ts",
+    "test:fanfic-chapter": "tsx --tsconfig tsconfig.app.json scripts/fanfic-chapter-regression.ts",
+    "test:theme-styles": "tsx --tsconfig tsconfig.app.json scripts/theme-styles-regression.ts",
+    "test:role-operations": "tsx --tsconfig tsconfig.app.json scripts/role-operations-regression.ts",
+    "test:text-api-errors": "tsx --tsconfig tsconfig.app.json scripts/text-api-error-regression.ts"
   },
   "dependencies": {
     "@capacitor-community/contacts": "^8.0.0",

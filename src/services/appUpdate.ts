@@ -1,3 +1,5 @@
+import { checkReleaseCompatibility } from '@/services/releaseManifest';
+
 export type AppUpdatePhase = 'idle' | 'checking' | 'latest' | 'downloaded' | 'updated' | 'unsupported' | 'error';
 
 export interface AppUpdateStatus {
@@ -123,7 +125,7 @@ function watchInstallingWorker(registration: ServiceWorkerRegistration, worker: 
         ? {
             phase: 'downloaded',
             message: '新版本已下载',
-            detail: '安装后会重新载入页面并切换到最新资源。'
+            detail: '请在完成输入、上传、备份或通话后手动安装最新资源。'
           }
         : {
             phase: 'latest',
@@ -197,6 +199,16 @@ export async function checkForAppUpdate() {
   });
 
   try {
+    const releaseCompatibility = await checkReleaseCompatibility({ force: true });
+    if (releaseCompatibility.state === 'incompatible') {
+      patchAppUpdateStatus({
+        phase: 'error',
+        message: '当前运行环境需要升级',
+        detail: releaseCompatibility.reason,
+        lastCheckedAt
+      });
+      return appUpdateStatus;
+    }
     const registration = await resolveRegistration();
     watchRegistration(registration);
 
@@ -269,7 +281,7 @@ export async function checkForAppUpdate() {
   return appUpdateStatus;
 }
 
-export async function installDownloadedAppUpdate() {
+export async function installDownloadedAppUpdate(options: { blockers?: readonly string[]; getBlockers?: () => readonly string[] } = {}) {
   if (!import.meta.env.PROD || !isServiceWorkerSupported) {
     patchAppUpdateStatus({ ...createInitialStatus(), lastCheckedAt: Date.now() });
     return appUpdateStatus;
@@ -286,15 +298,38 @@ export async function installDownloadedAppUpdate() {
     return appUpdateStatus;
   }
 
+  const blockers = [...new Set((options.getBlockers?.() ?? options.blockers ?? []).map((blocker) => blocker.trim()).filter(Boolean))];
+  if (blockers.length) {
+    patchAppUpdateStatus({
+      ...createRegistrationStatus(registration),
+      phase: 'downloaded',
+      message: '请先完成当前操作',
+      detail: `${blockers.join('、')}。完成后再安装新版本，以免中断本地数据或未保存进度。`
+    });
+    return appUpdateStatus;
+  }
+
   patchAppUpdateStatus({
     ...createRegistrationStatus(registration),
     phase: 'updated',
     message: '正在安装新版本',
-    detail: '页面会在服务切换完成后自动重新载入。'
+    detail: '服务切换完成后会重新载入页面。'
   });
 
-  navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload(), { once: true });
+  let controllerChanged = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    controllerChanged = true;
+    window.location.reload();
+  }, { once: true });
   registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-  window.setTimeout(() => window.location.reload(), 1800);
+  window.setTimeout(() => {
+    if (controllerChanged) return;
+    patchAppUpdateStatus({
+      ...createRegistrationStatus(registration),
+      phase: 'error',
+      message: '新版本尚未切换',
+      detail: '浏览器仍在等待 Service Worker 激活，请稍后重新检查更新。'
+    });
+  }, 5_000);
   return appUpdateStatus;
 }

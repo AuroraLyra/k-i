@@ -1,3 +1,5 @@
+import type { FanficChapter } from '@/types/domain';
+
 export interface NormalizedGeneratedFanficHotspot {
   paragraphIndex: number;
   label: string;
@@ -37,6 +39,21 @@ function uniqueStrings(values: string[], limit: number) {
 
 function cleanStrings(values: string[], limit: number) {
   return values.map((value) => value.trim()).filter(Boolean).slice(0, limit);
+}
+
+export function collectFanficChapterContinuity(chapters: FanficChapter[], limit = 40) {
+  const values = [...chapters]
+    .sort((left, right) => left.order - right.order)
+    .flatMap((chapter) => chapter.continuity)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return [...new Set(values)].slice(-limit);
+}
+
+export function resequenceFanficChapters(chapters: FanficChapter[], updatedAt = Date.now()) {
+  return [...chapters]
+    .sort((left, right) => left.order - right.order)
+    .map((chapter, index) => chapter.order === index + 1 ? chapter : { ...chapter, order: index + 1, updatedAt });
 }
 
 function splitLongTextBySentence(value: string) {

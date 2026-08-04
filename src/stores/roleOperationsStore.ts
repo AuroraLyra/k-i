@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import { deleteEntity, loadSnapshot, pruneUnusedStoredMediaCache, putEntity } from '@/data/db';
+import { deleteEntity, loadRoleOperationsSnapshot, pruneUnusedStoredMediaCache, putEntity } from '@/data/db';
 import type { AppSnapshot } from '@/types/domain';
 import type { RoleContentDraft, RoleOperationAuditEntry, RoleOperationPolicy, RoleOutboundTask, RoleSocialAccount, UserSocialAccount } from '@/types/roleOperations';
 
@@ -31,7 +31,7 @@ export const useRoleOperationsStore = defineStore('role-operations', () => {
   async function ensureReady() {
     if (ready.value) return;
     if (hydratePromise) return hydratePromise;
-    hydratePromise = loadSnapshot().then(applySnapshot).finally(() => {
+    hydratePromise = loadRoleOperationsSnapshot().then(applySnapshot).finally(() => {
       hydratePromise = null;
     });
     return hydratePromise;

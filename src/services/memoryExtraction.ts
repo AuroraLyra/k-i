@@ -20,6 +20,7 @@ import type {
 import { formatUserTimePreview } from '@/utils/timeAwareness';
 import { formatChatMcpOperations } from '@/utils/mcpOperations';
 import { extractCompleteJsonObject, normalizeNarrativeText } from '@/utils/structuredText';
+import { isNonRetryableTextApiError } from '@/utils/textApiErrors';
 
 export interface ExtractTemporalMemoryInput {
   settings: AppSettings | undefined;
@@ -105,6 +106,7 @@ export async function generateTemporalMemoryDiary(input: ExtractTemporalMemoryIn
       const parsed = parseTemporalMemoryExtractionResponse(requireCompleteGenerationJson(response, '日记'), parseMetadata);
       return pickTemporalMemoryDiary(parsed, generationMetadata(response, parseMetadata.repairedJson));
     } catch (error) {
+      if (isNonRetryableTextApiError(error)) throw error;
       lastError = error;
     }
   }
@@ -133,6 +135,7 @@ export async function extractTemporalMemoryGraph(input: ExtractTemporalMemoryInp
         generation: generationMetadata(response, parseMetadata.repairedJson)
       };
     } catch (error) {
+      if (isNonRetryableTextApiError(error)) throw error;
       lastError = error;
     }
   }

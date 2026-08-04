@@ -503,16 +503,19 @@ export interface OfflinePromptPreset {
 export type OfflineStructurePresets = Record<OfflineStructureKind, OfflinePromptPreset[]>;
 export type OfflineStructurePresetIds = Record<OfflineStructureKind, string>;
 
-export interface ConversationOfflineSettings {
-  enhanceAppearance: boolean;
-  enhanceOutfit: boolean;
-  expandLength: boolean;
-  characterPsychology: boolean;
+export interface ConversationRoleGuidanceSettings {
   emotionalGuidance: boolean;
   desireRestraint: boolean;
   antiToxicMasculinity: boolean;
   antiClicheRomance: boolean;
   dynamicWorldNarrative: boolean;
+}
+
+export interface ConversationOfflineSettings extends ConversationRoleGuidanceSettings {
+  enhanceAppearance: boolean;
+  enhanceOutfit: boolean;
+  expandLength: boolean;
+  characterPsychology: boolean;
   paragraphMode: OfflineParagraphMode;
   perspective: OfflinePerspective;
   interruptionMode: OfflineInterruptionMode;
@@ -548,6 +551,7 @@ export interface ConversationSettings {
   stickerVisionEnabled: boolean;
   stickerSuggestionsEnabled: boolean;
   offlineInvitationEnabled: boolean;
+  onlineGuidance: ConversationRoleGuidanceSettings;
   characterStickerGroupIds: string[];
   timeAwareness: ConversationTimeAwarenessSettings;
   proactiveReply: ConversationProactiveReplySettings;
@@ -1800,6 +1804,7 @@ export interface AppSettings {
   profileThemeEnabledByCharacter: Record<string, Record<string, boolean>>;
   thoughtChainThemes: ThoughtChainTheme[];
   smallTheaterTopicDefaultsInitialized: Record<string, number>;
+  chatMemoryDefaultsMigrationVersion: number;
   keepAlive: AppKeepAliveSettings;
   ringtoneSettings: AppRingtoneSettings;
   themeSettings: AppThemeSettings;
@@ -1878,6 +1883,7 @@ export interface PromptContext {
   voomImageMode?: VoomImageMode;
   timeAwarenessNow?: number;
   offlineSettings?: ConversationOfflineSettings;
+  onlineGuidance?: ConversationRoleGuidanceSettings;
   replyInstruction?: string;
   activeProfileTheme?: Pick<ProfileTheme, 'id' | 'name' | 'prompt' | 'regex' | 'css' | 'template' | 'source' | 'builtIn'>;
   activeThoughtChainTheme?: Pick<ThoughtChainTheme, 'id' | 'name' | 'prompt' | 'regex' | 'css' | 'template' | 'source'>;

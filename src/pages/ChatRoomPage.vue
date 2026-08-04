@@ -39,6 +39,7 @@
               :character="character"
               :user="conversationUser ?? undefined"
               :appearance="chatSettings.appearance"
+              :group-position="onlineMessageEntries[virtualRow.index].groupPosition"
               :hide-avatar="onlineMessageEntries[virtualRow.index].hideAvatar && onlineMessageEntries[virtualRow.index].message.id !== unreadMindStateMessageId"
               :profile-alert="onlineMessageEntries[virtualRow.index].message.id === unreadMindStateMessageId"
               :can-regenerate-image="canRegenerateChatImage"
@@ -48,6 +49,7 @@
               :can-quote="canQuoteMessage(onlineMessageEntries[virtualRow.index].message)"
               enable-avatar-double-action
               @apply-image="applyChatImageCandidate"
+              @delete-image="deleteChatImageCandidate"
               @accept-music-listen-invite="acceptMusicListenInvite(onlineMessageEntries[virtualRow.index].message)"
               @accept-call="acceptCallMessage(onlineMessageEntries[virtualRow.index].message)"
               @accept-gobang="acceptGobangInvitation(onlineMessageEntries[virtualRow.index].message)"
@@ -118,6 +120,8 @@
       @focus="handleComposerFocus"
       @blur="handleComposerBlur"
       @capture-photo="sendCapturedPhoto"
+      @file-picker-open="beginFilePicker"
+      @file-picker-close="endFilePicker"
       @open-image-panel="openImagePanel"
       @open-menu="showActionMenu = true"
       @open-stickers="openStickerPanel"
@@ -268,7 +272,7 @@
             <span>图片补充描述（可选）</span>
             <textarea v-model="localImageHintDraft" maxlength="500" rows="3" placeholder="可以写画面重点、场景、人物或你希望 AI 理解到的细节。"></textarea>
           </label>
-          <button class="local-image-button" type="button" :disabled="sendingImage" @click="localImageInputRef?.click()">
+          <button class="local-image-button" type="button" :disabled="sendingImage" @click="openLocalImagePicker">
             <span>{{ sendingImage ? '处理中' : '选择本地图片' }}</span>
           </button>
           <p>图片会以真实图片发送，支持后续模型识图。</p>
@@ -824,6 +828,7 @@ import { getCharacterAiName, getCharacterDisplayName, getFriendRelationship } fr
 import { collectCharacterPhotoImages, createCharacterPhotoRecord, normalizeCharacterPhotoRecords, normalizeHiddenSourcePhotoKeys } from '@/utils/characterPhotos';
 import { readChatImageFile } from '@/utils/imageFile';
 import { useKeyboardScrollGuard } from '@/utils/keyboardScrollGuard';
+import { resolveMessageGroupPositions, type MessageGroupPosition } from '@/utils/messageGrouping';
 import { firstUnreadCharacterMessageId, scrollMessageContainerToUnreadOrBottom } from '@/utils/messageScroll';
 import { defaultProfileAvatar, getUserAiName, normalizeUserProfile, normalizeVisualProfile } from '@/utils/profile';
 import { normalizeRingtoneSettings } from '@/utils/settings';
@@ -891,6 +896,7 @@ type OnlineMessageEntry = {
   messageIndex: number;
   timeLabel: string;
   hideAvatar: boolean;
+  groupPosition: MessageGroupPosition;
 };
 
 type ActiveCallState = Omit<AppActiveCallState, 'conversationId' | 'peerName' | 'avatar' | 'subtitle' | 'minimized' | 'floatPosition' | 'updatedAt'>;
@@ -1220,18 +1226,23 @@ const allOnlineMessages = computed(() => {
   const displayMessages = messages.filter((message) => !message.contextOnly && !message.gobangId && !isVoomNarrationMessage(message) && !isCallSubtitleMessage(message));
   return mergeVoomLikeMessages(displayMessages);
 });
-const onlineMessageEntries = computed<OnlineMessageEntry[]>(() => allOnlineMessages.value.map((message, messageIndex) => {
-  const previousMessage = allOnlineMessages.value[messageIndex - 1];
-  const timeLabel = shouldShowChatTimeDivider(message.createdAt, previousMessage?.createdAt)
-    ? formatChatTimeDivider(message.createdAt)
-    : '';
-  return {
+const onlineMessageEntries = computed<OnlineMessageEntry[]>(() => {
+  const messages = allOnlineMessages.value;
+  const timeLabels = messages.map((message, messageIndex) => {
+    const previousMessage = messages[messageIndex - 1];
+    return shouldShowChatTimeDivider(message.createdAt, previousMessage?.createdAt)
+      ? formatChatTimeDivider(message.createdAt)
+      : '';
+  });
+  const groupPositions = resolveMessageGroupPositions(messages, timeLabels.map(Boolean));
+  return messages.map((message, messageIndex) => ({
     message,
     messageIndex,
-    timeLabel,
-    hideAvatar: shouldHideAvatar(messageIndex)
-  };
-}));
+    timeLabel: timeLabels[messageIndex],
+    hideAvatar: shouldHideAvatar(messageIndex),
+    groupPosition: groupPositions[messageIndex]
+  }));
+});
 const messageVirtualizer = useVirtualizer(computed(() => ({
   count: onlineMessageEntries.value.length,
   getScrollElement: () => messageListRef.value,
@@ -1828,7 +1839,43 @@ function handleComposerBlur() {
 function handleComposerDraftText(content: string) {
   composerText.value = content;
   writeComposerDraft(props.id, content);
+  store.setAppUpdateTransientOperation(`chat-draft:${props.id}`, '存在未发送的私聊草稿', Boolean(content.trim()));
 }
+
+function beginFilePicker(kind: 'camera' | 'local' = 'local') {
+  store.setAppUpdateTransientOperation(`chat-file-picker:${props.id}`, kind === 'camera' ? '正在选择相机图片' : '正在选择本地图片', true);
+  window.setTimeout(() => window.addEventListener('focus', endFilePicker, { once: true }), 0);
+}
+
+function endFilePicker() {
+  window.setTimeout(() => store.setAppUpdateTransientOperation(`chat-file-picker:${props.id}`, '', false), 250);
+}
+
+function openLocalImagePicker() {
+  beginFilePicker('local');
+  localImageInputRef.value?.click();
+}
+
+function syncChatTransientOperations() {
+  const conversationKey = props.id;
+  store.setAppUpdateTransientOperation(`chat-image:${conversationKey}`, '正在处理私聊图片或图片草稿', sendingImage.value || Boolean(localImageHintDraft.value.trim()) || Boolean(imageDescriptionDraft.value.trim()));
+  store.setAppUpdateTransientOperation(`chat-recording:${conversationKey}`, '正在录音或保留语音草稿', recordingVoice.value || Boolean(recordedVoiceDraft.value) || Boolean(voiceTranscriptDraft.value.trim()) || Boolean(voiceTextDraft.value.trim()));
+  store.setAppUpdateTransientOperation(`chat-call-draft:${conversationKey}`, '存在未发送的通话输入', Boolean(callInputDraft.value.trim()));
+  store.setAppUpdateTransientOperation(`chat-edit:${conversationKey}`, '存在未保存的消息编辑', showEditModal.value && Boolean(editDraft.value.trim()));
+}
+
+watch([
+  sendingImage,
+  localImageHintDraft,
+  imageDescriptionDraft,
+  recordingVoice,
+  recordedVoiceDraft,
+  voiceTranscriptDraft,
+  voiceTextDraft,
+  callInputDraft,
+  showEditModal,
+  editDraft
+], syncChatTransientOperations, { immediate: true });
 
 function blurActiveKeyboardInput() {
   const activeElement = document.activeElement;
@@ -1874,6 +1921,7 @@ function resumeActiveCallFromStore() {
 
 onMounted(async () => {
   await store.hydrate();
+  await store.ensureConversationMessagesLoaded(props.id);
   store.setActiveConversation(props.id);
   document.addEventListener('visibilitychange', handleDocumentVisibilityChange);
   await syncConversationState(props.id);
@@ -1890,6 +1938,7 @@ onMounted(async () => {
 
 watch(() => props.id, (id) => {
   void (async () => {
+    await store.ensureConversationMessagesLoaded(id);
     store.setActiveConversation(id);
     composerText.value = readComposerDraft(id);
     shouldStickToBottom.value = true;
@@ -2085,6 +2134,7 @@ async function sendCapturedPhoto(file: File) {
 }
 
 async function sendLocalImageFromInput(event: Event) {
+  endFilePicker();
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = '';
@@ -2875,9 +2925,10 @@ function clampCallFloatPosition(x: number, y: number) {
   const padding = 8;
   const floatWidth = 166;
   const floatHeight = 64;
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
   return {
     x: Math.min(Math.max(padding, x), Math.max(padding, window.innerWidth - floatWidth - padding)),
-    y: Math.min(Math.max(padding + 36, y), Math.max(padding + 36, window.innerHeight - floatHeight - padding))
+    y: Math.min(Math.max(padding + 36, y), Math.max(padding + 36, viewportHeight - floatHeight - padding))
   };
 }
 
@@ -3502,14 +3553,14 @@ async function sendTextVoice() {
   showVoicePanel.value = false;
 }
 
-async function regenerateChatImage(messageId: string, description: string) {
+async function regenerateChatImage(messageId: string, description: string, generationPrompt: string) {
   if (regeneratingChatImageMessageIds.value.includes(messageId)) {
     store.showConfigAlert('正在重新生成聊天图片，请等待当前生成完成。', '正在生成');
     return;
   }
   regeneratingChatImageMessageIds.value = [...regeneratingChatImageMessageIds.value, messageId];
   try {
-    await store.regenerateChatMessageImage(messageId, description);
+    await store.regenerateChatMessageImage(messageId, description, generationPrompt);
   } finally {
     regeneratingChatImageMessageIds.value = regeneratingChatImageMessageIds.value.filter((id) => id !== messageId);
   }
@@ -3517,6 +3568,10 @@ async function regenerateChatImage(messageId: string, description: string) {
 
 async function applyChatImageCandidate(messageId: string, candidateId: string) {
   await store.applyChatMessageImageCandidate(messageId, candidateId);
+}
+
+async function deleteChatImageCandidate(messageId: string, candidateId: string, imageUrl: string) {
+  await store.deleteChatMessageImageCandidate(messageId, candidateId, imageUrl);
 }
 
 function messageIdsForAction(message: ChatMessage) {
@@ -4100,6 +4155,11 @@ async function enterOffline() {
 
 onBeforeUnmount(() => {
   writeComposerDraft(props.id, composerText.value);
+  store.setAppUpdateTransientOperation(`chat-draft:${props.id}`, '存在未发送的私聊草稿', false);
+  store.setAppUpdateTransientOperation(`chat-file-picker:${props.id}`, '', false);
+  store.setAppUpdateTransientOperation(`chat-image:${props.id}`, '正在处理私聊图片', false);
+  store.setAppUpdateTransientOperation(`chat-recording:${props.id}`, '正在录音或保留语音草稿', false);
+  void store.flushConversationMemory(props.id);
   clearConversationReadTimer();
   document.removeEventListener('visibilitychange', handleDocumentVisibilityChange);
   store.setActiveConversation(null);

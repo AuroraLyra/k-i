@@ -1,4 +1,4 @@
-import type { ChatMemorySettings, ChatMode, ConversationOfflineSettings, ConversationSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineStructureKind, OfflineTonePreset, RingtoneAsset, VoomImageMode } from '@/types/domain';
+import type { ChatMemorySettings, ChatMode, ConversationOfflineSettings, ConversationRoleGuidanceSettings, ConversationSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineStructureKind, OfflineTonePreset, RingtoneAsset, VoomImageMode } from '@/types/domain';
 import { createId } from './id';
 import { chatMemorySettingLimits, normalizeChatMemorySetting } from './memorySettings';
 import { normalizeChatModelOverrides } from './settings';
@@ -16,7 +16,7 @@ export const defaultChatMemorySettings: ChatMemorySettings = {
   growthEnabled: true,
   naturalForgettingEnabled: true,
   reflectionEnabled: true,
-  embeddingEnabled: false,
+  embeddingEnabled: true,
   embeddingModel: ''
 };
 
@@ -206,6 +206,24 @@ export const defaultOfflineSettings: ConversationOfflineSettings = {
   tone: 'daily',
   customTone: defaultOfflineTonePresets[0].content
 };
+
+export const defaultRoleGuidanceSettings: ConversationRoleGuidanceSettings = {
+  emotionalGuidance: true,
+  desireRestraint: true,
+  antiToxicMasculinity: true,
+  antiClicheRomance: true,
+  dynamicWorldNarrative: true
+};
+
+export function normalizeRoleGuidanceSettings(settings: Partial<ConversationRoleGuidanceSettings> | null | undefined): ConversationRoleGuidanceSettings {
+  return {
+    emotionalGuidance: settings?.emotionalGuidance ?? defaultRoleGuidanceSettings.emotionalGuidance,
+    desireRestraint: settings?.desireRestraint ?? defaultRoleGuidanceSettings.desireRestraint,
+    antiToxicMasculinity: settings?.antiToxicMasculinity ?? defaultRoleGuidanceSettings.antiToxicMasculinity,
+    antiClicheRomance: settings?.antiClicheRomance ?? defaultRoleGuidanceSettings.antiClicheRomance,
+    dynamicWorldNarrative: settings?.dynamicWorldNarrative ?? defaultRoleGuidanceSettings.dynamicWorldNarrative
+  };
+}
 
 const offlineParagraphModes: OfflineParagraphMode[] = ['long', 'short', 'mixed'];
 const offlinePerspectives: OfflinePerspective[] = ['omniscient-third', 'character-third', 'character-second', 'user-first', 'user-second'];
@@ -435,6 +453,7 @@ export const defaultConversationSettings: Omit<ConversationSettings, 'conversati
   stickerVisionEnabled: true,
   stickerSuggestionsEnabled: true,
   offlineInvitationEnabled: true,
+  onlineGuidance: defaultRoleGuidanceSettings,
   characterStickerGroupIds: defaultCharacterStickerGroupIds,
   timeAwareness: defaultTimeAwarenessSettings,
   proactiveReply: {
@@ -527,6 +546,7 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
     stickerVisionEnabled: settings?.stickerVisionEnabled ?? defaultConversationSettings.stickerVisionEnabled,
     stickerSuggestionsEnabled: settings?.stickerSuggestionsEnabled ?? defaultConversationSettings.stickerSuggestionsEnabled,
     offlineInvitationEnabled: settings?.offlineInvitationEnabled ?? defaultConversationSettings.offlineInvitationEnabled,
+    onlineGuidance: normalizeRoleGuidanceSettings(settings?.onlineGuidance),
     characterStickerGroupIds: Array.isArray(settings?.characterStickerGroupIds)
       ? [...new Set(settings.characterStickerGroupIds.map((item) => String(item).trim()).filter(Boolean))]
       : [...defaultConversationSettings.characterStickerGroupIds],

@@ -1,5 +1,5 @@
 <template>
-  <article :data-message-id="message.id" :class="['message-row', messageVisualSender, { selecting: selectionMode, selected, 'hide-avatar': hideAvatar, 'profile-alert': showProfileAlert }]">
+  <article :data-message-id="message.id" :data-message-group="groupPosition" :class="['message-row', messageVisualSender, `message-group-${groupPosition}`, { selecting: selectionMode, selected, 'hide-avatar': hideAvatar, 'profile-alert': showProfileAlert }]">
     <button v-if="selectionMode" class="selection-dot" type="button" :aria-pressed="selected" @click.stop="emit('toggle-select')">
       <span></span>
     </button>
@@ -22,7 +22,7 @@
       <img class="avatar mini" :src="avatarSource" :alt="avatarAlt" />
       <span v-if="showProfileAlert" class="mind-state-hearts" aria-hidden="true"><Heart /><Heart /><Heart /></span>
     </button>
-    <div class="bubble-wrap" :class="{ 'shop-share-wrap': message.shopShare, 'mcp-result-wrap': message.mcpResult }">
+    <div class="bubble-wrap" :class="[`bubble-wrap-group-${groupPosition}`, { 'shop-share-wrap': message.shopShare, 'mcp-result-wrap': message.mcpResult }]">
       <span v-if="canQuote" class="swipe-quote-cue" :class="{ visible: swipeOffset > 0, ready: swipeQuoteReady }" aria-hidden="true">
         <Quote :size="16" />
       </span>
@@ -43,7 +43,7 @@
         @selectstart.prevent.stop="suppressNativeSelection"
       >
         <span v-if="authorLabel" class="message-author-label">{{ authorLabel }}</span>
-        <div class="bubble" :class="{ narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, mcpOperation: message.mcpOperations?.length, mcpResult: message.mcpResult, transfer: message.transfer, commerce: message.commerce, shopShare: message.shopShare, musicListenInvite: message.musicListenInvite, linkPreview: message.linkPreview, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation, call: message.call, gobang: message.gobang }" :style="bubbleStyle">
+        <div class="bubble" :class="[`bubble-group-${groupPosition}`, { narration: message.displayStyle === 'narration', sticker: message.sticker, image: message.image, voice: message.voice, location: message.location, mcpOperation: message.mcpOperations?.length, mcpResult: message.mcpResult, transfer: message.transfer, commerce: message.commerce, shopShare: message.shopShare, musicListenInvite: message.musicListenInvite, linkPreview: message.linkPreview, theaterLink: message.theaterLink, offlineInvitation: message.offlineInvitation, call: message.call, gobang: message.gobang }]" :style="bubbleStyle">
           <template v-if="message.call">
             <section class="call-message-card" :class="[`call-message-card--${message.call.status}`, `call-message-card--${message.call.mode}`, `call-message-card--${message.call.direction}`]" aria-label="通话消息">
               <div class="call-message-head">
@@ -377,54 +377,28 @@
     </div>
   </article>
 
-  <AppModal v-if="message.image && message.sender === 'char'" v-model="showImageModal" title="聊天图片" variant="ins">
-    <section class="image-viewer" :class="{ flipped: imageFlipped }" :style="imageViewerStyle">
-      <button class="image-flip-card" type="button" @click="toggleImageFlip">
-        <span class="image-face image-picture-face">
-          <img v-if="modalImageSrc && !isBrokenImageSource(modalImageSrc)" :src="modalImageSrc" :alt="selectedImageDescription" @error="markBrokenImageSource(modalImageSrc)" />
-          <span v-else>{{ selectedImageDescription }}</span>
-        </span>
-        <span class="image-face image-text-face">
-          <span>{{ imageDescriptionDraft || selectedImageDescription }}</span>
-        </span>
-      </button>
-
-      <div v-if="imageCandidates.length" class="image-history" aria-label="聊天图片历史">
-        <button
-          v-for="(candidate, index) in imageCandidates"
-          :key="candidate.id"
-          class="image-thumb"
-          :class="{ active: candidate.id === selectedCandidateId }"
-          type="button"
-          :aria-label="`查看图片 ${index + 1}`"
-          @click="selectCandidate(candidate.id)"
-        >
-          <img :src="candidate.image" :alt="candidate.description || '聊天图片'" @error="markBrokenImageSource(candidate.image)" />
-        </button>
-      </div>
-
-      <label v-if="canRegenerateImage" class="image-description-field">
-        <span>Description</span>
-        <textarea v-model="imageDescriptionDraft" maxlength="500" placeholder="修改图片描述后重新生成。"></textarea>
-      </label>
-
-      <div class="image-actions">
-        <button class="image-secondary" type="button" @click="toggleImageFlip">翻转</button>
-        <button class="image-secondary" type="button" :disabled="!modalImageSrc" @click="downloadCurrentImage">下载</button>
-        <button class="image-secondary" type="button" :disabled="regeneratingImage || !canApplySelectedCandidate" @click="applySelectedCandidate">应用</button>
-        <button
-          class="image-primary"
-          type="button"
-          :class="{ busy: regeneratingImage }"
-          :aria-disabled="regeneratingImage || !canRegenerateImage"
-          :disabled="regeneratingImage || !canRegenerateImage || !imageDescriptionDraft.trim()"
-          @click="regenerateImage"
-        >
-          <LoaderCircle v-if="regeneratingImage" class="loading-icon" :size="15" />
-          <span>{{ regeneratingImage ? '生成中' : '重新生成' }}</span>
-        </button>
-      </div>
-    </section>
+  <AppModal v-if="message.image && message.sender === 'char'" v-model="showImageModal" title="聊天图片日记" :show-header="false" variant="image-journal">
+    <GeneratedImageFlipViewer
+      v-model:flipped="imageFlipped"
+      v-model:description="imageDescriptionDraft"
+      v-model:generation-prompt="imageGenerationPromptDraft"
+      :image-src="modalImageSrc"
+      :candidates="imageCandidates"
+      :selected-id="selectedCandidateId"
+      :applied-image-src="message.image.url"
+      :aspect-ratio="imageViewerAspectRatio"
+      item-label="聊天图片"
+      :can-regenerate="canRegenerateImage"
+      :regenerating="regeneratingImage"
+      :can-apply="canApplySelectedCandidate"
+      :can-delete="Boolean(modalImageSrc)"
+      @select="selectCandidate"
+      @download="downloadCurrentImage"
+      @apply="applySelectedCandidate"
+      @regenerate="regenerateImage"
+      @delete="deleteSelectedCandidate"
+      @image-error="markBrokenImageSource"
+    />
   </AppModal>
 </template>
 
@@ -432,6 +406,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ChevronRight, DoorOpen, Globe2, Heart, LoaderCircle, Music2, Pause, Play, Quote, ShoppingBag, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
+import GeneratedImageFlipViewer from '@/components/image/GeneratedImageFlipViewer.vue';
 import type { CharacterProfile, ChatAppearanceSettings, ChatImageCandidate, ChatMcpResultItem, ChatMessage, UserProfile } from '@/types/domain';
 import { useAppStore } from '@/stores/appStore';
 import { normalizeLooseModelReply, parseModelJsonResponse } from '@/utils/aiResponse';
@@ -442,6 +417,7 @@ import { renderSafeMessageHtml } from '@/utils/messageHtml';
 import { defaultProfileAvatar } from '@/utils/profile';
 import { downloadImageUrl } from '@/utils/download';
 import { getStickerDisplayImageUrl } from '@/utils/stickers';
+import type { MessageGroupPosition } from '@/utils/messageGrouping';
 import { normalizeTranslationText, shouldShowChineseTranslation } from '@/utils/translation';
 import { gobangStoneForPlayer } from '@/utils/gobang';
 import { mcpOperationStateLabel } from '@/utils/mcpOperations';
@@ -463,6 +439,7 @@ const props = withDefaults(defineProps<{
   authorName?: string;
   showAuthorName?: boolean;
   enableAvatarDoubleAction?: boolean;
+  groupPosition?: MessageGroupPosition;
 }>(), {
   appearance: () => defaultConversationSettings.appearance,
   canRegenerateImage: false,
@@ -476,7 +453,8 @@ const props = withDefaults(defineProps<{
   authorAvatar: '',
   authorName: '',
   showAuthorName: false,
-  enableAvatarDoubleAction: false
+  enableAvatarDoubleAction: false,
+  groupPosition: 'single'
 });
 
 const emit = defineEmits<{
@@ -487,8 +465,9 @@ const emit = defineEmits<{
   'avatar-long-press': [message: ChatMessage];
   'long-press': [message: ChatMessage];
   'toggle-select': [];
-  'regenerate-image': [messageId: string, description: string];
+  'regenerate-image': [messageId: string, description: string, generationPrompt: string];
   'apply-image': [messageId: string, candidateId: string];
+  'delete-image': [messageId: string, candidateId: string, imageUrl: string];
   'busy-action': [message: string, title: string];
   'open-card-detail': [message: ChatMessage];
   'quote-message': [message: ChatMessage];
@@ -520,6 +499,7 @@ let suppressNextClick = false;
 const showImageModal = ref(false);
 const imageFlipped = ref(false);
 const imageDescriptionDraft = ref('');
+const imageGenerationPromptDraft = ref('');
 const selectedCandidateId = ref('');
 const brokenImageSources = ref<string[]>([]);
 const playingVoice = ref(false);
@@ -742,6 +722,10 @@ const imageCandidates = computed<ChatImageCandidate[]>(() => {
       id: `${props.message.id}-current-image`,
       image: image.url,
       description: image.description,
+      generationPrompt: image.generationPrompt,
+      negativePrompt: image.negativePrompt,
+      referenceImage: image.referenceImage,
+      seed: image.seed,
       provider: image.provider || 'local',
       model: image.model,
       size: image.size,
@@ -751,7 +735,6 @@ const imageCandidates = computed<ChatImageCandidate[]>(() => {
   return candidates;
 });
 const selectedCandidate = computed(() => imageCandidates.value.find((candidate) => candidate.id === selectedCandidateId.value) ?? imageCandidates.value.find((candidate) => candidate.image === props.message.image?.url));
-const selectedImageDescription = computed(() => selectedCandidate.value?.description || props.message.image?.description || '图片描述暂未保存。');
 const modalImageSrc = computed(() => selectedCandidate.value?.image || props.message.image?.url || '');
 const canApplySelectedCandidate = computed(() => Boolean(selectedCandidate.value && selectedCandidate.value.image !== props.message.image?.url && !selectedCandidate.value.id.endsWith('-current-image')));
 const imageViewerAspectRatio = computed(() => {
@@ -761,7 +744,6 @@ const imageViewerAspectRatio = computed(() => {
   if (props.message.image?.width && props.message.image.height) return `${props.message.image.width} / ${props.message.image.height}`;
   return '1 / 1';
 });
-const imageViewerStyle = computed(() => ({ '--chat-viewer-ratio': imageViewerAspectRatio.value }));
 const lineLocationName = computed(() => props.message.location?.name.trim() || '地点名称');
 const lineLocationAddress = computed(() => props.message.location?.address?.trim() || '');
 const lineLocationDistanceLabel = computed(() => {
@@ -1296,8 +1278,8 @@ function openImageModal() {
     emit('toggle-select');
     return;
   }
-  imageDescriptionDraft.value = props.message.image.description;
   selectedCandidateId.value = imageCandidates.value.find((candidate) => candidate.image === props.message.image?.url)?.id ?? imageCandidates.value[0]?.id ?? '';
+  syncImageDrafts();
   imageFlipped.value = !props.message.image.url;
   showImageModal.value = true;
 }
@@ -1310,11 +1292,7 @@ function handleImageCardClick(event: MouseEvent) {
 
 function selectCandidate(candidateId: string) {
   selectedCandidateId.value = candidateId;
-  imageFlipped.value = false;
-}
-
-function toggleImageFlip() {
-  imageFlipped.value = !imageFlipped.value;
+  syncImageDrafts(imageCandidates.value.find((candidate) => candidate.id === candidateId));
 }
 
 function isBrokenImageSource(source: string | undefined) {
@@ -1333,8 +1311,18 @@ function regenerateImage() {
     emit('busy-action', '正在重新生成聊天图片，请等待当前生成完成。', '正在生成');
     return;
   }
-  emit('regenerate-image', props.message.id, description);
+  emit('regenerate-image', props.message.id, description, imageGenerationPromptDraft.value.trim());
   imageFlipped.value = false;
+}
+
+function syncImageDrafts(candidate = selectedCandidate.value) {
+  imageDescriptionDraft.value = candidate?.description || props.message.image?.description || '';
+  imageGenerationPromptDraft.value = candidate?.generationPrompt ?? props.message.image?.generationPrompt ?? '';
+}
+
+function deleteSelectedCandidate() {
+  if (!modalImageSrc.value) return;
+  emit('delete-image', props.message.id, selectedCandidateId.value, modalImageSrc.value);
 }
 
 function applySelectedCandidate() {
@@ -1358,7 +1346,14 @@ async function downloadCurrentImage() {
 watch(() => props.message.image?.url, () => {
   if (!showImageModal.value) return;
   selectedCandidateId.value = imageCandidates.value.find((candidate) => candidate.image === props.message.image?.url)?.id ?? selectedCandidateId.value;
+  syncImageDrafts();
   imageFlipped.value = false;
+});
+
+watch(() => imageCandidates.value.map((candidate) => candidate.id).join('|'), () => {
+  if (!showImageModal.value || imageCandidates.value.some((candidate) => candidate.id === selectedCandidateId.value)) return;
+  selectedCandidateId.value = imageCandidates.value.find((candidate) => candidate.image === props.message.image?.url)?.id ?? imageCandidates.value.at(-1)?.id ?? '';
+  syncImageDrafts();
 });
 
 watch(() => props.message.voice?.audioUrl, stopVoicePlayback);
@@ -3430,169 +3425,6 @@ onBeforeUnmount(() => {
   text-align: center;
   overflow: hidden;
   overflow-wrap: anywhere;
-}
-
-.image-viewer {
-  display: grid;
-  gap: 12px;
-}
-
-.image-flip-card {
-  position: relative;
-  width: 100%;
-  aspect-ratio: var(--chat-viewer-ratio, 1 / 1);
-  padding: 0;
-  border-radius: 18px;
-  background: transparent;
-  perspective: 1000px;
-}
-
-.image-face {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid #edf0f2;
-  border-radius: 18px;
-  background: #ffffff;
-  backface-visibility: hidden;
-  transition: transform 0.28s ease;
-}
-
-.image-picture-face {
-  transform: rotateY(0deg);
-}
-
-.image-text-face {
-  padding: 20px;
-  transform: rotateY(180deg);
-  color: #222222;
-  font-size: 14px;
-  font-weight: 800;
-  line-height: 1.65;
-  text-align: center;
-  white-space: pre-wrap;
-}
-
-.image-viewer.flipped .image-picture-face {
-  transform: rotateY(180deg);
-}
-
-.image-viewer.flipped .image-text-face {
-  transform: rotateY(360deg);
-}
-
-.image-picture-face img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #f4f5f6;
-}
-
-.image-picture-face > span {
-  padding: 20px;
-  color: #222222;
-  font-size: 14px;
-  font-weight: 800;
-  line-height: 1.65;
-  text-align: center;
-  white-space: pre-wrap;
-}
-
-.image-history {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.image-thumb {
-  flex: 0 0 54px;
-  width: 54px;
-  height: 54px;
-  padding: 2px;
-  border: 2px solid transparent;
-  border-radius: 10px;
-  background: #f1f3f5;
-}
-
-.image-thumb.active {
-  border-color: #171717;
-  background: #ffffff;
-}
-
-.image-thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: 7px;
-  object-fit: cover;
-}
-
-.image-description-field {
-  display: grid;
-  gap: 6px;
-}
-
-.image-description-field > span {
-  color: #686b70;
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.image-description-field textarea {
-  min-height: 86px;
-  padding: 10px;
-  border: 1px solid #edf0f2;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #171717;
-  font: inherit;
-  line-height: 1.55;
-  resize: vertical;
-}
-
-.image-actions {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.image-secondary,
-.image-primary {
-  display: inline-grid;
-  grid-auto-flow: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-width: 0;
-  min-height: 38px;
-  padding-inline: 4px;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.image-secondary {
-  background: #ffffff;
-  color: #2b3036;
-}
-
-.image-primary {
-  background: #171717;
-  color: #ffffff;
-}
-
-.image-secondary:disabled,
-.image-primary:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.loading-icon {
-  animation: chat-image-spin 0.8s linear infinite;
 }
 
 @keyframes chat-image-spin {

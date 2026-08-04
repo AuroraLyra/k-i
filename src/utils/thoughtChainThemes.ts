@@ -1,7 +1,10 @@
 import type { ThoughtChainTheme } from '@/types/domain';
 import { createId } from './id';
 
-const thoughtChainThemeExportMagic = 'LINK_THOUGHT_CHAIN_THEME_V1';
+const thoughtChainThemePngExportMagic = 'LINK_THOUGHT_CHAIN_THEME_PNG_V1';
+const pngChannelCount = 3;
+const exportPosterWidth = 1080;
+const exportPosterHeight = 1350;
 
 export const defaultThoughtChainPrompt = `请记录角色在回复前已经完成的情绪判断、关系取舍、表达策略和行动决定，不是系统提示、隐藏推理或模型自述。用自然中文写，不要重复最终聊天气泡，不要提及 AI、Token 。`;
 
@@ -133,7 +136,7 @@ export const defaultThoughtChainCode = `<style>
 </section>`;
 
 interface ThoughtChainThemeExportPayload {
-  magic: typeof thoughtChainThemeExportMagic;
+  magic: typeof thoughtChainThemePngExportMagic;
   version: 1;
   exportedAt: number;
   themes: Array<Omit<ThoughtChainTheme, 'id' | 'createdAt' | 'updatedAt'>>;
@@ -315,9 +318,9 @@ export function scopeThoughtChainCss(css: string, scopeId: string) {
   });
 }
 
-export function encodeThoughtChainThemesToDataUrl(themes: ThoughtChainTheme[]) {
-  const payload: ThoughtChainThemeExportPayload = {
-    magic: thoughtChainThemeExportMagic,
+function createThoughtChainThemeExportPayload(themes: ThoughtChainTheme[]): ThoughtChainThemeExportPayload {
+  return {
+    magic: thoughtChainThemePngExportMagic,
     version: 1,
     exportedAt: Date.now(),
     themes: themes.map((theme) => ({
@@ -330,16 +333,177 @@ export function encodeThoughtChainThemesToDataUrl(themes: ThoughtChainTheme[]) {
       source: 'imported'
     }))
   };
-  return `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(payload, null, 2))}`;
 }
 
-export function decodeThoughtChainThemesFromText(text: string) {
-  const payload = JSON.parse(text) as Partial<ThoughtChainThemeExportPayload>;
-  if (payload.magic !== thoughtChainThemeExportMagic || payload.version !== 1 || !Array.isArray(payload.themes)) {
-    throw new Error('这不是 LINK 思维链主题文件。');
+function createPayloadBytes(payload: ThoughtChainThemeExportPayload) {
+  const encoded = new TextEncoder().encode(JSON.stringify(payload));
+  const bytes = new Uint8Array(4 + encoded.length);
+  new DataView(bytes.buffer).setUint32(0, encoded.length, false);
+  bytes.set(encoded, 4);
+  return bytes;
+}
+
+function getCanvasContext(width: number, height: number) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('当前浏览器无法创建 PNG 画布。');
+  return { canvas, context };
+}
+
+function createRoundedRectPath(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  const resolvedRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+  context.beginPath();
+  context.moveTo(x + resolvedRadius, y);
+  context.arcTo(x + width, y, x + width, y + height, resolvedRadius);
+  context.arcTo(x + width, y + height, x, y + height, resolvedRadius);
+  context.arcTo(x, y + height, x, y, resolvedRadius);
+  context.arcTo(x, y, x + width, y, resolvedRadius);
+  context.closePath();
+}
+
+function drawPoster(context: CanvasRenderingContext2D, themes: ThoughtChainTheme[]) {
+  const background = context.createLinearGradient(0, 0, exportPosterWidth, exportPosterHeight);
+  background.addColorStop(0, '#f5eee8');
+  background.addColorStop(0.52, '#f8f4ef');
+  background.addColorStop(1, '#ece5dc');
+  context.fillStyle = background;
+  context.fillRect(0, 0, exportPosterWidth, exportPosterHeight);
+
+  context.fillStyle = 'rgba(183, 114, 100, 0.18)';
+  context.beginPath();
+  context.arc(920, 150, 250, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = 'rgba(128, 164, 139, 0.14)';
+  context.beginPath();
+  context.arc(130, 1160, 300, 0, Math.PI * 2);
+  context.fill();
+
+  const cardX = 76;
+  const cardY = 118;
+  const cardWidth = exportPosterWidth - cardX * 2;
+  const cardHeight = exportPosterHeight - cardY * 2;
+  createRoundedRectPath(context, cardX, cardY, cardWidth, cardHeight, 42);
+  context.fillStyle = 'rgba(255, 255, 255, 0.76)';
+  context.fill();
+  context.strokeStyle = 'rgba(255, 255, 255, 0.96)';
+  context.lineWidth = 2;
+  context.stroke();
+
+  context.fillStyle = '#a86559';
+  context.font = '800 34px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  context.fillText('LINK REASONING SHARE', cardX + 56, cardY + 84);
+  context.fillStyle = '#302a25';
+  context.font = '900 74px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  context.fillText('思维链主题', cardX + 56, cardY + 182);
+  context.fillStyle = '#70625a';
+  context.font = '600 34px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  context.fillText(`导出 ${themes.length} 个可见推演预设`, cardX + 56, cardY + 236);
+  context.fillStyle = '#5d514a';
+  context.font = '500 32px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  context.fillText('导入方式：在 LINK 思维链页面选择 PNG 导入。', cardX + 56, cardY + 310);
+
+  const names = themes.slice(0, 4).map((theme) => theme.name.trim() || '未命名主题');
+  names.forEach((name, index) => {
+    const chipY = cardY + 366 + index * 110;
+    createRoundedRectPath(context, cardX + 48, chipY, cardWidth - 96, 78, 24);
+    context.fillStyle = 'rgba(255, 255, 255, 0.84)';
+    context.fill();
+    context.strokeStyle = 'rgba(79, 57, 45, 0.08)';
+    context.stroke();
+    context.fillStyle = '#302a25';
+    context.font = '800 34px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    context.fillText(name, cardX + 80, chipY + 50, cardWidth - 160);
+  });
+
+  if (themes.length > names.length) {
+    context.fillStyle = '#70625a';
+    context.font = '700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    context.fillText(`还有 ${themes.length - names.length} 个主题包含在图片里`, cardX + 56, cardY + cardHeight - 96);
   }
+}
+
+function embedPayloadIntoImageData(data: Uint8ClampedArray, payload: Uint8Array) {
+  const capacityBits = (data.length / 4) * pngChannelCount;
+  const requiredBits = payload.length * 8;
+  if (requiredBits > capacityBits) throw new Error('选择的思维链主题太大，无法写入 PNG。');
+
+  let bitIndex = 0;
+  for (let index = 0; index < data.length && bitIndex < requiredBits; index += 4) {
+    for (let channel = 0; channel < pngChannelCount && bitIndex < requiredBits; channel += 1) {
+      const byte = payload[bitIndex >> 3] ?? 0;
+      const bit = (byte >> (7 - (bitIndex % 8))) & 1;
+      data[index + channel] = (data[index + channel] & 0xfe) | bit;
+      bitIndex += 1;
+    }
+  }
+}
+
+function loadImageFromDataUrl(dataUrl: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener('load', () => resolve(image), { once: true });
+    image.addEventListener('error', () => reject(new Error('PNG 思维链主题图片读取失败。')), { once: true });
+    image.src = dataUrl;
+  });
+}
+
+function decodePayloadBytesFromLsb(data: Uint8ClampedArray) {
+  const totalBytes = Math.floor(((data.length / 4) * pngChannelCount) / 8);
+  if (totalBytes < 4) throw new Error('这张 PNG 不包含 LINK 思维链主题数据。');
+
+  const bytes = new Uint8Array(totalBytes);
+  let byteIndex = 0;
+  let bitOffset = 0;
+  let currentByte = 0;
+  for (let index = 0; index < data.length && byteIndex < totalBytes; index += 4) {
+    for (let channel = 0; channel < pngChannelCount && byteIndex < totalBytes; channel += 1) {
+      currentByte = (currentByte << 1) | (data[index + channel] & 1);
+      bitOffset += 1;
+      if (bitOffset === 8) {
+        bytes[byteIndex] = currentByte;
+        byteIndex += 1;
+        bitOffset = 0;
+        currentByte = 0;
+      }
+    }
+  }
+
+  const length = new DataView(bytes.buffer, 0, 4).getUint32(0, false);
+  if (!Number.isFinite(length) || length <= 0 || length > bytes.length - 4) {
+    throw new Error('这张 PNG 的思维链主题数据不完整。');
+  }
+  return bytes.slice(4, 4 + length);
+}
+
+function parseThoughtChainThemeExportPayload(payloadBytes: Uint8Array) {
+  const payload = JSON.parse(new TextDecoder().decode(payloadBytes)) as Partial<ThoughtChainThemeExportPayload>;
+  if (payload.magic !== thoughtChainThemePngExportMagic || payload.version !== 1 || !Array.isArray(payload.themes)) {
+    throw new Error('这张 PNG 不是 LINK 思维链主题。');
+  }
+  return payload.themes;
+}
+
+export async function encodeThoughtChainThemesToPng(themes: ThoughtChainTheme[]) {
+  const payload = createPayloadBytes(createThoughtChainThemeExportPayload(themes));
+  const { canvas, context } = getCanvasContext(exportPosterWidth, exportPosterHeight);
+  drawPoster(context, themes);
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  embedPayloadIntoImageData(imageData.data, payload);
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+export async function decodeThoughtChainThemesFromPng(dataUrl: string) {
+  const image = await loadImageFromDataUrl(dataUrl);
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  const { context } = getCanvasContext(width, height);
+  context.drawImage(image, 0, 0);
+  const exportedThemes = parseThoughtChainThemeExportPayload(decodePayloadBytesFromLsb(context.getImageData(0, 0, width, height).data));
   const now = Date.now();
-  return payload.themes
+  return exportedThemes
     .map((theme) => normalizeThoughtChainTheme({
       ...theme,
       id: createId('thought-chain-theme'),

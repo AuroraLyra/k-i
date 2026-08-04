@@ -361,11 +361,11 @@ function normalizeGeneratedHotspotComments(value: unknown, input: {
   return comments;
 }
 
-function normalizeFanficChapter(raw: unknown, input: { book: FanficBook; order: number }): FanficChapter {
+function normalizeFanficChapter(raw: unknown, input: { book: FanficBook; order: number; chapterId?: string; createdAt?: number }): FanficChapter {
   const rawChapter = normalizeGeneratedFanficChapterPayload(raw).chapter;
   const paragraphTexts = rawChapter.paragraphs;
   if (!paragraphTexts.length) throw new Error('章节没有可展示的正文。');
-  const chapterId = createId('fanfic_chapter');
+  const chapterId = input.chapterId || createId('fanfic_chapter');
   const now = Date.now();
   const paragraphs = paragraphTexts.map((text, index) => ({ id: `${chapterId}_p${index + 1}`, text }));
   const hotspots = rawChapter.hotspots.flatMap((entry) => {
@@ -398,7 +398,7 @@ function normalizeFanficChapter(raw: unknown, input: { book: FanficBook; order: 
     wordCount: countFanficCharacters(content),
     status: 'published',
     model: '',
-    createdAt: now,
+    createdAt: input.createdAt || now,
     updatedAt: now
   };
   return chapter;
@@ -460,6 +460,8 @@ export async function generateFanficChapter(input: {
   localWorldBooks?: WorldBookEntry[];
   direction?: string;
   settings?: AppSettings;
+  chapterId?: string;
+  createdAt?: number;
 }): Promise<FanficChapter> {
   const parsed = await requestFanficJson(
     input.settings,
@@ -471,7 +473,12 @@ export async function generateFanficChapter(input: {
       return `章节 JSON 没有可展示的${issues.join('、') || '正文'}。`;
     }
   );
-  const chapter = normalizeFanficChapter(parsed, { book: input.book, order: input.order });
+  const chapter = normalizeFanficChapter(parsed, {
+    book: input.book,
+    order: input.order,
+    chapterId: input.chapterId,
+    createdAt: input.createdAt
+  });
   chapter.model = getFanficTextModelOverride(input.settings) || undefined;
   return chapter;
 }

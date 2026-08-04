@@ -187,7 +187,7 @@
               <CheckCircle2 :size="16" />
               <span>
                 <b>安装并重载</b>
-                <small>{{ canInstallAppUpdate ? '新版本就绪' : '等待下载' }}</small>
+                <small>{{ appUpdateInstallHint }}</small>
               </span>
             </button>
           </div>
@@ -518,7 +518,12 @@ const appUpdatePackageLabel = computed(() => {
 });
 const appUpdateClientLabel = computed(() => appUpdateStatus.value.controlled ? 'PWA 缓存' : '浏览器直连');
 const canCheckAppUpdate = computed(() => appUpdateStatus.value.supported && appUpdateStatus.value.phase !== 'checking' && !appUpdateBusy.value);
-const canInstallAppUpdate = computed(() => appUpdateStatus.value.hasWaitingWorker && !appUpdateBusy.value);
+const canInstallAppUpdate = computed(() => appUpdateStatus.value.hasWaitingWorker && !appUpdateBusy.value && !store.appUpdateBlockers.length);
+const appUpdateInstallHint = computed(() => {
+  if (!appUpdateStatus.value.hasWaitingWorker) return '等待下载';
+  if (store.appUpdateBlockers.length) return store.appUpdateBlockers[0];
+  return '新版本就绪';
+});
 const appUpdateDownloadHint = computed(() => {
   if (appUpdateStatus.value.phase === 'checking') return '正在连接服务器';
   if (!appUpdateStatus.value.supported) return import.meta.env.PROD ? '当前浏览器不可用' : '生产环境可用';
@@ -588,10 +593,10 @@ async function runAppUpdateCheck() {
 }
 
 async function runAppUpdateInstall() {
-  if (!canInstallAppUpdate.value) return;
+  if (!appUpdateStatus.value.hasWaitingWorker || appUpdateBusy.value) return;
   appUpdateBusy.value = true;
   try {
-    await installDownloadedAppUpdate();
+    await installDownloadedAppUpdate({ getBlockers: () => store.appUpdateBlockers });
   } finally {
     appUpdateBusy.value = false;
   }
@@ -786,12 +791,14 @@ async function toggleRingtoneEnabled() {
 async function saveKeepAliveSettings(nextKeepAliveSettings: AppKeepAliveSettings, requestNotifications = false) {
   const currentSettings = normalizeAppSettings(store.settings);
   const normalizedKeepAlive = normalizeKeepAliveSettings(nextKeepAliveSettings);
+  const keepAliveActivation = normalizedKeepAlive.enabled
+    ? startKeepAlive(normalizedKeepAlive, { requestNotifications })
+    : Promise.resolve(stopKeepAlive());
   await store.saveSettings({
     ...currentSettings,
     keepAlive: normalizedKeepAlive
   });
-  if (normalizedKeepAlive.enabled) await startKeepAlive(normalizedKeepAlive, { requestNotifications });
-  else stopKeepAlive();
+  await keepAliveActivation;
 }
 
 async function toggleKeepAlive() {

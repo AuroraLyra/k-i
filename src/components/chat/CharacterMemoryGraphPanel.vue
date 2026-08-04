@@ -3,7 +3,7 @@
     <header class="studio-header">
       <div class="profile-row">
         <div class="avatar-frame">
-          <img v-if="character?.avatar" :src="character.avatar" :alt="characterName" />
+          <span v-if="character?.avatar" class="avatar-image"><img :src="character.avatar" :alt="characterName" /></span>
           <BookOpen v-else :size="24" aria-hidden="true" />
           <span class="avatar-dot"><Sparkles :size="11" /></span>
         </div>
@@ -38,6 +38,16 @@
       </div>
     </section>
 
+    <section class="capture-status" :class="`capture-status--${captureStatus.phase}`" aria-live="polite">
+      <div>
+        <span class="eyebrow">MEMORY CAPTURE</span>
+        <strong>{{ captureStatus.message }}</strong>
+        <p v-if="captureStatus.uncapturedFloors">还有 {{ captureStatus.uncapturedFloors }} 个楼层等待编码；离开页面时会保存尾批。</p>
+        <p v-if="captureStatus.lastError && captureStatus.phase === 'error'">{{ captureStatus.lastError }}</p>
+      </div>
+      <button v-if="captureStatus.phase === 'error' || captureStatus.phase === 'waiting-model'" class="text-button" type="button" :disabled="busy" @click="captureNow">{{ captureStatus.phase === 'waiting-model' ? '检查模型配置' : '重试写入' }}</button>
+    </section>
+
     <section v-if="settingsExpanded" class="settings-sheet">
       <div class="sheet-heading">
         <div><span class="eyebrow">MEMORY SETTINGS</span><h2>让记忆变得更轻</h2></div>
@@ -47,10 +57,14 @@
         <label class="setting-line"><span><strong>启用角色记忆</strong><small>回复时召回这个角色与 {{ userName }} 的共享 brain。</small></span><input v-model="memoryDraft.enabled" type="checkbox" @change="saveMemorySettings" /></label>
         <label class="setting-line"><span><strong>压缩旧楼层</strong><small>超出最近原文范围的已归档内容不再重复发送给模型。</small></span><input v-model="memoryDraft.compressionEnabled" type="checkbox" @change="saveMemorySettings" /></label>
         <label class="setting-line"><span><strong>自动写日记</strong><small>每积累几个完整楼层，就编码一次角色主观记忆。</small></span><input v-model="memoryDraft.autoCapture" type="checkbox" @change="saveMemorySettings" /></label>
-        <label class="number-line"><span><strong>每批楼层</strong><small>范围 2–120，建议 12–30；这是自动目标，模式切换、手动或尾批可更少。</small></span><input v-model.number="memoryDraft.captureEvery" type="number" :min="chatMemorySettingLimits.captureEvery.minimum" :max="chatMemorySettingLimits.captureEvery.maximum" :step="chatMemorySettingLimits.captureEvery.step" @change="saveMemorySettings" /></label>
-        <label class="number-line"><span><strong>保留最近原文</strong><small>按楼层计算；即使已写入日记也会保留最近的完整楼层。</small></span><input v-model.number="memoryDraft.recentFloorLimit" type="number" :min="chatMemorySettingLimits.recentFloorLimit.minimum" :max="chatMemorySettingLimits.recentFloorLimit.maximum" :step="chatMemorySettingLimits.recentFloorLimit.step" @change="saveMemorySettings" /></label>
-        <label class="number-line"><span><strong>记忆召回预算</strong><small>范围 300–8000 tokens，默认 5000；条数不限，各类记忆按预算动态分配。</small></span><input v-model.number="memoryDraft.recallTokenBudget" type="number" :min="chatMemorySettingLimits.recallTokenBudget.minimum" :max="chatMemorySettingLimits.recallTokenBudget.maximum" :step="chatMemorySettingLimits.recallTokenBudget.step" @change="saveMemorySettings" /></label>
+        <label class="number-line"><span><strong>每批楼层</strong><small>范围 2–120，默认 12；这是自动目标，模式切换、手动或尾批可更少。</small></span><input v-model.number="memoryDraft.captureEvery" type="number" :min="chatMemorySettingLimits.captureEvery.minimum" :max="chatMemorySettingLimits.captureEvery.maximum" :step="chatMemorySettingLimits.captureEvery.step" @change="saveMemorySettings" /></label>
+        <label class="number-line"><span><strong>保留最近原文</strong><small>按楼层计算，默认 100；即使已写入日记也会保留最近的完整楼层。</small></span><input v-model.number="memoryDraft.recentFloorLimit" type="number" :min="chatMemorySettingLimits.recentFloorLimit.minimum" :max="chatMemorySettingLimits.recentFloorLimit.maximum" :step="chatMemorySettingLimits.recentFloorLimit.step" @change="saveMemorySettings" /></label>
+        <label class="number-line"><span><strong>记忆召回预算</strong><small>范围 300–50000 tokens，默认 20000；条数不限，各类记忆按预算动态分配。</small></span><input v-model.number="memoryDraft.recallTokenBudget" type="number" :min="chatMemorySettingLimits.recallTokenBudget.minimum" :max="chatMemorySettingLimits.recallTokenBudget.maximum" :step="chatMemorySettingLimits.recallTokenBudget.step" @change="saveMemorySettings" /></label>
         <label class="setting-line"><span><strong>允许缓慢成长</strong><small>关系与印象只依据重复证据逐步变化。</small></span><input v-model="memoryDraft.growthEnabled" type="checkbox" @change="saveMemorySettings" /></label>
+        <label class="setting-line"><span><strong>允许长期自然淡化</strong><small>只对至少 30 天未召回、且非珍藏的认知降低可达性，不会因一次没命中就衰减。</small></span><input v-model="memoryDraft.naturalForgettingEnabled" type="checkbox" @change="saveMemorySettings" /></label>
+        <label class="setting-line"><span><strong>允许反思性认知</strong><small>允许模型根据多条证据形成“理解”，仍会保留证据来源。</small></span><input v-model="memoryDraft.reflectionEnabled" type="checkbox" @change="saveMemorySettings" /></label>
+        <label class="setting-line"><span><strong>启用语义召回</strong><small>需要在模型切换中配置 embedding 模型；不可用时自动回退词面召回。</small></span><input v-model="memoryDraft.embeddingEnabled" type="checkbox" @change="saveMemorySettings" /></label>
+        <p v-if="memoryDraft.embeddingEnabled && !effectiveEmbeddingModel" class="settings-warning">已打开语义召回，但尚未配置 embedding 模型；当前仍使用词面召回。</p>
       </div>
       <div class="settings-actions">
         <button class="text-button" type="button" :disabled="busy || !memoryDraft.enabled" @click="rebuildConfirming = true"><RefreshCw :size="14" />从时间轴重建</button>
@@ -99,7 +113,7 @@
         </div>
         <button v-if="remainingDiaryEntries > 0" class="diary-load-more" type="button" @click="loadMoreDiaryEntries">再看更早的 {{ Math.min(diaryPageSize, remainingDiaryEntries) }} 页<span>还剩 {{ remainingDiaryEntries }} 页</span></button>
       </template>
-      <div v-else class="empty-diary"><BookOpen :size="30" /><strong>这里还没有第一篇日记</strong><p>继续和 {{ userName }} 相处，角色会把真正重要的片段写下来。</p><button class="capture-button" type="button" :disabled="busy || !memoryDraft.enabled" @click="captureNow">写入最新对话</button></div>
+      <div v-else class="empty-diary"><BookOpen :size="30" /><strong>这里还没有第一篇日记</strong><p>{{ captureStatus.message }}</p><button class="capture-button" type="button" :disabled="busy || !memoryDraft.enabled" @click="captureNow">写入最新对话</button></div>
     </section>
 
     <section v-else-if="activeTab === 'us'" class="content-section">
@@ -171,7 +185,9 @@ const characterName = computed(() => character.value ? getCharacterAiName(charac
 const userName = computed(() => boundUser.value ? getUserAiName(boundUser.value) : '用户');
 const graph = computed(() => store.memoryGraphForConversation(props.conversationId));
 const currentSettings = computed(() => store.settingsForConversation(props.conversationId));
+const effectiveEmbeddingModel = computed(() => currentSettings.value.modelOverrides.embedding.trim() || store.settings?.modelOverrides.embedding.trim() || memoryDraft.embeddingModel.trim());
 const stats = computed(() => store.memoryCompressionStatsForConversation(props.conversationId));
+const captureStatus = computed(() => store.memoryCaptureStatusForConversation(props.conversationId));
 const busy = computed(() => capturing.value || rebuilding.value || Boolean(regeneratingEpisodeId.value) || Boolean(deletingEpisodeId.value));
 const timeline = computed(() => [...graph.value.episodes].filter((episode) => episode.status === 'active').sort((left, right) => (right.occurredAt || 0) - (left.occurredAt || 0)));
 const activeAssertions = computed(() => graph.value.assertions.filter((assertion) => ['current', 'open', 'disputed'].includes(assertion.status)).sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.updatedAt - left.updatedAt));
@@ -365,6 +381,23 @@ function kindLabel(kind: MemoryAssertion['kind']) { return ({ fact: '事实', pr
   background: #ffffff;
 }
 
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.avatar-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.capture-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid rgba(68,55,60,.08);border-radius:16px;background:rgba(255,255,255,.82)}.capture-status>div{display:grid;gap:2px;min-width:0}.capture-status strong,.capture-status p{margin:0;font-size:11px;line-height:1.5}.capture-status p{color:var(--muted);font-size:10px}.capture-status--error{border-color:#e7bbb3;background:#fff5f2}.capture-status--waiting-model{border-color:#e4cf9b;background:#fffaf0}.capture-status--capturing{border-color:#bfded1;background:#f4fbf7}.settings-warning{margin:0;padding:8px 10px;border-radius:10px;background:#fff5e7;color:#9a7651;font-size:10px;line-height:1.5}
+
 .studio-header,
 .compression-note,
 .compression-numbers span,
@@ -377,5 +410,15 @@ function kindLabel(kind: MemoryAssertion['kind']) { return ({ fact: '事实', pr
 .archive-item.pinned,
 .muted-empty {
   background: #ffffff;
+}
+
+.avatar-frame {
+  box-sizing: border-box;
+}
+
+.avatar-frame img {
+  display: block;
+  min-width: 0;
+  min-height: 0;
 }
 </style>

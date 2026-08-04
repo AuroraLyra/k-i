@@ -20,6 +20,11 @@
 
       <p class="card-note">默认导出 ZIP 压缩包，旧版 JSON 备份仍可导入。</p>
 
+      <button class="secondary-action wide-action" type="button" :disabled="Boolean(localBusy) || diagnosticBusy" @click="copyRuntimeDiagnostic">
+        <span>{{ diagnosticBusy ? '正在收集版本诊断' : '复制版本诊断' }}</span>
+      </button>
+      <p class="card-note">诊断仅包含网页构建、Service Worker、原生版本、数据库 schema 与本地存储估算，不包含聊天、主题或密钥。</p>
+
       <p v-if="localFeedback" class="feedback" :class="localFeedbackKind">{{ localFeedback }}</p>
     </section>
 
@@ -150,7 +155,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { CloudUpload, Download, Github, Lock } from 'lucide-vue-next';
 import CloudBackupPanel from '@/components/settings/CloudBackupPanel.vue';
+import { writeClipboardText } from '@/services/clipboard';
 import { buildGitHubLoginUrl, ensureGitHubBackupRepository, fetchGitHubViewer, findGitHubBackupRepository, formatGitHubBackupError, getGitHubOAuthWorkerOrigin } from '@/services/githubBackup';
+import { formatRuntimeDiagnostics } from '@/services/runtimeDiagnostics';
 import { useAppStore } from '@/stores/appStore';
 import type { AppSettings, GitHubBackupHistoryRecord, GitHubBackupSettings } from '@/types/domain';
 import { canPrepareBackupDestination, createBackupArchiveFilename, downloadLinkBackupArchive, parseLinkBackupBlob, prepareBackupDestination, type PreparedBackupDestination } from '@/utils/backup';
@@ -166,6 +173,7 @@ const store = useAppStore();
 const localBusy = ref('');
 const localFeedback = ref('');
 const localFeedbackKind = ref<'success' | 'error'>('success');
+const diagnosticBusy = ref(false);
 const githubBusy = ref('');
 const githubFeedback = ref('');
 const githubFeedbackKind = ref<'success' | 'error'>('success');
@@ -331,6 +339,10 @@ function historyItemLabel(message: string) {
 }
 
 async function exportBackup() {
+  if (!store.beginLocalBackupOperation('exporting')) {
+    setLocalFeedback('已有备份或导入正在进行，请完成后再试。', 'error');
+    return;
+  }
   localBusy.value = 'export';
   localFeedback.value = '';
 
@@ -348,14 +360,14 @@ async function exportBackup() {
         throw error;
       }
     }
-    const backup = await store.createBackupFile((label, percent) => {
+    const archive = await store.createBackupArchive((label, percent) => {
       setLocalFeedback(`${label} ${Math.round(percent)}%`);
     });
-    const saved = await downloadLinkBackupArchive(backup, fileName, {
+    const saved = await downloadLinkBackupArchive(archive, fileName, {
       destination,
       onProgress: (label, percent) => setLocalFeedback(`${label} ${Math.round(percent)}%`)
     });
-    const omittedHint = backup.omittedLocalMedia ? ` 已跳过 ${backup.omittedLocalMedia} 个此前丢失的本地媒体文件。` : '';
+    const omittedHint = archive.backup.omittedLocalMedia ? ` 已跳过 ${archive.backup.omittedLocalMedia} 个此前丢失的本地媒体文件。` : '';
     setLocalFeedback(saved.method === 'browser-download'
       ? `已创建浏览器下载任务，请到“${saved.location}”确认文件。${omittedHint}`
       : saved.method === 'native-share'
@@ -364,7 +376,20 @@ async function exportBackup() {
   } catch (error) {
     setLocalFeedback(error instanceof Error ? error.message : '导出失败。', 'error');
   } finally {
+    store.endLocalBackupOperation();
     localBusy.value = '';
+  }
+}
+
+async function copyRuntimeDiagnostic() {
+  diagnosticBusy.value = true;
+  try {
+    await writeClipboardText(await formatRuntimeDiagnostics());
+    setLocalFeedback('版本诊断已复制，可安全发送给技术支持。');
+  } catch (error) {
+    setLocalFeedback(error instanceof Error ? error.message : '无法复制版本诊断。', 'error');
+  } finally {
+    diagnosticBusy.value = false;
   }
 }
 
@@ -383,6 +408,12 @@ async function importBackup(event: Event) {
 
   localBusy.value = 'import';
   localFeedback.value = '';
+  if (!store.beginLocalBackupOperation('importing')) {
+    setLocalFeedback('已有备份或导入正在进行，请完成后再试。', 'error');
+    input.value = '';
+    localBusy.value = '';
+    return;
+  }
   setLocalFeedback(`正在读取备份文件 ${formatBytes(file.size)}`);
   await waitForBusyPaint();
 
@@ -398,6 +429,7 @@ async function importBackup(event: Event) {
     setLocalFeedback(error instanceof Error ? error.message : '导入失败。', 'error');
   } finally {
     input.value = '';
+    store.endLocalBackupOperation();
     localBusy.value = '';
   }
 }

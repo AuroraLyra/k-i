@@ -83,15 +83,6 @@ syncAppViewportHeight();
 installRingtoneAudioUnlock();
 setupPwaInstallPrompt();
 
-if ('serviceWorker' in navigator) {
-	let reloadingForServiceWorker = false;
-	navigator.serviceWorker.addEventListener('controllerchange', () => {
-		if (reloadingForServiceWorker) return;
-		reloadingForServiceWorker = true;
-		window.location.reload();
-	});
-}
-
 if (import.meta.env.DEV && 'serviceWorker' in navigator) {
 	navigator.serviceWorker.getRegistrations()
 		.then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))

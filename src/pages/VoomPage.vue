@@ -71,6 +71,7 @@
       @comment="handleComment"
       @regenerate-image="handleRegenerateImage"
       @apply-image="handleApplyImageCandidate"
+      @delete-image="handleDeleteImageCandidate"
       @busy-action="store.showConfigAlert"
       @reply-thread="handleManualReplyThread"
       @toggle-like="store.toggleVoomLike"
@@ -712,11 +713,11 @@ async function handleComment(postId: string, content: string, parentId?: string)
   await store.addVoomComment(postId, content, parentId ?? '');
 }
 
-async function handleRegenerateImage(postId: string, description: string) {
+async function handleRegenerateImage(postId: string, description: string, generationPrompt: string) {
   if (regeneratingImagePostIds.value.includes(postId)) return;
   regeneratingImagePostIds.value = [...regeneratingImagePostIds.value, postId];
   try {
-    await store.regenerateVoomPostImage(postId, description);
+    await store.regenerateVoomPostImage(postId, description, generationPrompt);
   } finally {
     regeneratingImagePostIds.value = regeneratingImagePostIds.value.filter((id) => id !== postId);
   }
@@ -728,6 +729,10 @@ async function handleApplyImageCandidate(postId: string, candidateId: string) {
     return;
   }
   await store.applyVoomPostImageCandidate(postId, candidateId);
+}
+
+async function handleDeleteImageCandidate(postId: string, candidateId: string, imageUrl: string) {
+  await store.deleteVoomPostImageCandidate(postId, candidateId, imageUrl);
 }
 
 function requestDeleteVoomPost(postId: string) {

@@ -46,6 +46,29 @@ const publicExactPaths = new Set([
   '/api/auth/challenges'
 ]);
 const appShellCacheControl = 'private, max-age=300, stale-while-revalidate=86400, stale-if-error=604800';
+const databaseStartupRetryLimit = 12;
+const databaseStartupRetryDelayMs = 1_000;
+
+function isTransientDatabaseStartupError(error: unknown) {
+  const record = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : null;
+  const code = String(record?.code ?? '');
+  if (['57P03', '08001', '08003', '08006', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT'].includes(code)) return true;
+  const message = String(record?.message ?? '').toLowerCase();
+  return message.includes('database system is in recovery mode') || message.includes('database system is starting up');
+}
+
+async function migrateDatabaseOnStartup() {
+  for (let attempt = 1; attempt <= databaseStartupRetryLimit; attempt += 1) {
+    try {
+      await migrateDatabase();
+      return;
+    } catch (error) {
+      if (!isTransientDatabaseStartupError(error) || attempt === databaseStartupRetryLimit) throw error;
+      app.log.warn({ err: error, attempt, retryLimit: databaseStartupRetryLimit }, 'Database is temporarily unavailable during startup; retrying migration');
+      await new Promise<void>((resolve) => setTimeout(resolve, databaseStartupRetryDelayMs * attempt));
+    }
+  }
+}
 
 app.addHook('onRequest', async (request, reply) => {
   const pathname = request.url.split('?')[0] || '/';
@@ -101,7 +124,7 @@ await app.register(fastifyStatic, {
   setHeaders(response, filePath) {
     if (filePath.endsWith('index.html')) {
       response.header('Cache-Control', appShellCacheControl);
-    } else if (filePath.endsWith('sw.js') || filePath.endsWith('manifest.webmanifest')) {
+    } else if (filePath.endsWith('sw.js') || filePath.endsWith('manifest.webmanifest') || filePath.endsWith('release-manifest.json')) {
       response.header('Cache-Control', 'no-cache, no-store, must-revalidate');
     }
   }
@@ -113,7 +136,7 @@ app.setNotFoundHandler(async (request, reply) => {
   return await reply.sendFile('index.html', { maxAge: 0, immutable: false, cacheControl: false });
 });
 
-await migrateDatabase();
+await migrateDatabaseOnStartup();
 
 const cleanupTimer = setInterval(() => {
   void Promise.all([

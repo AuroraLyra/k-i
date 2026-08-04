@@ -61,13 +61,14 @@
             <small>发送后可单独记录，也可以再请求角色回复</small>
           </div>
           <MessageBubble
-            v-for="message in sessionMessages"
-            :key="message.id"
-            :message="message"
+            v-for="entry in sessionMessageEntries"
+            :key="entry.message.id"
+            :message="entry.message"
             :character="character"
             :user="conversationUser"
             :appearance="chatSettings.appearance"
-            :hide-avatar="message.sender === 'system'"
+            :group-position="entry.groupPosition"
+            :hide-avatar="entry.message.sender === 'system'"
             :hide-message-time="false"
           />
           <div v-if="replyWaiting" class="gobang-room-typing"><i></i><i></i><i></i><span>{{ characterName }} 正在回复</span></div>
@@ -131,6 +132,7 @@ import { getCharacterAiName, getCharacterDisplayName } from '@/utils/character';
 import { firstUnreadCharacterMessageId, scrollMessageContainerToUnreadOrBottom } from '@/utils/messageScroll';
 import { defaultProfileAvatar, getUserAiName, getUserDisplayName, normalizeVisualProfile } from '@/utils/profile';
 import { applyGobangMove, gobangStoneForPlayer, resignGobangGame, undoGobangRound } from '@/utils/gobang';
+import { resolveMessageGroupPositions } from '@/utils/messageGrouping';
 
 const props = defineProps<{ id: string; messageId: string }>();
 const store = useAppStore();
@@ -175,6 +177,11 @@ const userAvatar = computed(() => conversationUser.value?.avatar || defaultProfi
 const sessionMessages = computed(() => store.messagesForConversation(props.id)
   .filter((message) => message.gobangId === game.value?.gameId && !message.contextOnly)
   .sort((left, right) => left.createdAt - right.createdAt));
+const sessionMessageEntries = computed(() => {
+  const messages = sessionMessages.value;
+  const groupPositions = resolveMessageGroupPositions(messages);
+  return messages.map((message, index) => ({ message, groupPosition: groupPositions[index] }));
+});
 const replyWaiting = computed(() => store.isConversationReplying(props.id));
 const interactionLocked = computed(() => gobangBusy.value || replyWaiting.value || game.value?.status !== 'active');
 const userStoneLabel = computed(() => game.value?.userStone === 'black' ? '黑棋' : '白棋');
@@ -182,7 +189,8 @@ const characterStoneLabel = computed(() => game.value && gobangStoneForPlayer(ga
 const hasUnreadMindState = computed(() => Boolean(character.value?.mindState?.lines.length
   && character.value.mindState.updatedAt > character.value.mindState.readAt));
 const conversationPreview = computed(() => {
-  const content = sessionMessages.value.at(-1)?.content.replace(/\s+/g, ' ').trim() ?? '';
+  const latestMessage = sessionMessages.value[sessionMessages.value.length - 1];
+  const content = latestMessage?.content.replace(/\s+/g, ' ').trim() ?? '';
   return content.length > 18 ? `${content.slice(0, 18)}…` : content;
 });
 
@@ -352,6 +360,7 @@ async function clearCharacterProfileHistory() {
 
 onMounted(async () => {
   await store.hydrate();
+  await store.ensureConversationMessagesLoaded(props.id);
   store.setActiveConversation(props.id);
   if (conversation.value?.activeMode !== 'online') await store.updateConversationMode(props.id, 'online');
   if (gameMessage.value) await store.recoverInterruptedGobangMessage(gameMessage.value.id);
@@ -360,6 +369,16 @@ onMounted(async () => {
   if (currentGame && (currentGame.invitationStatus ?? 'accepted') === 'accepted' && currentGame.status === 'active' && currentGame.turn === 'char' && currentGame.apiState?.status === 'idle') {
     await letCharacterMove();
   }
+});
+
+watch(() => [props.id, props.messageId] as const, ([conversationId]) => {
+  void (async () => {
+    await store.ensureConversationMessagesLoaded(conversationId);
+    store.setActiveConversation(conversationId);
+    if (conversation.value?.activeMode !== 'online') await store.updateConversationMode(conversationId, 'online');
+    if (gameMessage.value) await store.recoverInterruptedGobangMessage(gameMessage.value.id);
+    hiddenConversationUpdate.value = Boolean(firstUnreadCharacterMessageId(sessionMessages.value));
+  })();
 });
 
 watch(() => sessionMessages.value.length, (nextLength, previousLength) => {
@@ -394,7 +413,7 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: calc(10px + env(safe-area-inset-top)) 14px 132px;
+  padding: calc(10px + var(--safe-top)) calc(14px + var(--safe-right)) calc(132px + var(--safe-bottom)) calc(14px + var(--safe-left));
   scrollbar-width: none;
 }
 .gobang-room-main::-webkit-scrollbar { display: none; }
@@ -430,7 +449,7 @@ onBeforeUnmount(() => {
 .gobang-room-typing i:nth-child(3) { animation-delay: .3s; }
 .gobang-room-typing span { margin-left: 4px; }
 
-.gobang-room-composer { position: absolute; z-index: 6; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: 1fr auto 42px; gap: 8px; padding: 10px 13px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid rgba(31,40,38,.09); background: rgba(247,249,246,.9); backdrop-filter: blur(24px) saturate(1.3); }
+.gobang-room-composer { position: absolute; z-index: 6; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: 1fr auto 42px; gap: 8px; padding: 10px calc(13px + var(--safe-right)) calc(10px + var(--safe-bottom)) calc(13px + var(--safe-left)); border-top: 1px solid rgba(31,40,38,.09); background: rgba(247,249,246,.9); backdrop-filter: blur(24px) saturate(1.3); }
 .gobang-room-composer input { min-width: 0; height: 42px; padding: 0 14px; border: 1px solid rgba(31,40,38,.1); border-radius: 15px; outline: 0; color: var(--ink); background: #fff; font-size: 13px; }
 .gobang-room-composer input:focus { border-color: rgba(31,143,106,.42); box-shadow: 0 0 0 3px rgba(31,143,106,.08); }
 .gobang-room-composer button { border: 0; font-weight: 800; }

@@ -1,9 +1,7 @@
-import type { ConversationOfflineSettings } from '@/types/domain';
+import type { ConversationRoleGuidanceSettings } from '@/types/domain';
 
-export type OfflineGuidanceSettingKey = keyof Pick<
-  ConversationOfflineSettings,
-  'emotionalGuidance' | 'desireRestraint' | 'antiToxicMasculinity' | 'antiClicheRomance' | 'dynamicWorldNarrative'
->;
+export type RoleGuidanceSettingKey = keyof ConversationRoleGuidanceSettings;
+export type OfflineGuidanceSettingKey = RoleGuidanceSettingKey;
 
 interface OfflineGuidanceItem {
   key: OfflineGuidanceSettingKey;
@@ -321,7 +319,7 @@ AI 油腻是：为了甜而甜、为了撩而撩、为了暧昧而堆辞藻、�
 
   dynamicWorldNarrative: `五、打造世界与剧情引导：大世界写实剧情规则
 
-写实剧情引导专用世界规则（纯思维逻辑、无预设台词、细节拓展完整版）
+写实剧情引导专用世界规则
 
 最高优先级核心准则：
 

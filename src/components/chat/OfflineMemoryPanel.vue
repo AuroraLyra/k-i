@@ -28,4 +28,26 @@ const characterName = computed(() => getCharacterAiName(props.character));
 .offline-memory-scroll {
   background: #ffffff;
 }
+
+.offline-memory-page {
+  height: var(--app-height);
+}
+
+.offline-memory-topbar {
+
+.offline-memory-topbar {
+  min-height: calc(58px + var(--safe-top));
+  padding: var(--safe-top) calc(14px + var(--safe-right)) 0 calc(14px + var(--safe-left));
+}
+
+.offline-memory-scroll {
+  padding: 12px calc(12px + var(--safe-right)) calc(24px + var(--safe-bottom)) calc(12px + var(--safe-left));
+}
+  min-height: calc(58px + var(--safe-top));
+  padding: var(--safe-top) calc(14px + var(--safe-right)) 0 calc(14px + var(--safe-left));
+}
+
+.offline-memory-scroll {
+  padding: 12px calc(12px + var(--safe-right)) calc(24px + var(--safe-bottom)) calc(12px + var(--safe-left));
+}
 </style>

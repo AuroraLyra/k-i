@@ -12,14 +12,13 @@
             @keydown.enter.prevent="toggleCard"
             @keydown.space.prevent="toggleCard"
           >
-            <section v-if="hasCustomThoughtChain" class="trace-custom-card" :data-thought-chain-scope="thoughtChainScopeId" v-html="customThoughtChainHtml"></section>
+            <template v-if="hasCustomThoughtChain">
+              <section class="trace-custom-card trace-custom-card--front" :aria-hidden="isFlipped" :data-thought-chain-scope="thoughtChainScopeId" v-html="customThoughtChainHtml"></section>
+              <section class="trace-custom-card trace-custom-card--back" :aria-hidden="!isFlipped" :data-thought-chain-scope="thoughtChainScopeId" v-html="customThoughtChainHtml"></section>
+            </template>
 
             <template v-else>
             <article class="trace-page trace-page--mind" :aria-hidden="isFlipped">
-              <button class="trace-close" type="button" :tabindex="isFlipped ? -1 : 0" aria-label="关闭本轮 API 记录" @click.stop="close">
-                <X :size="19" />
-              </button>
-
               <section class="trace-folded-note">
                 <header class="trace-note-head">
                   <div>
@@ -72,9 +71,6 @@
                     <small>RUNTIME RECEIPT</small>
                     <strong>MCP 路径记录</strong>
                   </div>
-                  <button class="trace-close trace-close--dark" type="button" :tabindex="isFlipped ? 0 : -1" aria-label="关闭本轮 API 记录" @click.stop="close">
-                    <X :size="19" />
-                  </button>
                 </header>
 
                 <section class="trace-machine-intro">
@@ -129,9 +125,6 @@
             </article>
             </template>
           </div>
-          <button v-if="hasCustomThoughtChain" class="trace-close trace-close--floating" type="button" aria-label="关闭本轮 API 记录" @click.stop="close">
-            <X :size="19" />
-          </button>
         </section>
       </div>
     </div>
@@ -140,7 +133,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { Check, CircleAlert, Layers3, LockKeyhole, Sparkles, X } from 'lucide-vue-next';
+import { Check, CircleAlert, Layers3, LockKeyhole, Sparkles } from 'lucide-vue-next';
 import type { ChatApiTrace } from '@/types/domain';
 import { renderThoughtChainThemeHtml, scopeThoughtChainCss } from '@/utils/thoughtChainThemes';
 
@@ -298,11 +291,18 @@ function formatArguments(value: Record<string, unknown>) {
   height: 100%;
   cursor: pointer;
   outline: none;
+  -webkit-transform: rotateY(0deg);
+  transform: rotateY(0deg);
+  -webkit-transform-style: preserve-3d;
   transform-style: preserve-3d;
+  -webkit-transition: -webkit-transform 780ms cubic-bezier(0.2, 0.68, 0.16, 1);
   transition: transform 780ms cubic-bezier(0.2, 0.68, 0.16, 1);
 }
 
-.trace-card--back { transform: rotateY(180deg); }
+.trace-card--back {
+  -webkit-transform: rotateY(180deg);
+  transform: rotateY(180deg);
+}
 
 .trace-card:focus-visible .trace-page--mind,
 .trace-card:focus-visible .trace-page--tools {
@@ -319,6 +319,8 @@ function formatArguments(value: Record<string, unknown>) {
   scrollbar-width: thin;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  -webkit-transform-style: preserve-3d;
+  transform-style: preserve-3d;
 }
 
 .trace-page--mind {
@@ -328,38 +330,25 @@ function formatArguments(value: Record<string, unknown>) {
   border-radius: 18px;
   background: #ede8dd;
   box-shadow: 0 22px 50px rgba(7, 11, 12, 0.36);
+  -webkit-transform: rotateY(0deg) translateZ(1px);
+  transform: rotateY(0deg) translateZ(1px);
 }
 
 .trace-custom-card {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
+  overflow: hidden auto;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-transform: rotateY(0deg) translateZ(1px);
+  transform: rotateY(0deg) translateZ(1px);
+  -webkit-transform-style: preserve-3d;
   transform-style: preserve-3d;
 }
 
-.trace-close--floating {
-  position: absolute;
-  z-index: 5;
-  top: 13px;
-  right: 13px;
-}
-
-.trace-close {
-  position: absolute;
-  z-index: 3;
-  top: 13px;
-  right: 13px;
-  display: grid;
-  width: 33px;
-  height: 33px;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.48);
-  border-radius: 50%;
-  background: rgba(28, 29, 28, 0.52);
-  color: #fff;
-  cursor: pointer;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
+.trace-custom-card--back {
+  -webkit-transform: rotateY(180deg) translateZ(1px);
+  transform: rotateY(180deg) translateZ(1px);
 }
 
 .trace-folded-note {
@@ -538,7 +527,8 @@ function formatArguments(value: Record<string, unknown>) {
     linear-gradient(142deg, #1e322b 0%, #102019 72%);
   box-shadow: 0 28px 72px rgba(5, 10, 8, 0.5), -9px 9px 0 rgba(188, 219, 196, 0.2);
   color: #e7f1e8;
-  transform: rotateY(180deg);
+  -webkit-transform: rotateY(180deg) translateZ(1px);
+  transform: rotateY(180deg) translateZ(1px);
 }
 
 .trace-machine-rail {
@@ -585,17 +575,6 @@ function formatArguments(value: Record<string, unknown>) {
 .trace-machine-head > div { display: grid; flex: 1; gap: 3px; }
 .trace-machine-head small { color: #8aa993; }
 .trace-machine-head strong { font-family: Georgia, 'Songti SC', serif; font-size: 20px; font-weight: 500; letter-spacing: -0.05em; }
-
-.trace-close--dark {
-  position: static;
-  width: 31px;
-  height: 31px;
-  border-color: rgba(213, 237, 216, 0.18);
-  background: rgba(205, 234, 212, 0.09);
-  color: #e0eee2;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
 
 .trace-machine-intro { padding: 22px 0 17px; }
 
@@ -738,7 +717,6 @@ function formatArguments(value: Record<string, unknown>) {
 
 .trace-machine-footer i { width: 1px; height: 12px; background: rgba(203, 234, 209, 0.3); }
 
-.trace-close:active,
 .trace-route-stop > button:active { transform: scale(0.96); }
 
 @media (max-width: 360px) {

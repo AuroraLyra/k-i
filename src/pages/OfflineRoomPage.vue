@@ -255,7 +255,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ArrowLeft, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, ListTree, MessageCircle, NotebookTabs, PencilLine, Settings2 } from 'lucide-vue-next';
 import OfflineMemoryPanel from '@/components/chat/OfflineMemoryPanel.vue';
@@ -273,13 +273,26 @@ const props = defineProps<{
   id: string;
 }>();
 
+const offlineDraftStoragePrefix = 'link.offline.draft.';
+function offlineDraftKey(conversationId: string) { return `${offlineDraftStoragePrefix}${conversationId}`; }
+function readOfflineDraft(conversationId: string) {
+  try { return window.sessionStorage.getItem(offlineDraftKey(conversationId)) ?? ''; } catch { return ''; }
+}
+function writeOfflineDraft(conversationId: string, content: string) {
+  try {
+    const key = offlineDraftKey(conversationId);
+    if (content) window.sessionStorage.setItem(key, content);
+    else window.sessionStorage.removeItem(key);
+  } catch { return; }
+}
+
 const floorPageSize = 24;
 const maxRenderedFloorCount = floorPageSize * 3;
 const floorLoadThreshold = 96;
 const store = useAppStore();
 const router = useRouter();
 const route = useRoute();
-const draft = ref('');
+const draft = ref(readOfflineDraft(props.id));
 const showOfflineToolbar = ref(false);
 const truncateDeleteMode = ref(false);
 const showJumpDialog = ref(false);
@@ -322,6 +335,24 @@ const latestOfflineMessage = computed(() => offlineAllMessages.value.filter((mes
 const canRegenerate = computed(() => latestOfflineMessage.value?.sender === 'char');
 const bottomRestoreDelays = [40, 120, 260, 520];
 const { captureKeyboardScrollAnchor, releaseKeyboardScrollGuard, startKeyboardScrollGuard, stopKeyboardScrollGuard } = useKeyboardScrollGuard(offlineScrollRef);
+
+function syncOfflineTransientOperations() {
+  const conversationKey = props.id;
+  writeOfflineDraft(conversationKey, draft.value);
+  store.setAppUpdateTransientOperation(`offline-draft:${conversationKey}`, '存在未发送的线下章节草稿', Boolean(draft.value.trim()));
+  store.setAppUpdateTransientOperation(`offline-regenerate:${conversationKey}`, '存在未提交的线下重写指令', showRegeneratePromptDialog.value && Boolean(regeneratePromptDraft.value.trim()));
+  store.setAppUpdateTransientOperation(`offline-floor-edit:${conversationKey}`, '存在未保存的线下楼层编辑', Boolean(floorEditDraft.value.trim()));
+  store.setAppUpdateTransientOperation(`offline-jump:${conversationKey}`, '存在未提交的线下跳转输入', showJumpDialog.value && Boolean(jumpFloorDraft.value.trim()));
+}
+
+watch([
+  draft,
+  showRegeneratePromptDialog,
+  regeneratePromptDraft,
+  floorEditDraft,
+  showJumpDialog,
+  jumpFloorDraft
+], syncOfflineTransientOperations, { immediate: true });
 
 interface ChapterFloor {
   id: string;
@@ -984,6 +1015,7 @@ async function applySelectedReplyOption(floor: ChapterFloor) {
 
 onMounted(async () => {
   await store.hydrate();
+  await store.ensureConversationMessagesLoaded(props.id);
   await syncConversationState(props.id);
   resetFloorWindowToLatest();
   const focusId = focusedMessageId();
@@ -994,8 +1026,12 @@ onMounted(async () => {
   }
 });
 
-watch(() => props.id, (id) => {
-  draft.value = '';
+watch(() => props.id, (id, previousId) => {
+  if (previousId) store.setAppUpdateTransientOperation(`offline-draft:${previousId}`, '', false);
+  if (previousId) store.setAppUpdateTransientOperation(`offline-regenerate:${previousId}`, '', false);
+  if (previousId) store.setAppUpdateTransientOperation(`offline-floor-edit:${previousId}`, '', false);
+  if (previousId) store.setAppUpdateTransientOperation(`offline-jump:${previousId}`, '', false);
+  draft.value = readOfflineDraft(id);
   selectedPlotChoiceKey.value = '';
   expandedPlotChoiceFloorIds.value = new Set();
   truncateDeleteMode.value = false;
@@ -1007,6 +1043,7 @@ watch(() => props.id, (id) => {
   cancelFloorEdit();
   pendingDelete.value = null;
   void (async () => {
+    await store.ensureConversationMessagesLoaded(id);
     await syncConversationState(id);
     resetFloorWindowToLatest();
     const focusId = focusedMessageId();
@@ -1016,6 +1053,15 @@ watch(() => props.id, (id) => {
       await scrollOfflineToBottom();
     }
   })();
+});
+
+onBeforeUnmount(() => {
+  writeOfflineDraft(props.id, draft.value);
+  store.setAppUpdateTransientOperation(`offline-draft:${props.id}`, '', false);
+  store.setAppUpdateTransientOperation(`offline-regenerate:${props.id}`, '', false);
+  store.setAppUpdateTransientOperation(`offline-floor-edit:${props.id}`, '', false);
+  store.setAppUpdateTransientOperation(`offline-jump:${props.id}`, '', false);
+  void store.flushConversationMemory(props.id);
 });
 
 watch(() => route.query.focus, (value) => {

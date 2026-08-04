@@ -1,6 +1,6 @@
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core';
-import { setNativeDisplayFullscreen } from './nativeDisplay';
+import { isNativeDisplayAvailable, setNativeDisplayFullscreen } from './nativeDisplay';
 
 const fullscreenStorageKey = 'link:fullscreen-enabled';
 let listenersInstalled = false;
@@ -86,11 +86,13 @@ export function getFullscreenEnvironment(): FullscreenEnvironment {
 
 async function performNativeStatusBarSync(enabled: boolean) {
   try {
+    if (Capacitor.getPlatform() === 'android' && isNativeDisplayAvailable()) {
+      return Boolean(await setNativeDisplayFullscreen(enabled));
+    }
     await SystemBars.setAnimation({ animation: 'NONE' });
     await SystemBars.setStyle({ style: SystemBarsStyle.Light });
     if (enabled) await SystemBars.hide({ animation: 'NONE' });
     else await SystemBars.show({ animation: 'NONE' });
-    await setNativeDisplayFullscreen(enabled);
     return true;
   } catch {
     return false;

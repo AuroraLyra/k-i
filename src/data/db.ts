@@ -4,19 +4,22 @@ import type { AppSettings, AppSnapshot, CharacterProfile, ChatImageAttachment, C
 import type { CommerceSnapshot, ShopCartItem, ShopMoment, ShopOrder, ShopProduct, ShopStorefront, ShopWishlistItem, WalletAccount, WalletTransaction } from '@/types/commerce';
 import type { MemoryAssertion, MemoryEdge, MemoryEmbeddingCache, MemoryEntity, MemoryEpisode, MemoryStateSnapshot, MemoryTheme } from '@/types/memory';
 import type { RoleContentDraft, RoleOperationAuditEntry, RoleOperationPolicy, RoleOutboundTask, RoleSocialAccount, UserSocialAccount } from '@/types/roleOperations';
+import type { RuntimeWorkRecord } from '@/types/runtimeWork';
 import { compressInlineImageDataUrl } from '@/utils/imageFile';
 import { collectStoredMediaLocators, externalizeLargeMediaRefs, pruneStoredMediaCache } from '@/utils/mediaStorage';
 import { normalizeUserProfile, removeVisualProfileAvatar } from '@/utils/profile';
 import { normalizeAppSettings } from '@/utils/settings';
 import { isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId } from '@/utils/stickers';
 import { normalizeWorldBooks } from '@/utils/worldBook';
+import { compareConversationMessageOrder, createConversationMessageCursor, defaultConversationMessagePageSize, isMessageBeforeConversationCursor, normalizeConversationMessageCursor, normalizeConversationMessagePageSize, type ConversationMessageCursor, type ConversationMessagePage } from './messagePagination';
+import { isTransferLedgerSourceMessage, mergeStartupMessageSets } from './messageStartup';
 import { defaultCharacters, defaultConversations, defaultMessages, defaultProfileHomepages, defaultProfileThemes, defaultSettings, defaultSmallTheaterTopics, defaultSmallTheaters, defaultStickerGroups, defaultStickers, defaultUsers, defaultVoomPosts, defaultWorldBooks } from './seed';
 
 interface LinkDb extends DBSchema {
   user: { key: string; value: UserProfile };
   characters: { key: string; value: CharacterProfile };
   conversations: { key: string; value: Conversation; indexes: { byChar: string } };
-  messages: { key: string; value: ChatMessage; indexes: { byConversation: string } };
+  messages: { key: string; value: ChatMessage; indexes: { byConversation: string; byConversationCreatedAt: [string, number]; byCallState: [string, string]; byTransferStatus: string } };
   voomPosts: { key: string; value: VoomPost; indexes: { byChar: string; byConversation: string } };
   profileThemes: { key: string; value: ProfileTheme; indexes: { byChar: string } };
   profileHomepages: { key: string; value: ProfileHomepageRecord; indexes: { byChar: string; byConversation: string } };
@@ -56,6 +59,7 @@ interface LinkDb extends DBSchema {
   roleOutboundTasks: { key: string; value: RoleOutboundTask; indexes: { byCharacter: string; byAccount: string; byStatus: string; byScheduledAt: number } };
   roleOperationPolicies: { key: string; value: RoleOperationPolicy; indexes: { byCharacter: string } };
   roleOperationAudits: { key: string; value: RoleOperationAuditEntry; indexes: { byCharacter: string; byTask: string; byCreatedAt: number } };
+  runtimeWork: { key: string; value: RuntimeWorkRecord; indexes: { byState: string; byNextRunAt: number } };
   settings: { key: string; value: AppSettings };
 }
 
@@ -100,6 +104,28 @@ export interface MemoryStoreMutation {
     embeddingIds?: string[];
   };
 }
+
+export type AppStartupSnapshot = Omit<AppSnapshot,
+  | 'fanficBooks'
+  | 'fanficChapters'
+  | 'fanficComments'
+  | 'fanficTopics'
+  | 'fanficGenerationJobs'
+  | 'walletAccounts'
+  | 'walletTransactions'
+  | 'shopStorefronts'
+  | 'shopProducts'
+  | 'shopCartItems'
+  | 'shopWishlistItems'
+  | 'shopOrders'
+  | 'shopMoments'
+  | 'roleSocialAccounts'
+  | 'userSocialAccounts'
+  | 'roleContentDrafts'
+  | 'roleOutboundTasks'
+  | 'roleOperationPolicies'
+  | 'roleOperationAudits'
+>;
 
 async function waitForBackupReadLock() {
   while (backupReadLockDepth > 0 && backupReadLockReleased) await backupReadLockReleased;
@@ -707,8 +733,10 @@ function migrateArchivedSummaries(database: IDBDatabase, transaction: IDBTransac
   entityRequest.onsuccess = () => { entities = entityRequest.result; finishMigration(); };
 }
 
+export const linkLocalDbVersion = 21;
+
 export function getDb() {
-  dbPromise ??= openDB<LinkDb>('link-local-db', 18, {
+  dbPromise ??= openDB<LinkDb>('link-local-db', linkLocalDbVersion, {
     upgrade(db, oldVersion, _newVersion, transaction) {
       if (!db.objectStoreNames.contains('user')) db.createObjectStore('user', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('characters')) db.createObjectStore('characters', { keyPath: 'id' });
@@ -719,6 +747,16 @@ export function getDb() {
       if (!db.objectStoreNames.contains('messages')) {
         const messageStore = db.createObjectStore('messages', { keyPath: 'id' });
         messageStore.createIndex('byConversation', 'conversationId');
+      }
+      const messageStore = transaction.objectStore('messages');
+      if (!messageStore.indexNames.contains('byConversationCreatedAt')) {
+        messageStore.createIndex('byConversationCreatedAt', ['conversationId', 'createdAt']);
+      }
+      if (!messageStore.indexNames.contains('byCallState')) {
+        messageStore.createIndex('byCallState', ['call.direction', 'call.status']);
+      }
+      if (!messageStore.indexNames.contains('byTransferStatus')) {
+        messageStore.createIndex('byTransferStatus', 'transfer.status');
       }
       if (!db.objectStoreNames.contains('voomPosts')) {
         const voomStore = db.createObjectStore('voomPosts', { keyPath: 'id' });
@@ -898,6 +936,11 @@ export function getDb() {
         store.createIndex('byTask', 'taskId');
         store.createIndex('byCreatedAt', 'createdAt');
       }
+      if (!db.objectStoreNames.contains('runtimeWork')) {
+        const store = db.createObjectStore('runtimeWork', { keyPath: 'id' });
+        store.createIndex('byState', 'state');
+        store.createIndex('byNextRunAt', 'nextRunAt');
+      }
       if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings');
 
       if (oldVersion < 4) {
@@ -1013,25 +1056,19 @@ async function pruneLegacyDefaultData() {
   }
 }
 
-export async function loadSnapshot() {
+export async function loadAppStartupSnapshot(): Promise<AppStartupSnapshot> {
   await seedDatabase();
   await pruneLegacyDefaultData();
   const db = await getDb();
-  const [users, characters, conversations, messages, voomPosts, profileThemes, profileHomepages, smallTheaterTopics, smallTheaters, fanficBooks, fanficChapters, fanficComments, fanficTopics, fanficGenerationJobs, musicFavoriteTracks, musicCommentThreads, worldBooks, stickerGroups, stickers, conversationSettings, memoryEpisodes, memoryEntities, memoryAssertions, memoryEdges, memoryThemes, memoryStateSnapshots, memoryEmbeddings, generatedImages, favorites, walletAccounts, walletTransactions, shopStorefronts, shopProducts, shopCartItems, shopWishlistItems, shopOrders, shopMoments, roleSocialAccounts, userSocialAccounts, roleContentDrafts, roleOutboundTasks, roleOperationPolicies, roleOperationAudits, settings] = await Promise.all([
+  const [users, characters, conversations, voomPosts, profileThemes, profileHomepages, smallTheaterTopics, smallTheaters, musicFavoriteTracks, musicCommentThreads, worldBooks, stickerGroups, stickers, conversationSettings, memoryEpisodes, memoryEntities, memoryAssertions, memoryEdges, memoryThemes, memoryStateSnapshots, memoryEmbeddings, generatedImages, favorites, settings] = await Promise.all([
     db.getAll('user'),
     db.getAll('characters'),
     db.getAll('conversations'),
-    db.getAll('messages'),
     db.getAll('voomPosts'),
     db.getAll('profileThemes'),
     db.getAll('profileHomepages'),
     db.getAll('smallTheaterTopics'),
     db.getAll('smallTheaters'),
-    db.getAll('fanficBooks'),
-    db.getAll('fanficChapters'),
-    db.getAll('fanficComments'),
-    db.getAll('fanficTopics'),
-    db.getAll('fanficGenerationJobs'),
     db.getAll('musicFavoriteTracks'),
     db.getAll('musicCommentThreads'),
     db.getAll('worldBooks'),
@@ -1047,22 +1084,14 @@ export async function loadSnapshot() {
     db.getAll('memoryEmbeddings'),
     db.getAll('generatedImages'),
     db.getAll('favorites'),
-    db.getAll('walletAccounts'),
-    db.getAll('walletTransactions'),
-    db.getAll('shopStorefronts'),
-    db.getAll('shopProducts'),
-    db.getAll('shopCartItems'),
-    db.getAll('shopWishlistItems'),
-    db.getAll('shopOrders'),
-    db.getAll('shopMoments'),
-    db.getAll('roleSocialAccounts'),
-    db.getAll('userSocialAccounts'),
-    db.getAll('roleContentDrafts'),
-    db.getAll('roleOutboundTasks'),
-    db.getAll('roleOperationPolicies'),
-    db.getAll('roleOperationAudits'),
     db.get('settings', 'main')
   ]);
+  const [messagePreviews, pendingIncomingCalls, transferLedgerMessages] = await Promise.all([
+    loadConversationMessagePreviews(conversations.map((conversation) => conversation.id)),
+    loadPendingIncomingCallMessages(),
+    loadTransferLedgerMessages()
+  ]);
+  const messages = mergeStartupMessageSets([messagePreviews, pendingIncomingCalls, transferLedgerMessages]);
 
   const normalizedSettings = normalizeAppSettings(settings ?? defaultSettings);
   if (settings && JSON.stringify(settings) !== JSON.stringify(normalizedSettings)) {
@@ -1079,11 +1108,6 @@ export async function loadSnapshot() {
     profileHomepages,
     smallTheaterTopics,
     smallTheaters,
-    fanficBooks,
-    fanficChapters,
-    fanficComments,
-    fanficTopics,
-    fanficGenerationJobs,
     musicFavoriteTracks,
     musicCommentThreads,
     worldBooks: normalizeWorldBooks(worldBooks),
@@ -1099,22 +1123,121 @@ export async function loadSnapshot() {
     memoryEmbeddings,
     generatedImages,
     favorites,
-    walletAccounts,
-    walletTransactions,
-    shopStorefronts,
-    shopProducts,
-    shopCartItems,
-    shopWishlistItems,
-    shopOrders,
-    shopMoments,
-    roleSocialAccounts,
-    userSocialAccounts,
-    roleContentDrafts,
-    roleOutboundTasks,
-    roleOperationPolicies,
-    roleOperationAudits,
     settings: normalizedSettings
   };
+}
+
+export async function loadConversationMessagePreviews(conversationIds: Iterable<string>) {
+  const normalizedConversationIds = [...new Set([...conversationIds]
+    .map((conversationId) => conversationId.trim())
+    .filter(Boolean))];
+  if (!normalizedConversationIds.length) return [] as ChatMessage[];
+
+  const db = await getDb();
+  const transaction = db.transaction('messages', 'readonly');
+  const index = transaction.objectStore('messages').index('byConversationCreatedAt');
+  const messages = await Promise.all(normalizedConversationIds.map(async (conversationId) => {
+    const cursor = await index.openCursor(IDBKeyRange.bound(
+      [conversationId, Number.MIN_SAFE_INTEGER],
+      [conversationId, Number.MAX_SAFE_INTEGER]
+    ), 'prev');
+    return cursor?.value;
+  }));
+  await transaction.done;
+  return messages.filter((message): message is ChatMessage => Boolean(message)).sort(compareConversationMessageOrder);
+}
+
+export async function loadPendingIncomingCallMessages() {
+  const db = await getDb();
+  const messages = await db.getAllFromIndex('messages', 'byCallState', ['incoming', 'ringing']);
+  return messages.sort(compareConversationMessageOrder);
+}
+
+export async function loadTransferLedgerMessages() {
+  const db = await getDb();
+  const batches = await Promise.all([
+    db.getAllFromIndex('messages', 'byTransferStatus', 'pending'),
+    db.getAllFromIndex('messages', 'byTransferStatus', 'accepted'),
+    db.getAllFromIndex('messages', 'byTransferStatus', 'rejected')
+  ]);
+  return batches.flat()
+    .filter(isTransferLedgerSourceMessage)
+    .sort(compareConversationMessageOrder);
+}
+
+async function loadConversationMessagePage(conversationId: string, before: ConversationMessageCursor | null, limit: number): Promise<ConversationMessagePage> {
+  const normalizedConversationId = conversationId.trim();
+  const normalizedLimit = normalizeConversationMessagePageSize(limit);
+  if (!normalizedConversationId) return { messages: [], nextCursor: null, hasMore: false };
+
+  const db = await getDb();
+  const transaction = db.transaction('messages', 'readonly');
+  const index = transaction.objectStore('messages').index('byConversationCreatedAt');
+  const range = IDBKeyRange.bound(
+    [normalizedConversationId, Number.MIN_SAFE_INTEGER],
+    [normalizedConversationId, before?.createdAt ?? Number.MAX_SAFE_INTEGER]
+  );
+  const messages: ChatMessage[] = [];
+  let hasMore = false;
+  let cursor = await index.openCursor(range, 'prev');
+
+  while (cursor) {
+    const message = cursor.value;
+    if (!before || isMessageBeforeConversationCursor(message, before)) {
+      if (messages.length >= normalizedLimit) {
+        hasMore = true;
+        break;
+      }
+      messages.push(message);
+    }
+    cursor = await cursor.continue();
+  }
+  await transaction.done;
+
+  messages.sort(compareConversationMessageOrder);
+  return {
+    messages,
+    hasMore,
+    nextCursor: hasMore && messages.length ? createConversationMessageCursor(messages[0]) : null
+  };
+}
+
+export async function loadRecentMessagesByConversation(conversationId: string, limit = defaultConversationMessagePageSize): Promise<ConversationMessagePage> {
+  return await loadConversationMessagePage(conversationId, null, limit);
+}
+
+export async function loadMessagesBeforeConversationCursor(conversationId: string, cursor: ConversationMessageCursor, limit = defaultConversationMessagePageSize): Promise<ConversationMessagePage> {
+  return await loadConversationMessagePage(conversationId, normalizeConversationMessageCursor(cursor), limit);
+}
+
+export async function loadConversationLastMessage(conversationId: string) {
+  const page = await loadRecentMessagesByConversation(conversationId, 1);
+  return page.messages.at(-1) ?? null;
+}
+
+export async function loadAllMessagesByConversation(conversationId: string) {
+  const normalizedConversationId = conversationId.trim();
+  if (!normalizedConversationId) return [] as ChatMessage[];
+  const db = await getDb();
+  const messages = await db.getAllFromIndex('messages', 'byConversation', normalizedConversationId);
+  return messages.sort(compareConversationMessageOrder);
+}
+
+export async function loadAllMessages() {
+  const db = await getDb();
+  const messages = await db.getAll('messages');
+  return messages.sort(compareConversationMessageOrder);
+}
+
+export async function loadSnapshot(): Promise<AppSnapshot> {
+  const snapshot = await loadAppStartupSnapshot();
+  const [messages, fanfic, commerce, roleOperations] = await Promise.all([
+    loadAllMessages(),
+    loadFanficSnapshot(),
+    loadCommerceSnapshot(),
+    loadRoleOperationsSnapshot()
+  ]);
+  return { ...snapshot, messages, ...fanfic, ...commerce, ...roleOperations };
 }
 
 export async function loadCommerceSnapshot(): Promise<CommerceSnapshot> {
@@ -1130,6 +1253,31 @@ export async function loadCommerceSnapshot(): Promise<CommerceSnapshot> {
     db.getAll('shopMoments')
   ]);
   return { walletAccounts, walletTransactions, shopStorefronts, shopProducts, shopCartItems, shopWishlistItems, shopOrders, shopMoments };
+}
+
+export async function loadFanficSnapshot() {
+  const db = await getDb();
+  const [fanficBooks, fanficChapters, fanficComments, fanficTopics, fanficGenerationJobs] = await Promise.all([
+    db.getAll('fanficBooks'),
+    db.getAll('fanficChapters'),
+    db.getAll('fanficComments'),
+    db.getAll('fanficTopics'),
+    db.getAll('fanficGenerationJobs')
+  ]);
+  return { fanficBooks, fanficChapters, fanficComments, fanficTopics, fanficGenerationJobs };
+}
+
+export async function loadRoleOperationsSnapshot() {
+  const db = await getDb();
+  const [roleSocialAccounts, userSocialAccounts, roleContentDrafts, roleOutboundTasks, roleOperationPolicies, roleOperationAudits] = await Promise.all([
+    db.getAll('roleSocialAccounts'),
+    db.getAll('userSocialAccounts'),
+    db.getAll('roleContentDrafts'),
+    db.getAll('roleOutboundTasks'),
+    db.getAll('roleOperationPolicies'),
+    db.getAll('roleOperationAudits')
+  ]);
+  return { roleSocialAccounts, userSocialAccounts, roleContentDrafts, roleOutboundTasks, roleOperationPolicies, roleOperationAudits };
 }
 
 export async function replaceSnapshot(snapshot: AppSnapshot) {
@@ -1394,6 +1542,24 @@ export async function putFanficChapterBundle(book: FanficBook, chapter: FanficCh
   await tx.done;
 }
 
+export async function applyFanficChapterMutation(input: {
+  book: FanficBook;
+  chapters: FanficChapter[];
+  deleteChapterIds?: string[];
+  deleteCommentIds?: string[];
+}) {
+  await waitForBackupReadLock();
+  const db = await getDb();
+  const compactedBook = await compactFanficBookInlineImages(input.book);
+  const externalizedBook = await externalizeLargeMediaRefs(compactedBook);
+  const tx = db.transaction(['fanficBooks', 'fanficChapters', 'fanficComments'], 'readwrite');
+  await tx.objectStore('fanficBooks').put(toPersistableValue(externalizedBook));
+  for (const chapter of input.chapters) await tx.objectStore('fanficChapters').put(toPersistableValue(chapter));
+  for (const chapterId of input.deleteChapterIds ?? []) await tx.objectStore('fanficChapters').delete(chapterId);
+  for (const commentId of input.deleteCommentIds ?? []) await tx.objectStore('fanficComments').delete(commentId);
+  await tx.done;
+}
+
 export async function putFanficHotspotComments(chapter: FanficChapter, comments: FanficComment[]) {
   await waitForBackupReadLock();
   const db = await getDb();
@@ -1413,6 +1579,90 @@ export async function deleteEntity<TStore extends StoreName>(storeName: TStore, 
   await waitForBackupReadLock();
   const db = await getDb();
   await db.delete(storeName, key as never);
+}
+
+export async function getRuntimeWorkRecord(id: string) {
+  const db = await getDb();
+  return await db.get('runtimeWork', id);
+}
+
+export async function listRuntimeWorkRecords() {
+  const db = await getDb();
+  return await db.getAll('runtimeWork');
+}
+
+export async function putRuntimeWorkRecord(record: RuntimeWorkRecord) {
+  const db = await getDb();
+  await db.put('runtimeWork', record);
+}
+
+export async function deleteRuntimeWorkRecord(id: string) {
+  const db = await getDb();
+  await db.delete('runtimeWork', id);
+}
+
+export async function claimRuntimeWorkRecord(id: string, leaseOwner: string, now: number, leaseDurationMs: number) {
+  const db = await getDb();
+  const tx = db.transaction('runtimeWork', 'readwrite');
+  const store = tx.objectStore('runtimeWork');
+  const record = await store.get(id);
+  if (!record || record.nextRunAt > now || (record.state === 'running' && record.leaseUntil > now)) {
+    await tx.done;
+    return null;
+  }
+
+  const claimed: RuntimeWorkRecord = {
+    ...record,
+    state: 'running',
+    attempt: record.attempt + 1,
+    leaseOwner,
+    leaseUntil: now + leaseDurationMs,
+    lastStartedAt: now,
+    updatedAt: now
+  };
+  await store.put(claimed);
+  await tx.done;
+  return claimed;
+}
+
+export async function completeRuntimeWorkRecord(id: string, leaseOwner: string, completedAt: number, nextRunAt: number) {
+  const db = await getDb();
+  const tx = db.transaction('runtimeWork', 'readwrite');
+  const store = tx.objectStore('runtimeWork');
+  const record = await store.get(id);
+  if (record?.leaseOwner === leaseOwner) {
+    await store.put({
+      ...record,
+      state: 'pending',
+      nextRunAt,
+      leaseOwner: '',
+      leaseUntil: 0,
+      lastCompletedAt: completedAt,
+      lastError: '',
+      updatedAt: completedAt
+    });
+  }
+  await tx.done;
+}
+
+export async function failRuntimeWorkRecord(id: string, leaseOwner: string, failedAt: number, nextRunAt: number, error: unknown) {
+  const db = await getDb();
+  const tx = db.transaction('runtimeWork', 'readwrite');
+  const store = tx.objectStore('runtimeWork');
+  const record = await store.get(id);
+  if (record?.leaseOwner === leaseOwner) {
+    const message = error instanceof Error ? error.message : String(error || '任务执行失败');
+    await store.put({
+      ...record,
+      state: 'failed',
+      nextRunAt,
+      leaseOwner: '',
+      leaseUntil: 0,
+      lastError: message.slice(0, 500),
+      updatedAt: failedAt
+    });
+  }
+  await tx.done;
 }
 
 export async function applyMemoryStoreMutation(mutation: MemoryStoreMutation) {

@@ -1,5 +1,14 @@
 import { Capacitor } from '@capacitor/core';
 import { Keyboard } from '@capacitor/keyboard';
+import {
+  computeLayoutRuntimeSnapshot,
+  resolveFullscreenState,
+  resolveLayoutEnvironment,
+  type FullscreenState,
+  type KeyboardState,
+  type LayoutEnvironment,
+  type ViewportOwner
+} from './layoutRuntime';
 
 export const APP_VIEWPORT_CHANGE_EVENT = 'app:viewport-change';
 
@@ -8,36 +17,34 @@ export type AppViewportChangeDetail = {
   keyboardInset: number;
   keyboardOpen: boolean;
   visualHeight: number;
+  environment: LayoutEnvironment;
+  fullscreenState: FullscreenState;
+  keyboardState: KeyboardState;
+  themeScale: number;
+  viewportOwner: ViewportOwner;
 };
 
 export function syncAppViewportHeight() {
   const root = document.documentElement;
   let frameId = 0;
 
-  root.style.removeProperty('--app-height');
-  root.style.removeProperty('--visual-viewport-height');
-  root.style.removeProperty('--visual-viewport-offset-top');
-  root.style.removeProperty('--keyboard-inset');
-
   const userAgent = window.navigator.userAgent;
   const isIOS = /iPad|iPhone|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && /Mobile/.test(userAgent) && window.navigator.maxTouchPoints > 1);
   const isNativePlatform = Capacitor.isNativePlatform();
   const isStandaloneDisplayMode = window.matchMedia('(display-mode: standalone)').matches
     || (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-  const isIOSPwa = isIOS && !isNativePlatform && isStandaloneDisplayMode;
+  const environment = resolveLayoutEnvironment({ native: isNativePlatform, ios: isIOS, standalone: isStandaloneDisplayMode });
+  const isIOSPwa = environment === 'pwa-ios';
   const initialViewportHeight = Math.round(window.visualViewport?.height ?? window.innerHeight);
   let stableViewportHeight = isIOSPwa ? Math.max(initialViewportHeight, Math.round(window.innerHeight)) : initialViewportHeight;
   let stableLayoutViewportHeight = Math.round(window.innerHeight);
   let stableViewportOcclusion = Math.max(0, Math.round(window.innerHeight - (window.visualViewport?.height ?? window.innerHeight) - (window.visualViewport?.offsetTop ?? 0)));
   let nativeKeyboardHeight = 0;
   let nativeKeyboardOpen = false;
-  let estimatedNativeKeyboardOpen = false;
-  let fallbackKeyboardTimer = 0;
   let keyboardWasOpen = false;
   let revealedKeyboardInput: Element | null = null;
   root.classList.toggle('is-ios', isIOS);
   root.classList.toggle('is-ios-pwa', isIOSPwa);
-  if (isIOSPwa) root.style.removeProperty('--app-viewport-height');
 
   const isKeyboardInput = (element: Element | null) => {
     if (element instanceof HTMLTextAreaElement) return true;
@@ -61,61 +68,51 @@ export function syncAppViewportHeight() {
     const visualViewport = window.visualViewport;
     const viewportHeight = Math.round(visualViewport?.height ?? window.innerHeight);
     const viewportOffsetTop = Math.round(visualViewport?.offsetTop ?? 0);
-    const viewportOverlap = visualViewport
-      ? Math.max(0, Math.round(window.innerHeight - visualViewport.height - viewportOffsetTop))
-      : 0;
     const activeKeyboardInput = isKeyboardInput(document.activeElement);
-    const viewportDelta = Math.max(0, stableViewportHeight - viewportHeight);
-    const layoutViewportDelta = Math.max(0, stableLayoutViewportHeight - window.innerHeight);
-    const viewportOcclusionDelta = Math.max(0, viewportOverlap - stableViewportOcclusion);
-    const keyboardViewportOverlap = isIOS ? viewportOcclusionDelta : viewportOverlap;
-    const keyboardOpen = (activeKeyboardInput || nativeKeyboardOpen)
-      && Math.max(keyboardViewportOverlap, viewportDelta, layoutViewportDelta, nativeKeyboardHeight) > 80;
-    const layoutViewportResized = layoutViewportDelta > 80;
-    const nativeOverlayHeight = keyboardOpen && nativeKeyboardOpen && !layoutViewportResized
-      ? Math.max(viewportOverlap, viewportDelta, nativeKeyboardHeight)
-      : 0;
-    const overlayKeyboardOpen = keyboardOpen && !isIOS && !layoutViewportResized && nativeOverlayHeight === 0;
+    const rawScale = Number.parseFloat(getComputedStyle(root).getPropertyValue('--app-display-scale'));
+    const fullscreenState = resolveFullscreenState({
+      native: isNativePlatform,
+      fullscreenEnabled: root.classList.contains('is-link-fullscreen'),
+      pwaFullscreen: window.matchMedia('(display-mode: fullscreen)').matches,
+      browserFullscreen: Boolean(document.fullscreenElement || (document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement)
+    });
+    const snapshot = computeLayoutRuntimeSnapshot({
+      environment,
+      fullscreenState,
+      themeScale: rawScale,
+      layoutWidth: window.innerWidth,
+      layoutHeight: window.innerHeight,
+      visualWidth: visualViewport?.width ?? window.innerWidth,
+      visualHeight: viewportHeight,
+      visualOffsetTop: viewportOffsetTop,
+      baselineLayoutHeight: stableLayoutViewportHeight,
+      baselineVisualHeight: stableViewportHeight,
+      baselineVisualOcclusion: stableViewportOcclusion,
+      nativeKeyboardHeight,
+      nativeKeyboardVisible: nativeKeyboardOpen,
+      activeTextInput: activeKeyboardInput
+    });
 
-    if (!keyboardOpen) {
+    if (!snapshot.keyboardOpen) {
       stableViewportHeight = isIOSPwa ? Math.max(viewportHeight, Math.round(window.innerHeight)) : viewportHeight;
       stableLayoutViewportHeight = Math.round(window.innerHeight);
-      stableViewportOcclusion = viewportOverlap;
+      stableViewportOcclusion = Math.max(0, Math.round(window.innerHeight - viewportHeight - viewportOffsetTop));
     }
 
-    let nextKeyboardInset = 0;
-    let nextHeight = viewportHeight;
-    let nextViewportOffsetTop = 0;
-
-    if (isIOS) {
-      if (!keyboardOpen) {
-        nextHeight = isIOSPwa ? Math.max(viewportHeight, Math.round(window.innerHeight)) : Math.round(window.innerHeight);
-      } else if (viewportDelta > 80 || viewportOcclusionDelta > 80 || layoutViewportResized) {
-        nextHeight = Math.max(1, Math.min(viewportHeight, Math.round(window.innerHeight)));
-        nextViewportOffsetTop = isIOSPwa ? 0 : viewportOffsetTop;
-      } else if (nativeKeyboardOpen && nativeKeyboardHeight > 80) {
-        nextHeight = Math.max(1, stableLayoutViewportHeight - nativeKeyboardHeight);
-      }
-    } else {
-      nextKeyboardInset = overlayKeyboardOpen ? Math.max(viewportOverlap, nativeKeyboardHeight) : 0;
-      nextHeight = nativeOverlayHeight > 0
-        ? Math.max(320, stableViewportHeight - nativeOverlayHeight)
-        : nextKeyboardInset > 0
-        ? stableViewportHeight
-        : viewportHeight;
-    }
-
-    const shouldRevealKeyboardInput = isNativePlatform && !isIOS && keyboardOpen && activeKeyboardInput
+    const shouldRevealKeyboardInput = isNativePlatform && !isIOS && snapshot.keyboardOpen && activeKeyboardInput
       && (!keyboardWasOpen || revealedKeyboardInput !== document.activeElement);
 
-    if (!keyboardOpen) revealedKeyboardInput = null;
-    keyboardWasOpen = keyboardOpen;
+    if (!snapshot.keyboardOpen) revealedKeyboardInput = null;
+    keyboardWasOpen = snapshot.keyboardOpen;
 
-    root.classList.toggle('keyboard-open', keyboardOpen);
-    root.style.setProperty('--app-viewport-height', `${Math.round(nextHeight)}px`);
-    root.style.setProperty('--visual-viewport-raw-height', `${viewportHeight}px`);
-    root.style.setProperty('--visual-viewport-raw-offset-top', `${nextViewportOffsetTop}px`);
-    root.style.setProperty('--keyboard-raw-inset', `${nextKeyboardInset}px`);
+    root.classList.toggle('keyboard-open', snapshot.keyboardOpen);
+    root.dataset.layoutEnvironment = snapshot.environment;
+    root.dataset.viewportOwner = snapshot.viewportOwner;
+    root.dataset.fullscreenState = snapshot.fullscreenState;
+    root.style.setProperty('--app-viewport-height', `${snapshot.appHeight}px`);
+    root.style.setProperty('--visual-viewport-raw-height', `${snapshot.visualHeight}px`);
+    root.style.setProperty('--visual-viewport-raw-offset-top', `${snapshot.visualOffsetTop}px`);
+    root.style.setProperty('--keyboard-raw-inset', `${snapshot.keyboardOcclusion}px`);
     if (isIOSPwa) {
       root.scrollLeft = 0;
       document.body.scrollLeft = 0;
@@ -123,10 +120,15 @@ export function syncAppViewportHeight() {
     }
     window.dispatchEvent(new CustomEvent<AppViewportChangeDetail>(APP_VIEWPORT_CHANGE_EVENT, {
       detail: {
-        appHeight: Math.round(nextHeight),
-        keyboardInset: nextKeyboardInset,
-        keyboardOpen,
-        visualHeight: viewportHeight
+        appHeight: snapshot.appHeight,
+        keyboardInset: snapshot.keyboardOcclusion,
+        keyboardOpen: snapshot.keyboardOpen,
+        visualHeight: snapshot.visualHeight,
+        environment: snapshot.environment,
+        fullscreenState: snapshot.fullscreenState,
+        keyboardState: snapshot.keyboardState,
+        themeScale: snapshot.themeScale,
+        viewportOwner: snapshot.viewportOwner
       }
     }));
     if (shouldRevealKeyboardInput) {
@@ -147,59 +149,13 @@ export function syncAppViewportHeight() {
     window.setTimeout(scheduleViewportHeightSync, 360);
   };
 
-  const clearFallbackKeyboardTimer = () => {
-    if (!fallbackKeyboardTimer) return;
-    window.clearTimeout(fallbackKeyboardTimer);
-    fallbackKeyboardTimer = 0;
-  };
-
-  const hideEstimatedKeyboard = () => {
-    if (!estimatedNativeKeyboardOpen) return;
-    estimatedNativeKeyboardOpen = false;
-    nativeKeyboardOpen = false;
-    nativeKeyboardHeight = 0;
-  };
-
-  const scheduleNativeKeyboardFallback = () => {
-    if (!isNativePlatform || isIOS || !isKeyboardInput(document.activeElement) || nativeKeyboardOpen) return;
-    clearFallbackKeyboardTimer();
-    fallbackKeyboardTimer = window.setTimeout(() => {
-      fallbackKeyboardTimer = 0;
-      if (!isKeyboardInput(document.activeElement) || nativeKeyboardOpen) return;
-
-      const visualViewport = window.visualViewport;
-      const viewportHeight = Math.round(visualViewport?.height ?? window.innerHeight);
-      const viewportOffsetTop = Math.round(visualViewport?.offsetTop ?? 0);
-      const viewportOverlap = visualViewport
-        ? Math.max(0, Math.round(window.innerHeight - visualViewport.height - viewportOffsetTop))
-        : 0;
-      const viewportDelta = Math.max(0, stableViewportHeight - viewportHeight);
-      const layoutViewportDelta = Math.max(0, stableLayoutViewportHeight - window.innerHeight);
-      if (Math.max(viewportOverlap, viewportDelta, layoutViewportDelta) > 80) return;
-
-      const baseHeight = Math.max(stableViewportHeight, stableLayoutViewportHeight);
-      const preferredHeight = Math.max(220, Math.min(420, Math.round(baseHeight * 0.42)));
-      const estimatedHeight = Math.min(preferredHeight, Math.max(0, baseHeight - 320));
-      if (estimatedHeight <= 80) return;
-
-      estimatedNativeKeyboardOpen = true;
-      nativeKeyboardOpen = true;
-      nativeKeyboardHeight = estimatedHeight;
-      scheduleViewportHeightSync();
-    }, 320);
-  };
-
   if (isNativePlatform && Capacitor.isPluginAvailable('Keyboard')) {
     const showKeyboard = (keyboardHeight: number) => {
-      clearFallbackKeyboardTimer();
-      estimatedNativeKeyboardOpen = false;
       nativeKeyboardOpen = true;
       nativeKeyboardHeight = Math.max(0, Math.round(keyboardHeight));
       scheduleViewportHeightSync();
     };
     const hideKeyboard = () => {
-      clearFallbackKeyboardTimer();
-      estimatedNativeKeyboardOpen = false;
       nativeKeyboardOpen = false;
       nativeKeyboardHeight = 0;
       scheduleViewportHeightSync();
@@ -223,13 +179,13 @@ export function syncAppViewportHeight() {
   window.visualViewport?.addEventListener('scroll', scheduleViewportHeightSync, { passive: true });
   document.addEventListener('focusin', () => {
     scheduleViewportHeightSync();
-    scheduleNativeKeyboardFallback();
   }, { passive: true });
   document.addEventListener('focusout', () => {
-    clearFallbackKeyboardTimer();
     window.setTimeout(() => {
-      if (isKeyboardInput(document.activeElement)) scheduleNativeKeyboardFallback();
-      else hideEstimatedKeyboard();
+      if (!isKeyboardInput(document.activeElement)) {
+        nativeKeyboardOpen = false;
+        nativeKeyboardHeight = 0;
+      }
       scheduleIOSPwaViewportRecovery();
     }, 120);
   }, { passive: true });
@@ -237,4 +193,5 @@ export function syncAppViewportHeight() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') scheduleIOSPwaViewportRecovery();
   });
+  window.addEventListener('link:theme-scale-change', scheduleViewportHeightSync, { passive: true });
 }

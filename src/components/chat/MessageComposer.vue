@@ -83,6 +83,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'cancel-quote': [];
   'capture-photo': [file: File];
+  'file-picker-open': [kind: 'camera'];
+  'file-picker-close': [kind: 'camera'];
   blur: [];
   focus: [];
   'prepare-focus': [];
@@ -244,6 +246,7 @@ function pressSendButton() {
 }
 
 function openCameraInput() {
+  emit('file-picker-open', 'camera');
   cameraInputRef.value?.click();
 }
 
@@ -257,6 +260,7 @@ function handleCameraFile(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = '';
+  emit('file-picker-close', 'camera');
   if (file?.type.startsWith('image/')) emit('capture-photo', file);
 }
 
@@ -277,6 +281,7 @@ watch(text, (value) => {
 
 onBeforeUnmount(() => {
   flushDraftText();
+  emit('file-picker-close', 'camera');
   clearBlurTimer();
   if (resizeFrameId) window.cancelAnimationFrame(resizeFrameId);
 });

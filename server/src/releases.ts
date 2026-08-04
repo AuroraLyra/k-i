@@ -144,7 +144,21 @@ async function authorizeIosSourceToken(token: string) {
   return result.rows[0]?.qq ?? null;
 }
 
+export function desktopBridgeReleaseUrl(platform: ReleaseRow['platform'], versionName: string) {
+  if (!['desktop-macos', 'desktop-windows'].includes(platform) || !/^[0-9A-Za-z._-]{1,40}$/.test(versionName)) return '';
+  const suffix = platform === 'desktop-macos' ? 'mac-arm64.dmg' : 'win-x64.exe';
+  const tag = encodeURIComponent(`bridge-v${versionName}`);
+  const asset = encodeURIComponent(`BabyLink-Bridge-${versionName}-${suffix}`);
+  return `${config.bridgeReleaseBaseUrl}/${tag}/${asset}`;
+}
+
 async function sendReleaseFile(reply: FastifyReply, release: ReleaseRow) {
+  const externalUrl = desktopBridgeReleaseUrl(release.platform, release.version_name);
+  if (externalUrl) {
+    reply.header('X-Content-SHA256', release.sha256);
+    reply.header('Cache-Control', 'private, no-store');
+    return reply.redirect(externalUrl);
+  }
   const fileName = safeFileName(release.file_name);
   const filePath = join(config.releaseDir, fileName);
   try {

@@ -49,11 +49,13 @@ import GlobalSmallTheaterNotice from '@/components/common/GlobalSmallTheaterNoti
 import GlobalVoomNotice from '@/components/common/GlobalVoomNotice.vue';
 import { startAccessHeartbeat } from '@/services/access';
 import { syncKeepAlive } from '@/services/keepAlive';
+import { createRuntimeWorkScheduler } from '@/services/runtimeWorkScheduler';
 import { setFullscreenEnabled } from '@/services/systemBars';
 import { cacheThemeFontEntry, getThemeFontCss, getThemeFontFileUrl, hasPersistedThemeFontCache, isThemeFontStylesheetEntry } from '@/services/themeFontCache';
 import { useAppStore } from '@/stores/appStore';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import type { ThemeFontEntry, ThemeStylePreset, ThemeStyleScopeSettings } from '@/types/domain';
+import { upgradeLegacyOnlineThemeCss } from '@/utils/themeCssCompatibility';
 import { normalizeGlobalThemeScale } from '@/utils/themeScale';
 import { defaultGlobalThemeCss, defaultGlobalThemePresetId, defaultOfflineThemeCss, defaultOfflineThemePresetId, defaultOnlineThemeCss, defaultOnlineThemePresetId } from '@/utils/themeStyles';
 
@@ -63,9 +65,6 @@ const router = useRouter();
 const musicPlayer = useMusicPlayerStore();
 const musicAudioRef = ref<HTMLAudioElement | null>(null);
 const configAlertActionRunning = ref(false);
-let githubAutoBackupTimer: number | undefined;
-let cloudAutoBackupTimer: number | undefined;
-let proactiveSchedulerTimer: number | undefined;
 let proactiveSchedulerRunning = false;
 let proactiveSchedulerRerun = false;
 let stopCapacitorResumeListener: (() => void) | undefined;
@@ -93,6 +92,7 @@ const legacyGlobalScaleVariableNames = [
   '--tab-height'
 ];
 const cachingThemeFontIds = new Set<string>();
+const runtimeWorkScheduler = createRuntimeWorkScheduler();
 
 const showDisclaimer = computed(() => store.ready && !store.settings?.disclaimerAccepted);
 const githubBackupScheduleKey = computed(() => {
@@ -154,9 +154,10 @@ function clampGlobalCallFloatPosition(x: number, y: number) {
   const padding = 8;
   const floatWidth = 166;
   const floatHeight = 64;
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
   return {
     x: Math.min(Math.max(padding, x), Math.max(padding, window.innerWidth - floatWidth - padding)),
-    y: Math.min(Math.max(padding + 36, y), Math.max(padding + 36, window.innerHeight - floatHeight - padding))
+    y: Math.min(Math.max(padding + 36, y), Math.max(padding + 36, viewportHeight - floatHeight - padding))
   };
 }
 
@@ -287,6 +288,7 @@ function applyGlobalThemeScale() {
   root.style.setProperty('--app-display-scale', scale.toFixed(3));
   legacyGlobalScaleVariableNames.forEach((name) => root.style.removeProperty(name));
   document.body.style.setProperty('zoom', isIOSPwa ? '1' : scale.toFixed(3));
+  window.dispatchEvent(new Event('link:theme-scale-change'));
 }
 
 function applyThemeFonts() {
@@ -359,12 +361,12 @@ function resolveThemePresetCss(settings: ThemeStyleScopeSettings, defaultPresetI
 
 function applyOnlineThemeStyles() {
   if (typeof document === 'undefined') return;
-  getOnlineThemeStyleElement().textContent = resolveThemePresetCss(
+  getOnlineThemeStyleElement().textContent = upgradeLegacyOnlineThemeCss(resolveThemePresetCss(
     onlineThemeSettings.value,
     defaultOnlineThemePresetId,
     defaultOnlineThemeCss,
     routeCharacter.value?.themeStyleBindings?.onlinePresetId
-  );
+  ));
 }
 
 function applyGlobalThemeStyles() {
@@ -386,25 +388,25 @@ function applyOfflineThemeStyles() {
   );
 }
 
-function clearGitHubAutoBackupTimer() {
-  if (!githubAutoBackupTimer) return;
-  window.clearInterval(githubAutoBackupTimer);
-  githubAutoBackupTimer = undefined;
-}
-
 function getGitHubBackupIntervalMs() {
   const minutes = Math.max(1, store.settings?.githubBackup.intervalMinutes ?? 30);
   return minutes * 60 * 1000;
 }
 
-function clearCloudAutoBackupTimer() {
-  if (cloudAutoBackupTimer === undefined) return;
-  window.clearInterval(cloudAutoBackupTimer);
-  cloudAutoBackupTimer = undefined;
-}
-
 function getCloudBackupIntervalMs() {
   return Math.max(5, store.settings?.cloudBackup.intervalMinutes ?? 30) * 60 * 1000;
+}
+
+function nextGitHubBackupAt() {
+  const backup = store.settings?.githubBackup;
+  if (!backup?.lastBackupAt) return Date.now();
+  return Math.max(Date.now(), backup.lastBackupAt + getGitHubBackupIntervalMs());
+}
+
+function nextCloudBackupAt() {
+  const backup = store.settings?.cloudBackup;
+  if (!backup?.lastBackupAt) return Date.now();
+  return Math.max(Date.now(), backup.lastBackupAt + getCloudBackupIntervalMs());
 }
 
 async function runCloudAutoBackupIfDue() {
@@ -432,30 +434,81 @@ async function runGitHubAutoBackupIfDue() {
   }
 }
 
-watch(
-  githubBackupScheduleKey,
-  (scheduleKey) => {
-    clearGitHubAutoBackupTimer();
-    if (!scheduleKey) return;
+async function scheduleGitHubBackupWork() {
+  if (!store.ready) return;
+  if (!githubBackupScheduleKey.value) {
+    await runtimeWorkScheduler.cancel('backup-github');
+    return;
+  }
+  await runtimeWorkScheduler.schedule({
+    id: 'backup-github',
+    kind: 'backup-github',
+    nextRunAt: nextGitHubBackupAt(),
+    idempotencyKey: `backup-github:${githubBackupScheduleKey.value}`
+  });
+}
 
-    void runGitHubAutoBackupIfDue();
-    githubAutoBackupTimer = window.setInterval(() => {
-      void runGitHubAutoBackupIfDue();
-    }, getGitHubBackupIntervalMs());
-  },
-  { immediate: true }
-);
+async function scheduleCloudBackupWork() {
+  if (!store.ready) return;
+  if (!cloudBackupScheduleKey.value) {
+    await runtimeWorkScheduler.cancel('backup-cloud');
+    return;
+  }
+  await runtimeWorkScheduler.schedule({
+    id: 'backup-cloud',
+    kind: 'backup-cloud',
+    nextRunAt: nextCloudBackupAt(),
+    idempotencyKey: `backup-cloud:${cloudBackupScheduleKey.value}`
+  });
+}
 
-watch(
-  cloudBackupScheduleKey,
-  (scheduleKey) => {
-    clearCloudAutoBackupTimer();
-    if (!scheduleKey) return;
-    void runCloudAutoBackupIfDue();
-    cloudAutoBackupTimer = window.setInterval(() => void runCloudAutoBackupIfDue(), getCloudBackupIntervalMs());
-  },
-  { immediate: true }
-);
+async function scheduleKeepAliveReconcileWork() {
+  if (!store.ready) return;
+  if (!keepAliveSettings.value?.enabled) {
+    await runtimeWorkScheduler.cancel('keep-alive-reconcile');
+    return;
+  }
+  await runtimeWorkScheduler.schedule({
+    id: 'keep-alive-reconcile',
+    kind: 'keep-alive-reconcile',
+    nextRunAt: Date.now(),
+    idempotencyKey: 'keep-alive-reconcile'
+  });
+}
+
+async function scheduleProactiveWork(nextRunAt = Date.now()) {
+  if (!store.ready) return;
+  await runtimeWorkScheduler.schedule({
+    id: 'proactive',
+    kind: 'proactive',
+    nextRunAt,
+    idempotencyKey: 'proactive'
+  });
+}
+
+runtimeWorkScheduler.register('backup-github', async () => {
+  if (!store.ready) return { nextRunAt: Date.now() + 60_000 };
+  await runGitHubAutoBackupIfDue();
+  return { nextRunAt: nextGitHubBackupAt() };
+});
+runtimeWorkScheduler.register('backup-cloud', async () => {
+  if (!store.ready) return { nextRunAt: Date.now() + 60_000 };
+  await runCloudAutoBackupIfDue();
+  return { nextRunAt: nextCloudBackupAt() };
+});
+runtimeWorkScheduler.register('keep-alive-reconcile', async () => {
+  if (!store.ready) return { nextRunAt: Date.now() + 60_000 };
+  syncKeepAlive(keepAliveSettings.value);
+  return { nextRunAt: Date.now() + 60_000 };
+});
+runtimeWorkScheduler.register('proactive', async () => {
+  if (!store.ready) return { nextRunAt: Date.now() + 60_000 };
+  await runProactiveSchedulers();
+  return { nextRunAt: Date.now() + 60_000 };
+});
+
+watch(githubBackupScheduleKey, () => void scheduleGitHubBackupWork(), { immediate: true });
+watch(cloudBackupScheduleKey, () => void scheduleCloudBackupWork(), { immediate: true });
 
 watch(themeFontSettings, () => {
   applyThemeFonts();
@@ -477,7 +530,10 @@ watch(routeCharacter, () => {
   applyOnlineThemeStyles();
   applyOfflineThemeStyles();
 }, { immediate: true, deep: true });
-watch(keepAliveSettings, syncKeepAlive, { immediate: true, deep: true });
+watch(keepAliveSettings, (settings) => {
+  syncKeepAlive(settings);
+  void scheduleKeepAliveReconcileWork();
+}, { immediate: true, deep: true });
 
 async function runProactiveSchedulers() {
   if (!store.ready || !navigator.onLine) return;
@@ -503,20 +559,14 @@ async function runProactiveSchedulers() {
 }
 
 function requestProactiveSchedulerRun() {
-  void runProactiveSchedulers();
-}
-
-function clearProactiveSchedulerTimer() {
-  if (proactiveSchedulerTimer === undefined) return;
-  window.clearInterval(proactiveSchedulerTimer);
-  proactiveSchedulerTimer = undefined;
+  void scheduleProactiveWork().then(() => runtimeWorkScheduler.runDue('proactive'));
 }
 
 watch(() => store.ready, (ready) => {
-  clearProactiveSchedulerTimer();
   if (!ready) return;
+  runtimeWorkScheduler.start();
   requestProactiveSchedulerRun();
-  proactiveSchedulerTimer = window.setInterval(requestProactiveSchedulerRun, 60_000);
+  void scheduleKeepAliveReconcileWork();
 }, { immediate: true });
 
 onMounted(() => {
@@ -537,7 +587,7 @@ onMounted(() => {
 });
 
 function handleCloudVisibilityChange() {
-  if (document.visibilityState === 'visible') void runCloudAutoBackupIfDue();
+  if (document.visibilityState === 'visible') void runtimeWorkScheduler.runDue();
 }
 
 onBeforeUnmount(() => {
@@ -549,9 +599,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', requestProactiveSchedulerRun);
   window.removeEventListener('pageshow', requestProactiveSchedulerRun);
   window.removeEventListener('online', requestProactiveSchedulerRun);
-  clearGitHubAutoBackupTimer();
-  clearCloudAutoBackupTimer();
-  clearProactiveSchedulerTimer();
+  runtimeWorkScheduler.stop();
   setAppFontFamily('');
   document.documentElement.style.removeProperty('--app-display-scale');
   legacyGlobalScaleVariableNames.forEach((name) => document.documentElement.style.removeProperty(name));

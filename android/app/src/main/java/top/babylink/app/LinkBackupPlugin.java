@@ -79,7 +79,7 @@ public class LinkBackupPlugin extends Plugin {
             requestPermissionForAlias("storage", call, "beginStoragePermissionCallback");
             return;
         }
-        beginArchiveData(call);
+        beginArchiveData(call, true);
     }
 
     @PermissionCallback
@@ -89,21 +89,41 @@ public class LinkBackupPlugin extends Plugin {
             call.reject("需要存储权限才能导出备份。");
             return;
         }
-        beginArchiveData(call);
+        beginArchiveData(call, true);
     }
 
-    private void beginArchiveData(PluginCall call) {
+    @PluginMethod
+    public void beginArchiveStream(PluginCall call) {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P && getPermissionState("storage") != PermissionState.GRANTED) {
+            requestPermissionForAlias("storage", call, "beginStreamStoragePermissionCallback");
+            return;
+        }
+        beginArchiveData(call, false);
+    }
+
+    @PermissionCallback
+    private void beginStreamStoragePermissionCallback(PluginCall call) {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
+            && ContextCompat.checkSelfPermission(getContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            call.reject("需要存储权限才能导出备份。");
+            return;
+        }
+        beginArchiveData(call, false);
+    }
+
+    private void beginArchiveData(PluginCall call, boolean requireExpectedBytes) {
         String fileName = sanitizeFileName(call.getString("fileName", "link-backup.zip"));
         Object totalBytesValue = call.getData().opt("totalBytes");
         long totalBytes = totalBytesValue instanceof Number ? ((Number) totalBytesValue).longValue() : 0L;
-        if (totalBytes <= 0 || totalBytes > MAX_ARCHIVE_BYTES) {
+        if (requireExpectedBytes && (totalBytes <= 0 || totalBytes > MAX_ARCHIVE_BYTES)) {
             call.reject("备份大小无效或超过 1GB。");
             return;
         }
+        final long archiveTotalBytes = requireExpectedBytes ? totalBytes : -1L;
 
         archiveExecutor.execute(() -> {
             try {
-                ArchiveSession session = createArchiveSession(fileName, totalBytes);
+                ArchiveSession session = createArchiveSession(fileName, archiveTotalBytes);
                 archiveSessions.put(session.id, session);
                 JSObject result = new JSObject();
                 result.put("sessionId", session.id);
@@ -133,9 +153,13 @@ public class LinkBackupPlugin extends Plugin {
             }
             try {
                 byte[] bytes = Base64.decode(data, Base64.DEFAULT);
-                if (session.writtenBytes + bytes.length > session.expectedBytes) throw new IOException("备份分片超过预期大小。");
+                long nextWrittenBytes = session.writtenBytes + bytes.length;
+                if (nextWrittenBytes > MAX_ARCHIVE_BYTES
+                    || session.expectedBytes >= 0 && nextWrittenBytes > session.expectedBytes) {
+                    throw new IOException("备份分片超过允许大小。");
+                }
                 session.output.write(bytes);
-                session.writtenBytes += bytes.length;
+                session.writtenBytes = nextWrittenBytes;
                 JSObject result = new JSObject();
                 result.put("writtenBytes", session.writtenBytes);
                 call.resolve(result);
@@ -157,7 +181,7 @@ public class LinkBackupPlugin extends Plugin {
                 return;
             }
             try {
-                if (session.writtenBytes != session.expectedBytes) {
+                if (session.writtenBytes <= 0 || session.expectedBytes >= 0 && session.writtenBytes != session.expectedBytes) {
                     throw new IOException("备份写入不完整：" + session.writtenBytes + "/" + session.expectedBytes + "。");
                 }
                 session.output.flush();
@@ -274,12 +298,12 @@ public class LinkBackupPlugin extends Plugin {
 
     private String completeSession(ArchiveSession session) throws Exception {
         if (session.uri != null) {
-            return publishMediaStoreArchive(session.uri, session.requestedFileName, session.expectedBytes);
+            return publishMediaStoreArchive(session.uri, session.requestedFileName, session.writtenBytes);
         }
         if (session.partialFile == null || session.finalFile == null || !session.partialFile.renameTo(session.finalFile)) {
             throw new IOException("无法完成备份文件写入。");
         }
-        if (!session.finalFile.isFile() || session.finalFile.length() != session.expectedBytes) {
+        if (!session.finalFile.isFile() || session.finalFile.length() != session.writtenBytes) {
             throw new IOException("系统未确认备份文件写入完成。");
         }
         MediaScannerConnection.scanFile(getContext(), new String[] { session.finalFile.getAbsolutePath() }, new String[] { "application/zip" }, null);

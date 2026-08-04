@@ -115,7 +115,7 @@ interface WakeLockRequester {
   };
 }
 
-const heartbeatMs = 15_000;
+const heartbeatMs = 60_000;
 
 const status: KeepAliveRuntimeStatus = {
   enabled: false,
@@ -145,6 +145,7 @@ let audioSource: AudioBufferSourceNode | null = null;
 let audioGain: GainNode | null = null;
 let wakeLock: WakeLockSentinel | null = null;
 let heartbeatTimer: number | undefined;
+let silentAudioResumeTimer: number | undefined;
 let listenersInstalled = false;
 const statusListeners = new Set<(nextStatus: KeepAliveRuntimeStatus) => void>();
 
@@ -221,14 +222,16 @@ function getSilentAudio() {
   silentAudioObjectUrl = createSilentAudioObjectUrl();
   silentAudio = new Audio(silentAudioObjectUrl);
   silentAudio.loop = true;
-  silentAudio.muted = true;
-  silentAudio.volume = 0;
+  silentAudio.muted = false;
+  silentAudio.volume = 0.001;
   silentAudio.preload = 'auto';
+  silentAudio.autoplay = true;
   silentAudio.setAttribute('playsinline', 'true');
   silentAudio.setAttribute('aria-hidden', 'true');
   silentAudio.addEventListener('pause', () => {
     status.silentAudioActive = false;
     emitStatus();
+    scheduleSilentAudioResume(180);
   });
   silentAudio.addEventListener('playing', () => {
     status.silentAudioActive = true;
@@ -313,6 +316,21 @@ async function startWebAudio() {
   }
 }
 
+function clearSilentAudioResumeTimer() {
+  if (!silentAudioResumeTimer) return;
+  window.clearTimeout(silentAudioResumeTimer);
+  silentAudioResumeTimer = undefined;
+}
+
+function scheduleSilentAudioResume(delay = 0) {
+  if (!status.enabled || !currentSettings.silentAudio || typeof window === 'undefined') return;
+  if (silentAudioResumeTimer) return;
+  silentAudioResumeTimer = window.setTimeout(() => {
+    silentAudioResumeTimer = undefined;
+    void resumeKeepAlive();
+  }, delay);
+}
+
 async function requestWakeLock() {
   if (!currentSettings.wakeLock || typeof document === 'undefined' || document.visibilityState !== 'visible') return;
   const wakeNavigator = navigator as Navigator & WakeLockRequester;
@@ -341,6 +359,10 @@ function releaseWakeLock() {
 async function resumeKeepAlive() {
   if (!status.enabled) return;
   status.lastBeatAt = Date.now();
+  if (currentSettings.silentAudio) {
+    await startSilentAudio();
+    await startWebAudio();
+  }
   if (isNativeKeepAliveAvailable()) {
     try {
       const nativeStatus = await getNativeKeepAliveStatus();
@@ -351,9 +373,6 @@ async function resumeKeepAlive() {
     } catch (error) {
       setLastError(error, 'Android 原生保活启动失败，请重新打开应用后重试。');
     }
-  } else if (currentSettings.silentAudio) {
-    await startSilentAudio();
-    await startWebAudio();
   }
   if (!isNativeKeepAliveAvailable()) await requestWakeLock();
   navigator.serviceWorker?.controller?.postMessage({ type: 'LINK_KEEP_ALIVE_PING', at: status.lastBeatAt });
@@ -374,6 +393,10 @@ function stopHeartbeat() {
   status.heartbeatActive = false;
 }
 
+export function requestSilentKeepAliveResume() {
+  scheduleSilentAudioResume();
+}
+
 function installListeners() {
   if (listenersInstalled || typeof window === 'undefined') return;
   listenersInstalled = true;
@@ -388,6 +411,7 @@ function installListeners() {
 }
 
 function stopSilentAudio() {
+  clearSilentAudioResumeTimer();
   if (silentAudio) {
     silentAudio.pause();
     silentAudio.currentTime = 0;
@@ -493,8 +517,8 @@ export async function startKeepAlive(settings: Partial<AppKeepAliveSettings> | n
   status.supported = typeof window !== 'undefined';
   installListeners();
   startHeartbeat();
-  if (options.requestNotifications && currentSettings.notifications) await requestKeepAliveNotificationPermission();
   await resumeKeepAlive();
+  if (options.requestNotifications && currentSettings.notifications) await requestKeepAliveNotificationPermission();
   if (isNativeKeepAliveAvailable()) await refreshNativeStatus().catch(() => undefined);
   return getKeepAliveStatus();
 }
@@ -502,6 +526,7 @@ export async function startKeepAlive(settings: Partial<AppKeepAliveSettings> | n
 export function stopKeepAlive() {
   currentSettings = normalizeKeepAliveSettings({ ...currentSettings, enabled: false });
   status.enabled = false;
+  clearSilentAudioResumeTimer();
   stopHeartbeat();
   stopSilentAudio();
   stopWebAudio();

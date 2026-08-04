@@ -1,6 +1,7 @@
 import type { CloudBackupProvider, CloudBackupSettings } from '@/types/domain';
-import { decryptLinkBackupBlob, encryptLinkBackupBlob } from '@/services/encryptedBackup';
-import { parseLinkBackupFileText, stringifyLinkBackupFile, type LinkBackupFile } from '@/utils/backup';
+import { decryptLinkBackupBlob, decryptLinkBackupFile, encryptLinkBackupBlob, encryptLinkBackupFile } from '@/services/encryptedBackup';
+import { createLinkBackupArchiveTemporaryFile, isLinkBackupArchive, parseLinkBackupBlob, parseLinkBackupFileText, stringifyLinkBackupFile, type LinkBackupArchive, type LinkBackupFile } from '@/utils/backup';
+import { canUseBackupTemporaryFiles, createBackupTemporaryFileWriter, type BackupTemporaryFile } from '@/utils/backupTemporaryFile';
 
 const oauthStateStorageKey = 'link:cloud-backup-oauth';
 const cloudBackupMimeType = 'application/vnd.babylink.encrypted-backup';
@@ -57,6 +58,12 @@ export interface CloudBackupTransferResult extends CloudAuthSession {
   backup: LinkBackupFile;
   remoteFileId: string;
   byteLength: number;
+}
+
+interface CloudBackupDownloadResult {
+  file: Blob;
+  remoteFileId: string;
+  cleanup?: () => Promise<void>;
 }
 
 export type CloudBackupProgressCallback = (progress: CloudBackupTransferProgress) => void | Promise<void>;
@@ -306,6 +313,28 @@ async function emitProgress(callback: CloudBackupProgressCallback | undefined, l
   await callback?.({ label, percent: Math.min(100, Math.max(0, Math.round(percent))) });
 }
 
+async function saveCloudDownloadResponse(response: Response, remoteFileId = ''): Promise<CloudBackupDownloadResult> {
+  if (!canUseBackupTemporaryFiles() || !response.body) {
+    return { file: await response.blob(), remoteFileId };
+  }
+
+  const writer = await createBackupTemporaryFileWriter('link-cloud-download');
+  const reader = response.body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value?.byteLength) await writer.write(new Blob([value], { type: cloudBackupMimeType }));
+    }
+    const file = await writer.close();
+    return { file: file.file, remoteFileId, cleanup: file.cleanup };
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    await writer.abort();
+    throw error;
+  }
+}
+
 function responseCanRetry(response: Response) {
   return response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500;
 }
@@ -401,7 +430,7 @@ async function downloadGoogleDrive(settings: CloudBackupSettings, auth: CloudAut
   if (!fileId) throw new CloudBackupError('Google Drive 中还没有 BabyLink 备份。', 404);
   const response = await fetch(`${googleDriveApi}/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${auth.accessToken}` } });
   if (!response.ok) throw new CloudBackupError(await parseErrorResponse(response, '下载 Google Drive 备份失败。'), response.status);
-  return { blob: await response.blob(), remoteFileId: fileId };
+  return await saveCloudDownloadResponse(response, fileId);
 }
 
 async function uploadOneDrive(settings: CloudBackupSettings, auth: CloudAuthSession, blob: Blob, onProgress?: CloudBackupProgressCallback) {
@@ -422,7 +451,7 @@ async function downloadOneDrive(settings: CloudBackupSettings, auth: CloudAuthSe
   const fileName = encodePath(normalizeFileName(settings.fileName));
   const response = await fetch(`${microsoftGraphApi}/me/drive/special/approot:/${fileName}:/content`, { headers: { Authorization: `Bearer ${auth.accessToken}` } });
   if (!response.ok) throw new CloudBackupError(await parseErrorResponse(response, '下载 OneDrive 备份失败。'), response.status);
-  return { blob: await response.blob(), remoteFileId: '' };
+  return await saveCloudDownloadResponse(response);
 }
 
 async function uploadDropbox(settings: CloudBackupSettings, auth: CloudAuthSession, blob: Blob, onProgress?: CloudBackupProgressCallback) {
@@ -493,7 +522,7 @@ async function downloadDropbox(settings: CloudBackupSettings, auth: CloudAuthSes
     }
   });
   if (!response.ok) throw new CloudBackupError(await parseErrorResponse(response, '下载 Dropbox 备份失败。'), response.status);
-  return { blob: await response.blob(), remoteFileId: '' };
+  return await saveCloudDownloadResponse(response);
 }
 
 function normalizeWorkerUrl(value: string) {
@@ -581,7 +610,7 @@ async function uploadR2Worker(settings: CloudBackupSettings, blob: Blob, exporte
 
 async function downloadR2Worker(settings: CloudBackupSettings) {
   const response = await r2WorkerRequest(settings, '/api/backup');
-  return { blob: await response.blob(), remoteFileId: '' };
+  return await saveCloudDownloadResponse(response);
 }
 
 export function getR2WorkerDeployUrl() {
@@ -612,36 +641,75 @@ export async function testCloudBackupConnection(settings: CloudBackupSettings) {
   return auth;
 }
 
-export async function uploadEncryptedCloudBackup(settings: CloudBackupSettings, backup: LinkBackupFile, onProgress?: CloudBackupProgressCallback): Promise<CloudBackupTransferResult> {
+export async function uploadEncryptedCloudBackup(settings: CloudBackupSettings, backup: LinkBackupFile | LinkBackupArchive, onProgress?: CloudBackupProgressCallback): Promise<CloudBackupTransferResult> {
   if (!isCloudBackupConnected(settings)) throw new CloudBackupError('请先连接云盘并生成恢复密钥。');
   await emitProgress(onProgress, '正在设备内加密备份', 5);
-  const encrypted = await encryptLinkBackupBlob(stringifyLinkBackupFile(backup), settings.recoveryKey, backup.exportedAt, async (percent) => {
-    await emitProgress(onProgress, '正在设备内分块加密', 5 + percent * 0.25);
-  });
-  const auth = await refreshCloudAuth(settings);
-  let remoteFileId = settings.remoteFileId;
-  if (settings.provider === 'google-drive') remoteFileId = await uploadGoogleDrive(settings, auth, encrypted, onProgress);
-  else if (settings.provider === 'onedrive') remoteFileId = await uploadOneDrive(settings, auth, encrypted, onProgress);
-  else if (settings.provider === 'dropbox') remoteFileId = await uploadDropbox(settings, auth, encrypted, onProgress);
-  else await uploadR2Worker(settings, encrypted, backup.exportedAt, onProgress);
-  await emitProgress(onProgress, '云端加密备份已完成', 100);
-  return { backup, remoteFileId, byteLength: encrypted.size, ...auth };
+  let archiveFile: BackupTemporaryFile | null = null;
+  let encryptedFile: BackupTemporaryFile | null = null;
+  try {
+    const archive = isLinkBackupArchive(backup) ? backup : null;
+    if (archive) {
+      if (canUseBackupTemporaryFiles()) {
+        archiveFile = await createLinkBackupArchiveTemporaryFile(archive, 'link-cloud-backup.zip', async (percent) => {
+          await emitProgress(onProgress, '正在准备云端归档', percent * 0.2);
+        });
+        encryptedFile = await encryptLinkBackupFile(archiveFile.file, settings.recoveryKey, archive.backup.exportedAt, async (percent) => {
+          await emitProgress(onProgress, '正在设备内分块加密', 5 + percent * 0.25);
+        });
+      } else if (archive.media.length) {
+        throw new CloudBackupError('当前浏览器不支持含本地媒体的大文件云端备份。请使用最新 Chrome 或安装 BabyLink App 后重试。');
+      }
+    }
+    const plainBackup = isLinkBackupArchive(backup) ? backup.backup : backup;
+    const encrypted = encryptedFile?.file ?? await encryptLinkBackupBlob(stringifyLinkBackupFile(plainBackup), settings.recoveryKey, plainBackup.exportedAt, async (percent) => {
+      await emitProgress(onProgress, '正在设备内分块加密', 5 + percent * 0.25);
+    });
+    const exportedAt = isLinkBackupArchive(backup) ? backup.backup.exportedAt : backup.exportedAt;
+    const auth = await refreshCloudAuth(settings);
+    let remoteFileId = settings.remoteFileId;
+    if (settings.provider === 'google-drive') remoteFileId = await uploadGoogleDrive(settings, auth, encrypted, onProgress);
+    else if (settings.provider === 'onedrive') remoteFileId = await uploadOneDrive(settings, auth, encrypted, onProgress);
+    else if (settings.provider === 'dropbox') remoteFileId = await uploadDropbox(settings, auth, encrypted, onProgress);
+    else await uploadR2Worker(settings, encrypted, exportedAt, onProgress);
+    await emitProgress(onProgress, '云端加密备份已完成', 100);
+    return { backup: isLinkBackupArchive(backup) ? backup.backup : backup, remoteFileId, byteLength: encrypted.size, ...auth };
+  } finally {
+    await archiveFile?.cleanup();
+    await encryptedFile?.cleanup();
+  }
 }
 
 export async function downloadEncryptedCloudBackup(settings: CloudBackupSettings, onProgress?: CloudBackupProgressCallback): Promise<CloudBackupTransferResult> {
   if (!isCloudBackupConnected(settings)) throw new CloudBackupError('请先连接云盘并填写恢复密钥。');
   await emitProgress(onProgress, '正在从你的云盘下载密文', 10);
   const auth = await refreshCloudAuth(settings);
-  let result: { blob: Blob; remoteFileId: string };
+  let result: CloudBackupDownloadResult;
   if (settings.provider === 'google-drive') result = await downloadGoogleDrive(settings, auth);
   else if (settings.provider === 'onedrive') result = await downloadOneDrive(settings, auth);
   else if (settings.provider === 'dropbox') result = await downloadDropbox(settings, auth);
   else result = await downloadR2Worker(settings);
-  await emitProgress(onProgress, '正在设备内解密备份', 55);
-  const text = await decryptLinkBackupBlob(result.blob, settings.recoveryKey, async (percent) => {
-    await emitProgress(onProgress, '正在设备内分块解密', 55 + percent * 0.4);
-  });
-  const backup = parseLinkBackupFileText(text);
-  await emitProgress(onProgress, '云端备份已解密', 100);
-  return { backup, remoteFileId: result.remoteFileId, byteLength: result.blob.size, ...auth };
+  try {
+    await emitProgress(onProgress, '正在设备内解密备份', 55);
+    let backup: LinkBackupFile;
+    if (canUseBackupTemporaryFiles()) {
+      let decryptedFile: BackupTemporaryFile | null = null;
+      try {
+        decryptedFile = await decryptLinkBackupFile(result.file, settings.recoveryKey, async (percent) => {
+          await emitProgress(onProgress, '正在设备内分块解密', 55 + percent * 0.4);
+        });
+        backup = await parseLinkBackupBlob(decryptedFile.file);
+      } finally {
+        await decryptedFile?.cleanup();
+      }
+    } else {
+      const text = await decryptLinkBackupBlob(result.file, settings.recoveryKey, async (percent) => {
+        await emitProgress(onProgress, '正在设备内分块解密', 55 + percent * 0.4);
+      });
+      backup = parseLinkBackupFileText(text);
+    }
+    await emitProgress(onProgress, '云端备份已解密', 100);
+    return { backup, remoteFileId: result.remoteFileId, byteLength: result.file.size, ...auth };
+  } finally {
+    await result.cleanup?.();
+  }
 }

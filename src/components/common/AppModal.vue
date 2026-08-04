@@ -23,7 +23,7 @@ withDefaults(defineProps<{
   modelValue: boolean;
   title: string;
   showHeader?: boolean;
-  variant?: 'default' | 'profile' | 'ins' | 'profile-ins' | 'profile-theme';
+  variant?: 'default' | 'profile' | 'ins' | 'profile-ins' | 'profile-theme' | 'image-journal';
   fixedHeight?: boolean;
   eyebrow?: string;
 }>(), {
@@ -72,6 +72,15 @@ defineEmits<{
     rgba(47, 39, 36, 0.34);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
+}
+
+.modal-backdrop-image-journal {
+  z-index: 82;
+  align-items: center;
+  padding: max(14px, var(--safe-top)) calc(10px + var(--safe-right)) max(14px, calc(10px + var(--safe-bottom))) calc(10px + var(--safe-left));
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .modal-panel {
@@ -272,6 +281,51 @@ defineEmits<{
 .modal-panel-profile-theme .modal-body.modal-body-headerless {
   max-height: none;
   padding: 16px 14px calc(16px + var(--safe-bottom));
+}
+
+.modal-panel-image-journal {
+  width: min(100%, 560px);
+  max-height: calc(var(--app-height) - var(--safe-top) - var(--safe-bottom) - 28px);
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.modal-panel-image-journal .modal-header {
+  min-height: 48px;
+  padding: 8px 14px 7px 18px;
+  border-bottom-color: rgba(96, 77, 61, 0.08);
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.modal-panel-image-journal .modal-header h2 {
+  color: #4d443d;
+  font-family: Georgia, "Songti SC", serif;
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.modal-panel-image-journal .modal-header .icon-button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.56);
+  color: #776b62;
+}
+
+.modal-panel-image-journal .modal-body {
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.modal-panel-image-journal .modal-body.modal-body-headerless {
+  padding: 0;
 }
 
 .modal-panel .modal-body :deep(.form-grid),

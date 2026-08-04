@@ -8,7 +8,7 @@
       </div>
       <div class="top-actions">
         <button type="button" aria-label="清理思维记录" title="清理记录" @click="showCleanup = true"><Eraser :size="17" /></button>
-        <button type="button" aria-label="导入思维链" title="导入" @click="chooseJsonFile"><Upload :size="17" /></button>
+        <button type="button" aria-label="导入思维链 PNG" title="导入 PNG" @click="choosePngFile"><Upload :size="17" /></button>
         <button type="button" aria-label="分享思维链" title="分享" @click="openExporter"><Share2 :size="17" /></button>
         <button class="top-add" type="button" aria-label="新增思维链" title="新增" @click="openCreator"><Plus :size="18" /></button>
       </div>
@@ -63,7 +63,7 @@
       </section>
     </main>
 
-    <input ref="jsonInput" class="native-fallback-input" type="file" accept="application/json,.json" @change="selectJsonFile" />
+    <input ref="pngInput" class="native-fallback-input" type="file" accept="image/png,.png" @change="selectPngFile" />
 
     <AppModal v-model="showEditor" :title="editingTheme ? '编辑思维链' : '新增思维链'" eyebrow="VISIBLE REASONING" variant="profile-theme">
       <form class="thought-theme-form" @submit.prevent="saveTheme">
@@ -98,7 +98,7 @@
 
     <AppModal v-model="showExporter" title="分享思维链" eyebrow="VISIBLE REASONING" variant="profile-theme">
       <section class="export-panel">
-        <p>选择要分享的主题。导出的 JSON 可以在任意 LINK 设备导入，不会包含聊天记录或 API 配置。</p>
+        <p>选择要分享的主题。导出的 PNG 可以在任意 LINK 设备导入，不会包含聊天记录或 API 配置。</p>
         <label v-for="theme in themes" :key="theme.id" class="export-item">
           <input v-model="selectedExportThemeIds" type="checkbox" :value="theme.id" />
           <span><strong>{{ theme.name }}</strong><small>{{ theme.source === 'imported' ? '导入主题' : '自定义主题' }} · {{ countPromptLines(theme.prompt) }} 行提示</small></span>
@@ -106,7 +106,7 @@
         <p v-if="exportError" class="form-error">{{ exportError }}</p>
         <div class="form-actions">
           <button class="secondary" type="button" @click="showExporter = false">取消</button>
-          <button class="primary" type="button" :disabled="exporting || !selectedExportThemeIds.length" @click="exportSelectedThemes">{{ exporting ? '导出中...' : '导出分享' }}</button>
+          <button class="primary" type="button" :disabled="exporting || !selectedExportThemeIds.length" @click="exportSelectedThemes">{{ exporting ? '导出中...' : '导出 PNG' }}</button>
         </div>
       </section>
     </AppModal>
@@ -133,11 +133,11 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ArrowLeft, ArrowUpRight, Eraser, Plus, Share2, Sparkles, Upload } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
-import { pickNativeJsonFile, shareNativeDataUrl } from '@/services/nativeFile';
+import { pickNativePngFile, shareNativeDataUrl } from '@/services/nativeFile';
 import { useAppStore } from '@/stores/appStore';
 import type { ThoughtChainTheme } from '@/types/domain';
 import { downloadDataUrl } from '@/utils/download';
-import { composeThoughtChainThemeCode, decodeThoughtChainThemesFromText, defaultThoughtChainCode, defaultThoughtChainPrompt, encodeThoughtChainThemesToDataUrl, splitThoughtChainThemeCode } from '@/utils/thoughtChainThemes';
+import { composeThoughtChainThemeCode, decodeThoughtChainThemesFromPng, defaultThoughtChainCode, defaultThoughtChainPrompt, encodeThoughtChainThemesToPng, splitThoughtChainThemeCode } from '@/utils/thoughtChainThemes';
 
 const props = defineProps<{ id: string }>();
 const router = useRouter();
@@ -146,7 +146,7 @@ const showEditor = ref(false);
 const showExporter = ref(false);
 const showCleanup = ref(false);
 const editingThemeId = ref('');
-const jsonInput = ref<HTMLInputElement | null>(null);
+const pngInput = ref<HTMLInputElement | null>(null);
 const selectedExportThemeIds = ref<string[]>([]);
 const exportError = ref('');
 const exporting = ref(false);
@@ -232,29 +232,39 @@ async function deleteTheme() {
   editingThemeId.value = '';
 }
 
-function selectJsonFile(event: Event) {
+function selectPngFile(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0] ?? null;
   input.value = '';
   if (file) void importThemes(file);
 }
 
-async function chooseJsonFile() {
+async function choosePngFile() {
   try {
-    const file = await pickNativeJsonFile();
+    const file = await pickNativePngFile();
     if (file === undefined) {
-      jsonInput.value?.click();
+      pngInput.value?.click();
       return;
     }
     if (file) await importThemes(file);
   } catch (error) {
-    store.showConfigAlert(error instanceof Error ? error.message : '无法打开思维链主题文件。', '导入失败');
+    store.showConfigAlert(error instanceof Error ? error.message : '无法打开思维链主题 PNG。', '导入失败');
   }
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(String(reader.result ?? '')));
+    reader.addEventListener('error', () => reject(reader.error ?? new Error('读取 PNG 文件失败。')));
+    reader.readAsDataURL(file);
+  });
 }
 
 async function importThemes(file: File) {
   try {
-    const importedThemes = decodeThoughtChainThemesFromText(await file.text());
+    if (file.type && file.type !== 'image/png') throw new Error('请选择 PNG 格式的思维链主题图片。');
+    const importedThemes = await decodeThoughtChainThemesFromPng(await readFileAsDataUrl(file));
     const savedThemes = await store.importThoughtChainThemes(importedThemes);
     if (!savedThemes.length) throw new Error('文件中没有可用的思维链主题。');
     store.showConfigAlert(`已导入 ${savedThemes.length} 个思维链主题。`, '导入完成');
@@ -277,9 +287,9 @@ async function exportSelectedThemes() {
   }
   exporting.value = true;
   try {
-    const dataUrl = encodeThoughtChainThemesToDataUrl(selectedThemes);
+    const dataUrl = await encodeThoughtChainThemesToPng(selectedThemes);
     const firstName = selectedThemes[0]?.name.replace(/[^\u4e00-\u9fa5\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'thought-chain';
-    const fileName = `link-thought-chain-${firstName}-${Date.now()}.json`;
+    const fileName = `link-thought-chain-${firstName}-${Date.now()}.png`;
     if (!await shareNativeDataUrl(dataUrl, fileName)) await downloadDataUrl(dataUrl, fileName);
     showExporter.value = false;
   } catch (error) {

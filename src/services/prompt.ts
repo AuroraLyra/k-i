@@ -1,7 +1,7 @@
-import type { ChatMode, ConversationOfflineSettings, OfflinePromptPreset, OfflineStructureKind, PromptContext, WorldBookEntry, WorldBookLoreEntry } from '@/types/domain';
+import type { ChatMode, ConversationOfflineSettings, ConversationRoleGuidanceSettings, OfflinePromptPreset, OfflineStructureKind, PromptContext, WorldBookEntry, WorldBookLoreEntry } from '@/types/domain';
 import { offlineGuidancePrompts } from '@/data/offlineGuidance';
 import { normalizeTimeAwarenessSettings, renderTimeAwarenessPrompt } from '@/utils/timeAwareness';
-import { activeOfflineTonePreset, activeOfflineWritingStylePreset, defaultOfflineSettings, normalizeOfflineSettings } from '@/utils/memory';
+import { activeOfflineTonePreset, activeOfflineWritingStylePreset, defaultOfflineSettings, normalizeOfflineSettings, normalizeRoleGuidanceSettings } from '@/utils/memory';
 import { getCurrentUserTurnMessages } from '@/utils/messageTurns';
 import { getCharacterAiName } from '@/utils/character';
 import { formatChatMcpOperations } from '@/utils/mcpOperations';
@@ -248,17 +248,19 @@ export const onlineChatPunctuationPrompt = `线上聊天标点符号规范：聊
 懒人新潮流：空格和换行
 现在很多年轻人聊天或发评论时，会用空格或换行来代替标点符号进行断句。这既是为了输入方便，也形成了一种独特的阅读节奏感。`;
 
-export const onlineChatRoutineCarePrompt = `线上聊天日常关心规则：禁止把关心偷懒写成催睡觉、催休息、催下线或催吃饭。不要让角色形成“除了吃饭就是睡觉”的惯性思维。
+export const onlineChatRoutineCarePrompt = `线上交流中的关怀硬约束：
 
-禁止角色以任何形式催促{{user}}睡觉、休息、下线、起床、午睡、早睡、少熬夜、注意作息或保持健康作息；包括明示、暗示、提醒、说教、规劝、命令、撒娇式催促、关心包装和玩笑包装。
+最高优先级规则：除非{{user}}在本轮明确要求{{char}}提醒、催促或监督自己进食或入睡，否则{{char}}绝对不能推动{{user}}去吃东西，也绝对不能推动{{user}}去睡觉。这条规则高于角色性格、亲密关系、当前时间、身体常识、关心动机与聊天习惯；不能因为深夜、饭点、{{user}}显得疲惫、双方关系亲近或{{char}}出于好意而破例。
 
-禁止角色主动催{{user}}吃饭、问{{user}}吃没吃、劝{{user}}按时吃饭、提醒{{user}}别饿着、要求{{user}}去吃东西，或把“吃饭了吗/去吃饭吧”当成默认关心方式。
+关于进食，禁止生成任何具有行动导向的询问、建议、提醒、检查、命令、交换条件或后续追踪。不得询问{{user}}是否已经吃过，不得要求其现在去吃、按时吃、多吃一点、先吃完再聊，也不得用担忧、撒娇、玩笑、转账、外卖或礼物包装同一意图。{{user}}主动谈到食物、饥饿或某顿饭时，可以讨论味道、选择、经历和当下感受，但不能把话题转成让{{user}}采取进食行动。
 
-禁止角色随时随意提议、要求或自行进入睡眠、休息、下线状态，例如“我睡了”“我先睡啦”“晚安”“你也早点睡”“不聊了去休息”等；除非用户明确要求结束对话或当前上下文已经自然走到分别。
+关于睡眠，禁止生成任何让{{user}}结束活动并进入睡眠、休息或离线状态的内容。不得询问其为何还没睡，不得要求其少熬夜、早点睡、补觉、先休息、放下手机或改正作息，也不得借告别、体贴、亲昵、责备、玩笑或角色强势性格表达同一要求。{{user}}主动谈到困倦、失眠、做梦或熬夜时，可以回应其描述与情绪，但不能把回应变成睡眠安排。
 
-如果用户主动提到困、累、饿、没吃饭、熬夜或身体不舒服，可以简短回应当下文字内容，但不要长篇健康说教，不要变成监护式督促；优先保持聊天的具体语境、情绪承接和角色本人的真实反应。
+禁止间接催促。疑问句、反问句、暗示、条件句、角色动作、旁白、语音、Sticker、引用消息以及“我只是担心你”之类的理由都不能规避以上限制。只要一句话的实际作用是让{{user}}去吃或去睡，无论措辞多柔和、多符合人设，都必须删除并重写。
 
-角色表达在意时，应从当前对话、关系距离、角色性格、具体事件和真实情绪出发，可以用陪聊、接话、转移话题、玩笑、沉默、发 Sticker、轻轻带过等方式，不要机械落到“去睡觉/去吃饭/注意身体”。`;
+不要依据钟点自行判断{{user}}该吃饭或该睡觉，也不要把饮食和睡眠当作默认寒暄、万能安慰、转移话题或结束对话的方法。{{char}}需要表达在意时，应先理解{{user}}刚才真正谈论的事件、情绪、目标、困难与关系信号，再以符合人设的倾听、回应细节、分享近况、具体帮助、陪伴、幽默、沉默或其他不管理生活的方式作出反应。
+
+生成完成后检查所有将对{{user}}可见的内容：其中是否存在询问吃没吃、推动进食、推动入睡、推动休息、纠正作息或以离线结束交流的意思。只要存在，不得输出局部改写版本，必须重新组织整轮回应，直到完全没有催吃饭和催睡觉的意图。`;
 
 export const profileMutationPrompt = `补充输出规则：
 
@@ -741,7 +743,7 @@ function renderOfflineLengthInstruction(enabled: boolean, wordCount: string) {
 5. 当本轮核心事件已经获得回应并来到新的用户选择点时停止，不用总结全文、预告下一章或追加第二个结尾。`;
 }
 
-function renderOfflineGuidanceInstruction(settings: ConversationOfflineSettings) {
+function renderRoleGuidanceInstruction(settings: ConversationRoleGuidanceSettings) {
   const enabledGuidance = [
     settings.emotionalGuidance ? offlineGuidancePrompts.emotionalGuidance : '',
     settings.desireRestraint ? offlineGuidancePrompts.desireRestraint : '',
@@ -797,7 +799,7 @@ function renderOfflineSettingsPrompt(settings: ConversationOfflineSettings | nul
     renderOfflineOutfitInstruction(offlineSettings.enhanceOutfit),
     renderOfflineLengthInstruction(offlineSettings.expandLength, offlineSettings.wordCount),
     renderOfflineStructureInstruction(offlineSettings, 'paragraph', offlineParagraphInstruction[offlineSettings.paragraphMode], characterName, userName),
-    renderOfflineGuidanceInstruction(offlineSettings),
+    renderRoleGuidanceInstruction(offlineSettings),
     offlineSelfReviewPrompt
   ].join('\n');
 }
@@ -1161,6 +1163,7 @@ export function buildPrompt(context: PromptContext, options: { includeOnlineChat
     }),
     modeInstructions[context.mode],
     context.mode === 'offline' ? renderOfflineSettingsPrompt(context.offlineSettings, context) : '',
+    context.mode === 'online' ? renderRoleGuidanceInstruction(normalizeRoleGuidanceSettings(context.onlineGuidance)) : '',
     context.mode === 'online' && options.includeOnlineChatPunctuation !== false ? onlineChatPunctuationPrompt : '',
     context.mode === 'online' && options.includeOnlineRoutineCare !== false ? replaceTokens(onlineChatRoutineCarePrompt, { '{{user}}': userName }) : '',
     context.mode === 'online' && options.includeOnlineStickerSemantics !== false ? onlineStickerSemanticsPrompt : '',

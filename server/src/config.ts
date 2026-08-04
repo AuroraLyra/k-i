@@ -22,11 +22,19 @@ function readList(name: string) {
 const nodeEnv = String(process.env.NODE_ENV ?? 'development').trim();
 const production = nodeEnv === 'production';
 const appOrigin = String(process.env.APP_ORIGIN ?? 'http://localhost:3000').replace(/\/+$/, '');
+const bridgeReleaseBaseUrl = String(process.env.BRIDGE_RELEASE_BASE_URL ?? 'https://github.com/babylink-themes/LINK/releases/download').replace(/\/+$/, '');
 
 try {
   new URL(appOrigin);
 } catch {
   throw new Error('APP_ORIGIN must be a valid absolute URL.');
+}
+
+try {
+  const parsedBridgeReleaseBaseUrl = new URL(bridgeReleaseBaseUrl);
+  if (parsedBridgeReleaseBaseUrl.protocol !== 'https:') throw new Error();
+} catch {
+  throw new Error('BRIDGE_RELEASE_BASE_URL must be a valid HTTPS URL.');
 }
 
 const challengeSecret = String(process.env.CHALLENGE_SECRET ?? (production ? '' : 'development-only-link-challenge-secret')).trim();
@@ -56,6 +64,11 @@ export const config = {
   adminToken: String(process.env.ADMIN_TOKEN ?? '').trim(),
   staticDir: resolve(process.env.STATIC_DIR ?? 'dist'),
   releaseDir: resolve(process.env.RELEASE_DIR ?? 'releases'),
+  bridgeReleaseBaseUrl,
+  imageProxyCacheDir: resolve(process.env.IMAGE_PROXY_CACHE_DIR ?? 'cache/image-proxy'),
+  imageProxyCacheTtlMs: readInteger('IMAGE_PROXY_CACHE_TTL_HOURS', 168, 1, 720) * 60 * 60 * 1000,
+  imageProxyCacheMaxBytes: readInteger('IMAGE_PROXY_CACHE_MAX_MB', 512, 32, 4096) * 1024 * 1024,
+  imageProxyCacheEntryMaxBytes: readInteger('IMAGE_PROXY_CACHE_ENTRY_MAX_MB', 20, 1, 64) * 1024 * 1024,
   accessPagePath: resolve(process.env.ACCESS_PAGE_PATH ?? 'server/public/access.html'),
   allowInsecureUpstreams: readBoolean('ALLOW_INSECURE_UPSTREAMS', !production),
   proxyBodyLimitBytes: readInteger('PROXY_BODY_LIMIT_MB', 24, 1, 128) * 1024 * 1024,

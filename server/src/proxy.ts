@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { requireSession } from './auth.js';
 import { config } from './config.js';
+import { createImageProxyCacheKey, ImageProxyCache, imageProxyResponseCacheTtlMs, isImageProxyUrlCacheable } from './imageProxyCache.js';
 import { createTimeoutSignal, validatePublicUrl } from './security.js';
 
 const assetDownloadMaxRedirects = 4;
@@ -48,6 +49,16 @@ type McpProxyJob = {
 );
 
 const mcpProxyJobs = new Map<string, McpProxyJob>();
+const imageProxyCache = new ImageProxyCache(config.imageProxyCacheDir, config.imageProxyCacheMaxBytes, config.imageProxyCacheEntryMaxBytes);
+
+interface BufferedImageResponse {
+  status: number;
+  body: Buffer;
+  contentType: string;
+  cacheTtlMs: number;
+}
+
+const imageProxyCacheFills = new Map<string, Promise<BufferedImageResponse>>();
 
 function bodyBuffer(request: FastifyRequest) {
   if (request.body === undefined || request.body === null) return undefined;
@@ -215,6 +226,55 @@ async function fetchPublicAsset(rawTarget: string, accept: string) {
   throw new Error('字体资源重定向次数过多。');
 }
 
+async function fetchPublicImage(initialTarget: URL, accept: string, authorization = '') {
+  let target = initialTarget;
+  let cacheSafe = isImageProxyUrlCacheable(target, authorization);
+  let headers = new Headers({ Accept: accept });
+  if (authorization) headers.set('Authorization', authorization);
+  for (let redirectCount = 0; redirectCount <= assetDownloadMaxRedirects; redirectCount += 1) {
+    const upstream = await fetch(target, {
+      headers,
+      redirect: 'manual',
+      signal: createTimeoutSignal(config.modelRequestTimeoutMs)
+    });
+    if (!redirectStatuses.has(upstream.status)) return { upstream, cacheSafe };
+    const location = upstream.headers.get('location');
+    if (!location) return { upstream, cacheSafe };
+    await upstream.body?.cancel();
+    if (redirectCount === assetDownloadMaxRedirects) throw new Error('图片资源重定向次数过多。');
+    const nextTarget = await parseTarget(new URL(location, target).href);
+    cacheSafe = cacheSafe && isImageProxyUrlCacheable(nextTarget, authorization);
+    if (nextTarget.origin !== target.origin && headers.has('Authorization')) {
+      headers = new Headers(headers);
+      headers.delete('Authorization');
+    }
+    target = nextTarget;
+  }
+  throw new Error('图片资源重定向次数过多。');
+}
+
+async function bufferImageResponse(target: URL, accept: string, authorization = ''): Promise<BufferedImageResponse> {
+  const { upstream, cacheSafe } = await fetchPublicImage(target, accept, authorization);
+  const body = Buffer.from(await upstream.arrayBuffer());
+  const contentType = String(upstream.headers.get('content-type') ?? 'application/octet-stream');
+  const responseCacheTtlMs = upstream.status === 200
+    && cacheSafe
+    && contentType.toLowerCase().startsWith('image/')
+    && body.byteLength <= config.imageProxyCacheEntryMaxBytes
+    ? imageProxyResponseCacheTtlMs(upstream.headers, config.imageProxyCacheTtlMs)
+    : 0;
+  return { status: upstream.status, body, contentType, cacheTtlMs: responseCacheTtlMs };
+}
+
+function sendBufferedImageResponse(reply: Parameters<typeof requireSession>[1], response: BufferedImageResponse, cacheStatus: 'HIT' | 'MISS' | 'BYPASS') {
+  reply.code(response.status);
+  reply.header('Content-Type', response.contentType);
+  reply.header('Content-Length', response.body.byteLength);
+  reply.header('Cache-Control', 'private, no-store');
+  reply.header('X-Link-Image-Cache', cacheStatus);
+  return reply.send(response.body);
+}
+
 function isFontAssetResponse(contentType: string, target: URL) {
   const normalizedType = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
   return normalizedType === 'text/css'
@@ -224,6 +284,8 @@ function isFontAssetResponse(contentType: string, target: URL) {
 }
 
 export async function registerUpstreamProxy(app: FastifyInstance) {
+  if (!await imageProxyCache.initialize()) app.log.warn('Image proxy cache directory is unavailable; requests will bypass shared cache');
+
   app.post('/__mcp-proxy/jobs', { bodyLimit: config.proxyBodyLimitBytes }, async (request, reply) => {
     const session = await requireSession(request, reply);
     if (!session) return;
@@ -331,11 +393,33 @@ export async function registerUpstreamProxy(app: FastifyInstance) {
     if (!await requireSession(request, reply)) return;
     try {
       const target = await parseTarget(String((request.query as { url?: unknown }).url ?? ''));
-      const headers = new Headers({ Accept: String(request.headers.accept ?? 'image/*,*/*;q=0.8') });
-      const authorization = request.headers.authorization;
-      if (authorization) headers.set('Authorization', authorization);
-      const upstream = await fetch(target, { headers, signal: createTimeoutSignal(config.modelRequestTimeoutMs) });
-      return await relayResponse(reply, upstream);
+      const accept = String(request.headers.accept ?? 'image/*,*/*;q=0.8');
+      const authorization = String(request.headers.authorization ?? '');
+      if (!isImageProxyUrlCacheable(target, authorization)) {
+        return sendBufferedImageResponse(reply, await bufferImageResponse(target, accept, authorization), 'BYPASS');
+      }
+      const cacheKey = createImageProxyCacheKey(target, accept);
+      const cached = await imageProxyCache.read(cacheKey);
+      if (cached) return sendBufferedImageResponse(reply, { status: 200, ...cached, cacheTtlMs: config.imageProxyCacheTtlMs }, 'HIT');
+
+      const existingFill = imageProxyCacheFills.get(cacheKey);
+      if (existingFill) {
+        await existingFill.catch(() => undefined);
+        const filledCache = await imageProxyCache.read(cacheKey);
+        if (filledCache) return sendBufferedImageResponse(reply, { status: 200, ...filledCache, cacheTtlMs: config.imageProxyCacheTtlMs }, 'HIT');
+        return sendBufferedImageResponse(reply, await bufferImageResponse(target, accept), 'BYPASS');
+      }
+
+      const fill = bufferImageResponse(target, accept);
+      imageProxyCacheFills.set(cacheKey, fill);
+      try {
+        const response = await fill;
+        const stored = response.cacheTtlMs > 0
+          && await imageProxyCache.write(cacheKey, response.body, response.contentType, response.cacheTtlMs);
+        return sendBufferedImageResponse(reply, response, stored ? 'MISS' : 'BYPASS');
+      } finally {
+        if (imageProxyCacheFills.get(cacheKey) === fill) imageProxyCacheFills.delete(cacheKey);
+      }
     } catch (error) {
       return await reply.code(502).send({ error: 'image_download_failed', message: error instanceof Error ? error.message : '图片下载失败。' });
     }

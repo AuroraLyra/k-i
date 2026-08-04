@@ -1,4 +1,5 @@
-import { isLinkBackupChunkManifest, linkBackupSnapshotArrayKeys, parseLinkBackupFileText, stringifyLinkBackupFile, type LinkBackupChunkManifest, type LinkBackupFile } from '@/utils/backup';
+import { createLinkBackupArchiveTemporaryFile, isLinkBackupArchive, isLinkBackupChunkManifest, linkBackupSnapshotArrayKeys, parseLinkBackupBlob, parseLinkBackupFileText, stringifyLinkBackupFile, type LinkBackupArchive, type LinkBackupChunkManifest, type LinkBackupFile } from '@/utils/backup';
+import { canUseBackupTemporaryFiles, createBackupTemporaryFileWriter, type BackupTemporaryFile } from '@/utils/backupTemporaryFile';
 import type { AppSnapshot } from '@/types/domain';
 
 export interface GitHubViewer {
@@ -87,6 +88,15 @@ interface GitHubIncrementalBackupDelta {
   changed: Partial<Record<BackupArrayKey, unknown[]>>;
   deleted: Partial<Record<BackupArrayKey, string[]>>;
   settings?: AppSnapshot['settings'];
+}
+
+interface GitHubArchiveBackupManifest {
+  app: 'LINK';
+  backupVersion: 2;
+  archive: 'zip-parts-v1';
+  exportedAt: number;
+  originalByteLength: number;
+  chunks: LinkBackupChunkManifest['chunks'];
 }
 
 type BackupArrayKey = typeof linkBackupSnapshotArrayKeys[number];
@@ -378,6 +388,7 @@ function looksLikeLinkBackupRoot(text: string) {
   return Boolean(
     isGitHubIncrementalBackupManifest(parsed)
     || isLinkBackupChunkManifest(parsed)
+    || isGitHubArchiveBackupManifest(parsed)
     || parsed?.app === 'LINK'
     || isRecord(parsed?.snapshot)
   );
@@ -495,6 +506,18 @@ function isGitHubIncrementalBackupDelta(value: unknown): value is GitHubIncremen
     && value.incrementalDelta === true
     && isRecord(value.changed)
     && isRecord(value.deleted)
+  );
+}
+
+function isGitHubArchiveBackupManifest(value: unknown): value is GitHubArchiveBackupManifest {
+  return Boolean(
+    isRecord(value)
+    && value.app === 'LINK'
+    && value.backupVersion === 2
+    && value.archive === 'zip-parts-v1'
+    && Number.isInteger(value.originalByteLength)
+    && Number(value.originalByteLength) > 0
+    && Array.isArray(value.chunks)
   );
 }
 
@@ -679,6 +702,50 @@ async function uploadGitHubChunkedContent(
   if (progressEnd > progressStart) await emitUploadProgress(options, `GitHub 分片 ${chunks.length}/${chunks.length} 已提交`, progressEnd);
 }
 
+async function uploadGitHubArchive(target: GitHubBackupTarget, archive: LinkBackupArchive, message: string, options?: GitHubBackupUploadOptions) {
+  if (!canUseBackupTemporaryFiles()) throw new GitHubBackupError('当前浏览器不支持大文件 GitHub 备份，请使用最新 Chrome 或安装 BabyLink App。');
+  const archiveFile = await createLinkBackupArchiveTemporaryFile(archive, 'link-github-backup.zip', async (percent) => {
+    await emitUploadProgress(options, '正在准备 GitHub 媒体归档', percent * 0.3);
+  });
+  const backupId = createBackupId(archive.backup.exportedAt);
+  const partDir = `${normalizeBackupPath(target.path)}.archive/${backupId}`;
+  const chunks: LinkBackupChunkManifest['chunks'] = [];
+  const totalChunks = Math.max(1, Math.ceil(archiveFile.file.size / githubBackupChunkSize));
+
+  try {
+    let previousArchiveChunks: LinkBackupChunkManifest['chunks'] = [];
+    try {
+      const previousText = await downloadGitHubBackupTextAtPath(target, target.path, target.branch.trim() || 'main', '');
+      const previousManifest = parseJsonRecord(previousText);
+      if (isGitHubArchiveBackupManifest(previousManifest)) previousArchiveChunks = previousManifest.chunks;
+    } catch (error) {
+      if (!(error instanceof GitHubBackupError) || error.status !== 404) throw error;
+    }
+    for (let offset = 0, index = 0; offset < archiveFile.file.size; offset += githubBackupChunkSize, index += 1) {
+      const chunk = new Uint8Array(await archiveFile.file.slice(offset, Math.min(offset + githubBackupChunkSize, archiveFile.file.size)).arrayBuffer());
+      const chunkPath = `${partDir}/part-${String(index + 1).padStart(5, '0')}.b64`;
+      chunks.push({ index, path: chunkPath, byteLength: chunk.byteLength });
+      await uploadGitHubTextFile(target, chunkPath, encodeBytesBase64(chunk), `${message} archive part ${index + 1}`);
+      await emitUploadProgress(options, `正在上传 GitHub 归档分片 ${index + 1}/${totalChunks}`, 35 + Math.round((index + 1) / totalChunks * 60));
+    }
+    const manifest: GitHubArchiveBackupManifest = {
+      app: 'LINK',
+      backupVersion: 2,
+      archive: 'zip-parts-v1',
+      exportedAt: archive.backup.exportedAt,
+      originalByteLength: archiveFile.file.size,
+      chunks
+    };
+    await uploadGitHubTextFile(target, target.path, JSON.stringify(manifest), `${message} archive manifest (${chunks.length} parts)`);
+    for (const chunk of previousArchiveChunks) {
+      await deleteGitHubFileIfExists(target, chunk.path, `${message} cleanup previous archive part ${chunk.index + 1}`);
+    }
+    await emitUploadProgress(options, 'GitHub 媒体归档已完成', 100);
+  } finally {
+    await archiveFile.cleanup();
+  }
+}
+
 async function deleteGitHubFileIfExists(target: GitHubBackupTarget, pathValue: string, message: string) {
   const token = target.token.trim();
   const owner = target.owner.trim();
@@ -708,7 +775,7 @@ async function deleteGitHubBackupContentIfExists(target: GitHubBackupTarget, pat
   try {
     const text = await downloadGitHubBackupTextAtPath(target, pathValue, target.branch.trim() || 'main', '');
     const parsed = parseJsonRecord(text);
-    if (isLinkBackupChunkManifest(parsed)) {
+    if (isLinkBackupChunkManifest(parsed) || isGitHubArchiveBackupManifest(parsed)) {
       for (const chunk of parsed.chunks) {
         await deleteGitHubFileIfExists(target, chunk.path, `${message} chunk ${chunk.index + 1}`);
       }
@@ -757,6 +824,30 @@ async function resolveGitHubBackupText(target: GitHubBackupTarget, text: string,
   if (offset !== parsed.originalByteLength) throw new GitHubBackupError('GitHub 分片备份不完整。');
   await emitUploadProgress(options, '正在合并 GitHub 分片备份', 72);
   return new TextDecoder().decode(merged);
+}
+
+async function downloadGitHubArchiveFile(target: GitHubBackupTarget, manifest: GitHubArchiveBackupManifest, ref: string, options?: GitHubBackupDownloadOptions) {
+  if (!canUseBackupTemporaryFiles()) throw new GitHubBackupError('当前浏览器不支持大文件 GitHub 备份恢复，请使用最新 Chrome 或安装 BabyLink App。');
+  const chunks = [...manifest.chunks].sort((left, right) => left.index - right.index);
+  if (!chunks.length) throw new GitHubBackupError('GitHub 媒体归档没有分片。');
+  const writer = await createBackupTemporaryFileWriter('link-github-restored.zip');
+  let writtenBytes = 0;
+  try {
+    for (const [index, chunk] of chunks.entries()) {
+      await emitUploadProgress(options, `正在下载 GitHub 归档分片 ${index + 1}/${chunks.length}`, 30 + Math.round(index / chunks.length * 45));
+      const chunkText = await downloadGitHubBackupTextAtPath(target, chunk.path, ref, `未找到 GitHub 归档分片：${chunk.path}`);
+      const chunkBytes = decodeBytesBase64(chunkText, `GitHub 归档分片 ${chunk.path}`);
+      if (chunkBytes.byteLength !== chunk.byteLength) throw new GitHubBackupError('GitHub 归档分片大小校验失败。');
+      await writer.write(new Blob([chunkBytes], { type: 'application/zip' }));
+      writtenBytes += chunkBytes.byteLength;
+    }
+    if (writtenBytes !== manifest.originalByteLength) throw new GitHubBackupError('GitHub 媒体归档不完整。');
+    await emitUploadProgress(options, '正在校验 GitHub 媒体归档', 78);
+    return await writer.close();
+  } catch (error) {
+    await writer.abort();
+    throw error;
+  }
 }
 
 async function downloadResolvedGitHubBackupTextAtPath(target: GitHubBackupTarget, pathValue: string, ref: string, missingMessage: string, options?: GitHubBackupDownloadOptions) {
@@ -819,7 +910,13 @@ function createIncrementalManifest(basePath: string, baseExportedAt: number, inc
   };
 }
 
-export async function uploadGitHubBackup(target: GitHubBackupTarget, content: string | LinkBackupFile, message: string, options: GitHubBackupUploadOptions = {}) {
+export async function uploadGitHubBackup(target: GitHubBackupTarget, content: string | LinkBackupFile | LinkBackupArchive, message: string, options: GitHubBackupUploadOptions = {}) {
+  if (typeof content !== 'string' && isLinkBackupArchive(content)) {
+    if (canUseBackupTemporaryFiles()) await uploadGitHubArchive(target, content, message, options);
+    else if (content.media.length) throw new GitHubBackupError('当前浏览器不支持含本地媒体的大文件 GitHub 备份。请使用最新 Chrome 或安装 BabyLink App 后重试。');
+    else await uploadGitHubBackup(target, content.backup, message, options);
+    return;
+  }
   const nextBackup = typeof content === 'string' ? parseLinkBackupFileText(content) : content;
   let serializedContent = typeof content === 'string' ? content : '';
   const getSerializedContent = () => {
@@ -908,6 +1005,21 @@ export async function downloadGitHubBackup(target: GitHubBackupTarget, options: 
   const branch = target.branch.trim() || 'main';
   const text = await downloadGitHubBackupTextAtPath(target, target.path, branch, '未找到 GitHub 备份文件内容。');
   return await resolveGitHubBackupText(target, text, branch, options);
+}
+
+export async function downloadGitHubBackupFile(target: GitHubBackupTarget, ref = '', options: GitHubBackupDownloadOptions = {}) {
+  const resolvedRef = ref.trim() || target.branch.trim() || 'main';
+  const text = await downloadGitHubBackupTextAtPath(target, target.path, resolvedRef, '未找到 GitHub 备份文件内容。');
+  const parsed = parseJsonRecord(text);
+  if (isGitHubArchiveBackupManifest(parsed)) {
+    const archiveFile = await downloadGitHubArchiveFile(target, parsed, resolvedRef, options);
+    try {
+      return await parseLinkBackupBlob(archiveFile.file);
+    } finally {
+      await archiveFile.cleanup();
+    }
+  }
+  return parseLinkBackupFileText(await resolveGitHubBackupText(target, text, resolvedRef, options));
 }
 
 export async function listGitHubBackupHistory(target: GitHubBackupTarget, limit = 3): Promise<GitHubBackupHistoryItem[]> {

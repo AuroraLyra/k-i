@@ -1,7 +1,7 @@
 import { computed, onScopeDispose, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { builtInFanficTopics } from '@/data/fanficTopics';
-import { deleteEntity, loadSnapshot, putEntity, putFanficChapterBundle, putFanficHotspotComments, pruneUnusedStoredMediaCache } from '@/data/db';
+import { applyFanficChapterMutation, deleteEntity, loadFanficSnapshot, putEntity, putFanficChapterBundle, putFanficHotspotComments, pruneUnusedStoredMediaCache } from '@/data/db';
 import {
   fetchFanficTrendKeywords,
   generateFanficBookPlan,
@@ -14,6 +14,7 @@ import {
 import { persistFanficStartupCache, readFanficStartupCache } from '@/services/fanficStartupCache';
 import type { FanficBook, FanficChapter, FanficComment, FanficGenerationJob, FanficTopic } from '@/types/domain';
 import { createFanficProfileFingerprint, createProceduralFanficCover, getFanficLocalWorldBookSourceText, normalizeFanficBook, requireFanficTrueNames, selectFanficLocalWorldBooks } from '@/utils/fanfic';
+import { collectFanficChapterContinuity, resequenceFanficChapters } from '@/utils/fanficChapter';
 import { createId } from '@/utils/id';
 import { hydrateStoredMediaRefs } from '@/utils/mediaStorage';
 import { useAppStore } from './appStore';
@@ -90,6 +91,7 @@ export const useFanficStore = defineStore('fanfic', () => {
   const jobs = ref<FanficGenerationJob[]>((startupCache?.jobs ?? []).map((job) => ({ ...job, progress: Number(job.progress) || (job.stage === 'completed' ? 100 : 0) })));
   const generatingBookIds = ref<string[]>([]);
   const generatingHotspotKeys = ref<string[]>([]);
+  const mutatingChapterIds = ref<string[]>([]);
   const refreshingTrends = ref(false);
   const trendStatus = ref('');
   const hotspotGenerationPromises = new Map<string, Promise<FanficComment[]>>();
@@ -106,7 +108,7 @@ export const useFanficStore = defineStore('fanfic', () => {
     if (hydratePromise.value) return hydratePromise.value;
     hydratePromise.value = (async () => {
       await appStore.hydrate();
-      const snapshot = await hydrateStoredMediaRefs(await loadSnapshot());
+      const snapshot = await hydrateStoredMediaRefs(await loadFanficSnapshot());
       books.value = (snapshot.fanficBooks ?? []).map(normalizeFanficBook);
       chapters.value = (snapshot.fanficChapters ?? []).map(normalizeChapter);
       comments.value = (snapshot.fanficComments ?? []).map(normalizeComment).filter((comment) => comment.content && comment.authorName);
@@ -419,6 +421,116 @@ export const useFanficStore = defineStore('fanfic', () => {
     }
   }
 
+  async function regenerateChapter(chapterId: string, direction = '') {
+    await hydrate();
+    const currentChapter = chapterById(chapterId);
+    if (!currentChapter) throw new Error('没有找到这个同人文章节。');
+    const book = bookById(currentChapter.bookId);
+    if (!book) throw new Error('没有找到这篇同人文。');
+    if (isGenerating(book.id)) throw new Error('这篇同人文正在生成其他章节，请稍后再试。');
+    if (generatingHotspotKeys.value.some((key) => key.startsWith(`${chapterId}:`))) throw new Error('本章评论仍在生成，请完成后再重新生成正文。');
+    const character = appStore.characters.find((entry) => entry.id === book.characterId);
+    const user = appStore.users.find((entry) => entry.id === book.userId);
+    if (!character || !user) throw new Error('这篇同人文绑定的用户或角色已不存在。');
+    const previousChapters = chaptersForBook(book.id).filter((chapter) => chapter.order < currentChapter.order);
+    const promptBook: FanficBook = { ...book, continuity: collectFanficChapterContinuity(previousChapters) };
+    const localWorldBooks = selectFanficLocalWorldBooks(character, appStore.worldBooks);
+    const chapterCommentIds = commentsForChapter(chapterId).map((comment) => comment.id);
+    generatingBookIds.value.push(book.id);
+    mutatingChapterIds.value.push(chapterId);
+    let job = createJob(book.id, currentChapter.order);
+    job.stage = 'writing';
+    job.label = `正在重新生成第 ${currentChapter.order} 章正文`;
+    job.progress = 42;
+    await saveJob(job);
+    try {
+      const generatedChapter = await generateFanficChapter({
+        book: promptBook,
+        order: currentChapter.order,
+        previousChapters,
+        user,
+        character,
+        localWorldBooks,
+        direction,
+        settings: appStore.settings ?? undefined,
+        chapterId: currentChapter.id,
+        createdAt: currentChapter.createdAt
+      });
+      job = await updateJob(job, { label: `正在替换第 ${currentChapter.order} 章并清理旧评论`, progress: 78 });
+      const nextChapters = chaptersForBook(book.id).map((chapter) => chapter.id === chapterId ? generatedChapter : chapter);
+      const nextBook: FanficBook = {
+        ...book,
+        continuity: collectFanficChapterContinuity(nextChapters),
+        status: nextChapters.length >= book.chapterTarget ? 'completed' : 'serializing',
+        lastReadParagraphId: book.lastReadChapterId === chapterId ? generatedChapter.paragraphs[0]?.id : book.lastReadParagraphId,
+        updatedAt: Date.now()
+      };
+      await applyFanficChapterMutation({
+        book: nextBook,
+        chapters: [generatedChapter],
+        deleteCommentIds: chapterCommentIds
+      });
+      const bookIndex = books.value.findIndex((entry) => entry.id === book.id);
+      if (bookIndex >= 0) books.value[bookIndex] = nextBook;
+      const chapterIndex = chapters.value.findIndex((entry) => entry.id === chapterId);
+      if (chapterIndex >= 0) chapters.value[chapterIndex] = generatedChapter;
+      comments.value = comments.value.filter((comment) => comment.chapterId !== chapterId);
+      try {
+        await updateJob(job, { stage: 'completed', label: `第 ${currentChapter.order} 章已重新生成`, progress: 100, error: '' });
+      } catch (error) {
+        console.warn('Fanfic chapter was replaced, but the generation job status could not be saved.', error);
+      }
+      return generatedChapter;
+    } catch (error) {
+      const failedJob = latestJobForBook(book.id) ?? job;
+      await updateJob(failedJob, { stage: 'failed', label: `第 ${currentChapter.order} 章重新生成失败，原章已保留`, progress: 100, error: error instanceof Error ? error.message : '章节重新生成失败。' });
+      throw error;
+    } finally {
+      generatingBookIds.value = generatingBookIds.value.filter((id) => id !== book.id);
+      mutatingChapterIds.value = mutatingChapterIds.value.filter((id) => id !== chapterId);
+    }
+  }
+
+  async function deleteChapter(chapterId: string) {
+    await hydrate();
+    const currentChapter = chapterById(chapterId);
+    if (!currentChapter) throw new Error('没有找到这个同人文章节。');
+    const book = bookById(currentChapter.bookId);
+    if (!book) throw new Error('没有找到这篇同人文。');
+    if (isGenerating(book.id)) throw new Error('这篇同人文正在生成章节，请稍后再试。');
+    if (generatingHotspotKeys.value.some((key) => key.startsWith(`${chapterId}:`))) throw new Error('本章评论仍在生成，请完成后再删除章节。');
+    const currentChapters = chaptersForBook(book.id);
+    const deletedIndex = currentChapters.findIndex((chapter) => chapter.id === chapterId);
+    const remainingChapters = resequenceFanficChapters(currentChapters.filter((chapter) => chapter.id !== chapterId));
+    const fallbackChapter = remainingChapters[Math.min(deletedIndex, remainingChapters.length - 1)] ?? null;
+    const chapterCommentIds = commentsForChapter(chapterId).map((comment) => comment.id);
+    const lastReadChapterDeleted = book.lastReadChapterId === chapterId;
+    const nextBook: FanficBook = {
+      ...book,
+      continuity: collectFanficChapterContinuity(remainingChapters),
+      status: remainingChapters.length >= book.chapterTarget ? 'completed' : 'serializing',
+      lastReadChapterId: lastReadChapterDeleted ? fallbackChapter?.id : book.lastReadChapterId,
+      lastReadParagraphId: lastReadChapterDeleted ? fallbackChapter?.paragraphs[0]?.id : book.lastReadParagraphId,
+      updatedAt: Date.now()
+    };
+    mutatingChapterIds.value.push(chapterId);
+    try {
+      await applyFanficChapterMutation({
+        book: nextBook,
+        chapters: remainingChapters,
+        deleteChapterIds: [chapterId],
+        deleteCommentIds: chapterCommentIds
+      });
+      const bookIndex = books.value.findIndex((entry) => entry.id === book.id);
+      if (bookIndex >= 0) books.value[bookIndex] = nextBook;
+      chapters.value = [...chapters.value.filter((chapter) => chapter.bookId !== book.id), ...remainingChapters];
+      comments.value = comments.value.filter((comment) => comment.chapterId !== chapterId);
+      return fallbackChapter;
+    } finally {
+      mutatingChapterIds.value = mutatingChapterIds.value.filter((id) => id !== chapterId);
+    }
+  }
+
   async function regenerateCover(bookId: string) {
     await hydrate();
     const book = bookById(bookId);
@@ -489,6 +601,7 @@ export const useFanficStore = defineStore('fanfic', () => {
       try {
         const chapter = chapterById(chapterId);
         if (!chapter) throw new Error('没有找到这个同人文章节。');
+        if (mutatingChapterIds.value.includes(chapterId)) throw new Error('本章正文正在更新，请完成后再生成评论。');
         const hotspot = chapter.hotspots.find((entry) => entry.id === hotspotId);
         if (!hotspot) throw new Error('没有找到这个高潮评论点。');
         const book = bookById(chapter.bookId);
@@ -672,6 +785,8 @@ export const useFanficStore = defineStore('fanfic', () => {
     isGeneratingHotspot,
     createBook,
     generateNextChapter,
+    regenerateChapter,
+    deleteChapter,
     generateHotspotComments,
     regenerateCover,
     refreshTrendTopics,

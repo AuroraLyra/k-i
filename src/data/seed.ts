@@ -203,6 +203,7 @@ export const defaultSettings: AppSettings = {
   profileThemeEnabledByCharacter: {},
   thoughtChainThemes: [],
   smallTheaterTopicDefaultsInitialized: {},
+  chatMemoryDefaultsMigrationVersion: 0,
   keepAlive: createDefaultKeepAliveSettings(),
   ringtoneSettings: createDefaultRingtoneSettings(),
   themeSettings: createDefaultThemeSettings(),

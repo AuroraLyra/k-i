@@ -4,7 +4,7 @@ import type { MemoryAssertion, MemoryEpisode, MemoryExtractionResult, MemoryThem
 import { getConversationFloors, getRecentCompleteFloorMessages, resolveMemoryEpisodeFloorRange } from '../src/utils/memoryFloors.ts';
 import { selectMemoryCaptureFloors } from '../src/utils/memoryCapture.ts';
 import { createMemoryAssertionDedupeKey, createMemorySourceHash, integrateMemoryExtraction, isMemorySourceSnapshotCurrent, recallCharacterMemory, resolveMemoryEpisodeForgottenReason } from '../src/utils/memoryGraph.ts';
-import { normalizeChatMemorySetting } from '../src/utils/memorySettings.ts';
+import { applyCurrentChatMemoryDefaults, normalizeChatMemorySetting } from '../src/utils/memorySettings.ts';
 import { extractCompleteJsonObject, normalizeNarrativeText } from '../src/utils/structuredText.ts';
 
 function message(id: string, sender: ChatMessage['sender'], mode: ChatMessage['mode'], createdAt: number, extra: Partial<ChatMessage> = {}): ChatMessage {
@@ -51,7 +51,7 @@ const pendingTurn = getConversationFloors([
 ]).map((messages, index) => ({ floor: index + 1, messages }));
 assert.equal(selectMemoryCaptureFloors(pendingTurn, 3).length, 0);
 assert.equal(selectMemoryCaptureFloors(pendingTurn, 3, { force: true }).length, 3);
-assert.equal(selectMemoryCaptureFloors(pendingTurn, 3, { segmentClosed: true }).length, 3);
+assert.equal(selectMemoryCaptureFloors(pendingTurn.slice(0, 2), 3).length, 0);
 
 const completedTurn = [...pendingTurn, { floor: 4, messages: [message('c2', 'char', 'online', 4)] }];
 assert.equal(selectMemoryCaptureFloors(completedTurn, 3).length, 4);
@@ -59,12 +59,38 @@ assert.equal(selectMemoryCaptureFloors(completedTurn, 2).length, 2);
 assert.deepEqual(resolveMemoryEpisodeFloorRange([32], 0, 32), { startFloor: 32, endFloor: 32 });
 assert.deepEqual(resolveMemoryEpisodeFloorRange([], 0, 32), { startFloor: 1, endFloor: 32 });
 assert.deepEqual(resolveMemoryEpisodeFloorRange([8, 9], 1, 2), { startFloor: 8, endFloor: 9 });
-assert.equal(normalizeChatMemorySetting('captureEvery', undefined), 25);
+assert.equal(normalizeChatMemorySetting('captureEvery', undefined), 12);
 assert.equal(normalizeChatMemorySetting('captureEvery', 200), 120);
-assert.equal(normalizeChatMemorySetting('recentFloorLimit', undefined), 20);
+assert.equal(normalizeChatMemorySetting('recentFloorLimit', undefined), 100);
 assert.equal(normalizeChatMemorySetting('recentFloorLimit', 80), 80);
-assert.equal(normalizeChatMemorySetting('recallTokenBudget', undefined), 5_000);
-assert.equal(normalizeChatMemorySetting('recallTokenBudget', 7_500), 7_500);
+assert.equal(normalizeChatMemorySetting('recallTokenBudget', undefined), 20_000);
+assert.equal(normalizeChatMemorySetting('recallTokenBudget', 50_100), 50_000);
+assert.equal(normalizeChatMemorySetting('recallTokenBudget', 48_700), 48_700);
+assert.deepEqual(applyCurrentChatMemoryDefaults({
+  enabled: false,
+  compressionEnabled: false,
+  autoCapture: false,
+  captureEvery: 25,
+  recentFloorLimit: 20,
+  recallTokenBudget: 5_000,
+  growthEnabled: false,
+  naturalForgettingEnabled: false,
+  reflectionEnabled: false,
+  embeddingEnabled: false,
+  embeddingModel: 'legacy-embedding-model'
+}), {
+  enabled: true,
+  compressionEnabled: true,
+  autoCapture: true,
+  captureEvery: 12,
+  recentFloorLimit: 100,
+  recallTokenBudget: 20_000,
+  growthEnabled: true,
+  naturalForgettingEnabled: true,
+  reflectionEnabled: true,
+  embeddingEnabled: true,
+  embeddingModel: ''
+});
 
 const originalSource = [message('u1', 'user', 'online', 1, { location: { name: '公园', address: '湖边' } })];
 const editedSource = [{ ...originalSource[0], editedAt: 2, content: '修改后的内容' }];
@@ -265,13 +291,13 @@ const unlimitedRecall = recallCharacterMemory({
   themes: [],
   stateSnapshots: [],
   query: '共同暗号',
-  maxTokens: 8_000,
+  maxTokens: 50_000,
   now: Date.now(),
   timeAwarenessEnabled: false,
 });
 assert.ok(unlimitedRecall.items.length > 24);
 assert.ok(unlimitedRecall.episodes.length > 5);
-assert.ok(unlimitedRecall.estimatedTokens <= 8_000);
+assert.ok(unlimitedRecall.estimatedTokens <= 50_000);
 
 const unlimitedThemeAssertions: MemoryAssertion[] = Array.from({ length: 40 }, (_, index) => ({
   ...timedAssertion,
@@ -306,7 +332,7 @@ const unlimitedThemeRecall = recallCharacterMemory({
   themes: unlimitedThemes,
   stateSnapshots: [],
   query: '主题线索',
-  maxTokens: 8_000,
+  maxTokens: 50_000,
   now: Date.now(),
   timeAwarenessEnabled: false,
 });

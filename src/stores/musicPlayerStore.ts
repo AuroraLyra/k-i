@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { MusicTrack } from '@/types/domain';
+import { requestSilentKeepAliveResume } from '@/services/keepAlive';
 
 export type PlaybackMode = 'sequence' | 'repeat-all' | 'shuffle' | 'repeat-one';
 
@@ -176,6 +177,7 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
     stopProgressWatch();
     syncAudioProgress();
     playbackEndedTick.value += 1;
+    requestSilentKeepAliveResume();
   }
 
   function handleAudioPaused() {
@@ -183,6 +185,7 @@ export const useMusicPlayerStore = defineStore('musicPlayer', () => {
     clearStallTimer();
     stopProgressWatch();
     syncAudioProgress();
+    requestSilentKeepAliveResume();
   }
 
   function handleAudioPlayed() {
