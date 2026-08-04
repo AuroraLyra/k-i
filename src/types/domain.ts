@@ -155,31 +155,24 @@ export interface CharacterProfileHistoryEntry {
   sourceReplyBatchId?: string;
 }
 
+export type CharacterImageReferenceMode = 'identity' | 'composition';
+
+export interface CharacterWardrobeProfile {
+  guidance: string;
+  inventory: string;
+  avoid: string;
+}
+
 export interface CharacterImageProfile {
   appearancePrompt: string;
   facePrompt: string;
   referenceImage: string;
   referenceImageEnabled: boolean;
+  referenceImageMode: CharacterImageReferenceMode;
   voomPortraitModeEnabled: boolean;
   seed: string;
-  photos: CharacterPhotoRecord[];
-  hiddenSourcePhotoKeys: string[];
-}
-
-export type CharacterPhotoSourceType = 'manual-url' | 'manual-local' | 'call-generated';
-
-export interface CharacterPhotoRecord {
-  id: string;
-  imageUrl: string;
-  source: CharacterPhotoSourceType;
-  title: string;
-  prompt?: string;
-  negativePrompt?: string;
-  provider?: ChatImageProviderType;
-  model?: string;
-  size?: string;
-  createdAt: number;
-  updatedAt: number;
+  seedLockEnabled: boolean;
+  wardrobe: CharacterWardrobeProfile;
 }
 
 export type CoupleDeviceScreenStatus = 'using' | 'locked' | 'idle';
@@ -485,6 +478,35 @@ export interface ConversationCallSettings {
   ambientSound?: RingtoneAsset;
   ambientEnabled: boolean;
   ambientVolume: number;
+  voiceBackgroundImage: string;
+  voiceBackgroundImages: string[];
+  videoBackgroundImage: string;
+  videoBackgroundImages: string[];
+  videoGeneratedBackgroundImages: string[];
+}
+
+export type ImageVisualScope = 'onlineChat' | 'voom' | 'videoCall';
+export type ImagePeoplePolicy = 'character-required' | 'people-forbidden' | 'people-optional';
+export type ImageReferencePolicy = 'none' | 'identity' | 'composition';
+
+export interface ImageVisualMoment {
+  id: string;
+  scope: ImageVisualScope;
+  continuityKey: string;
+  peoplePolicy: ImagePeoplePolicy;
+  referencePolicy: ImageReferencePolicy;
+  environment: string;
+  activity: string;
+  expression: string;
+  wardrobe: string;
+  framing: string;
+  visualPrompt: string;
+  negativePrompt: string;
+  createdAt: number;
+}
+
+export interface ConversationImageVisualMemory {
+  moments: ImageVisualMoment[];
 }
 
 export type OfflineParagraphMode = 'long' | 'short' | 'mixed';
@@ -540,6 +562,7 @@ export interface ConversationSettings {
   modelOverrides: ChatModelOverrides;
   appearance: ChatAppearanceSettings;
   call: ConversationCallSettings;
+  imageVisualMemory: ConversationImageVisualMemory;
   narrationModeEnabled: boolean;
   autoGenerateVoom: boolean;
   voomFrequency: VoomFrequency;
@@ -1342,7 +1365,7 @@ export type ImageProviderType = 'openai' | 'novelai' | 'pollinations';
 
 export type ImageModuleId = ImageProviderType;
 
-export type ImageModelScope = 'voom' | 'onlineChat' | 'callBackground';
+export type ImageModelScope = 'voom' | 'onlineChat' | 'videoCall';
 
 export interface ImageModelSelection {
   provider: ImageProviderType | '';
@@ -1368,6 +1391,8 @@ export interface ApiVendorModel {
   selected: boolean;
 }
 
+export type ApiVendorStreamingMode = 'off' | 'auto' | 'on';
+
 export interface ApiVendor {
   id: string;
   enabled: boolean;
@@ -1377,6 +1402,7 @@ export interface ApiVendor {
   apiKey: string;
   avatar: string;
   preferBase64ImageResponse: boolean;
+  streaming: ApiVendorStreamingMode;
   models: ApiVendorModel[];
 }
 
@@ -1812,6 +1838,7 @@ export interface AppSettings {
   realityMcpSettings: RealityMcpSettings;
   imagePrivateOnly: boolean;
   imageGenerationEnabled: boolean;
+  imageAdvancedModeEnabled: boolean;
   githubBackup: GitHubBackupSettings;
   cloudBackup: CloudBackupSettings;
 }
@@ -1896,7 +1923,9 @@ export interface GenerateReplyInput extends PromptContext {
   settings?: AppSettings;
   modelOverride?: string;
   requestRecovery?: ConversationRequestRecoverySettings;
+  requestSignal?: AbortSignal;
   persistSettings?: (settings: AppSettings) => Promise<void>;
+  onReplyStreamText?: (content: string) => void;
   onMcpPrelude?: (prelude: { content: string; translation?: string }) => void | Promise<void>;
   onMcpOperation?: (operation: ChatMcpOperation) => void | Promise<void>;
 }

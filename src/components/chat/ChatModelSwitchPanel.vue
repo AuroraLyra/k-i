@@ -44,7 +44,7 @@ const store = useAppStore();
 const modelScopes: Array<{ id: ChatModelScope; label: string }> = [
   { id: 'online', label: '线上聊天模型' },
   { id: 'offline', label: '线下 RP 模型' },
-  { id: 'summary', label: '总结、图谱模型' },
+  { id: 'summary', label: '总结、图谱、视觉导演模型' },
   { id: 'embedding', label: '向量化模型' },
   { id: 'voom', label: 'VOOM 生成模型' },
   { id: 'theater', label: '小剧场模型' },
@@ -112,7 +112,7 @@ function fallbackLabel(scope: ChatModelScope) {
     const labels: Record<ChatModelScope, string> = {
       online: '未配置（角色回复时会提示配置模型）',
       offline: '未配置（线下 RP 时会提示配置模型）',
-      summary: '未配置（自动记忆不会调用模型）',
+      summary: '未配置（自动记忆与生图高级模式不会调用模型）',
       embedding: '未配置（语义记忆不会调用模型）',
       voom: '未配置（生成 VOOM 时会提示配置模型）',
       theater: '未配置（生成小剧场时会提示配置模型）',
@@ -123,7 +123,7 @@ function fallbackLabel(scope: ChatModelScope) {
   const labels: Record<ChatModelScope, string> = {
     online: '跟随全局线上聊天模型（未配置则报错）',
     offline: '跟随全局线下 RP 模型（未配置则报错）',
-    summary: '跟随全局总结、图谱模型（未配置则不调用）',
+    summary: '跟随全局总结、图谱、视觉导演模型（未配置则不调用）',
     embedding: '跟随全局向量化模型（未配置则不调用）',
     voom: '跟随全局 VOOM 生成模型（未配置则报错）',
     theater: '跟随全局小剧场模型（未配置则报错）',

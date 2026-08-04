@@ -427,6 +427,12 @@ watch(() => props.post.image, () => {
   visualFlipped.value = false;
 });
 
+watch(() => visualCandidates.value.map((candidate) => candidate.id).join('|'), () => {
+  if (!showVisualModal.value || visualCandidates.value.some((candidate) => candidate.id === selectedCandidateId.value)) return;
+  selectedCandidateId.value = visualCandidates.value.find((candidate) => candidate.image === props.post.image)?.id ?? visualCandidates.value.at(-1)?.id ?? '';
+  syncVisualDrafts();
+});
+
 onMounted(() => {
   if (likeSummaryRef.value) {
     likeResizeObserver = new ResizeObserver(scheduleLikeSummaryMeasure);

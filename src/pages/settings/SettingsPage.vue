@@ -14,6 +14,7 @@
         </button>
       </div>
       <div v-else-if="activeTab === 'image'" class="settings-header-actions image-header-actions">
+        <ImageAdvancedModeButton />
         <ImageModelPickerButton />
       </div>
       <TtsModelPickerButton v-else-if="activeTab === 'tts'" />
@@ -51,6 +52,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { ImagePlus, Plus, SlidersHorizontal, Volume2 } from 'lucide-vue-next';
 import ChatModelSwitchPanel from '@/components/chat/ChatModelSwitchPanel.vue';
 import ApiSettingsEditor from '@/components/home/ApiSettingsEditor.vue';
+import ImageAdvancedModeButton from '@/components/settings/ImageAdvancedModeButton.vue';
 import ImageSettingsEditor from '@/components/settings/ImageSettingsEditor.vue';
 import ImageModelPickerButton from '@/components/settings/ImageModelPickerButton.vue';
 import TtsModelPickerButton from '@/components/settings/TtsModelPickerButton.vue';

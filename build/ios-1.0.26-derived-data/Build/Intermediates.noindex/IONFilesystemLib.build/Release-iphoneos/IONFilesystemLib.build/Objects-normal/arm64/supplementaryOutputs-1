@@ -1,0 +1,12 @@
+{
+  "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/SourcePackages/checkouts/ion-ios-filesystem/IONFilesystemLib/IONFILEChunkPublisher.swift" : {
+    "abi-baseline-json" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib.abi.json",
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib-primary.dia",
+    "objc-header" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib-Swift.h",
+    "swiftdoc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib.swiftdoc",
+    "swiftmodule" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib.swiftmodule",
+    "swiftsourceinfo" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib.swiftsourceinfo"
+  }
+}

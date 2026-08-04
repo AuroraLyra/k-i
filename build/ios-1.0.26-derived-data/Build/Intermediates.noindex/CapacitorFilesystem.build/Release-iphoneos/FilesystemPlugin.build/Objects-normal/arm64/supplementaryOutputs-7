@@ -1,0 +1,12 @@
+{
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin/CAPPluginCall+Accelerators.swift" : {
+    "abi-baseline-json" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin.abi.json",
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin-primary.dia",
+    "objc-header" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin-Swift.h",
+    "swiftdoc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin.swiftdoc",
+    "swiftmodule" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin.swiftmodule",
+    "swiftsourceinfo" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin.swiftsourceinfo"
+  }
+}

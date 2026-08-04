@@ -55,7 +55,7 @@ import { cacheThemeFontEntry, getThemeFontCss, getThemeFontFileUrl, hasPersisted
 import { useAppStore } from '@/stores/appStore';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import type { ThemeFontEntry, ThemeStylePreset, ThemeStyleScopeSettings } from '@/types/domain';
-import { upgradeLegacyOnlineThemeCss } from '@/utils/themeCssCompatibility';
+import { ensureOnlineThemeImageCompatibility, upgradeLegacyOnlineThemeCss } from '@/utils/themeCssCompatibility';
 import { normalizeGlobalThemeScale } from '@/utils/themeScale';
 import { defaultGlobalThemeCss, defaultGlobalThemePresetId, defaultOfflineThemeCss, defaultOfflineThemePresetId, defaultOnlineThemeCss, defaultOnlineThemePresetId } from '@/utils/themeStyles';
 
@@ -361,12 +361,12 @@ function resolveThemePresetCss(settings: ThemeStyleScopeSettings, defaultPresetI
 
 function applyOnlineThemeStyles() {
   if (typeof document === 'undefined') return;
-  getOnlineThemeStyleElement().textContent = upgradeLegacyOnlineThemeCss(resolveThemePresetCss(
+  getOnlineThemeStyleElement().textContent = ensureOnlineThemeImageCompatibility(upgradeLegacyOnlineThemeCss(resolveThemePresetCss(
     onlineThemeSettings.value,
     defaultOnlineThemePresetId,
     defaultOnlineThemeCss,
     routeCharacter.value?.themeStyleBindings?.onlinePresetId
-  ));
+  )));
 }
 
 function applyGlobalThemeStyles() {

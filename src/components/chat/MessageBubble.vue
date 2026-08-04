@@ -70,7 +70,7 @@
           </template>
           <template v-else-if="message.image">
             <figure class="chat-image-card" :class="[`chat-image-card--${message.image.kind}`, { interactive: message.sender === 'char' }]" :style="imageCardStyle" @click="handleImageCardClick">
-              <img v-if="message.image.url && !isBrokenImageSource(message.image.url)" :src="message.image.url" :alt="message.image.description" draggable="false" @error="markBrokenImageSource(message.image.url)" />
+              <img v-if="message.image.url && !isBrokenImageSource(message.image.url)" :src="message.image.url" :alt="message.image.description" draggable="false" @error="markBrokenImageSource(message.image.url)" @load="captureImageDimensions" />
               <figcaption v-if="message.image.kind === 'description' || isBrokenImageSource(message.image.url)">{{ message.image.description }}</figcaption>
             </figure>
           </template>
@@ -502,6 +502,7 @@ const imageDescriptionDraft = ref('');
 const imageGenerationPromptDraft = ref('');
 const selectedCandidateId = ref('');
 const brokenImageSources = ref<string[]>([]);
+const loadedImageDimensions = ref<Record<string, { width: number; height: number }>>({});
 const playingVoice = ref(false);
 const showVoiceTranscript = ref(true);
 const voiceLoading = ref(false);
@@ -710,8 +711,10 @@ const bubbleStyle = computed(() => {
 
 const imageCardStyle = computed(() => {
   const image = props.message.image;
-  if (!image?.width || !image.height) return { '--chat-image-ratio': '1 / 1' };
-  return { '--chat-image-ratio': `${image.width} / ${image.height}` };
+  const loadedDimensions = image?.url ? loadedImageDimensions.value[image.url] : undefined;
+  const width = loadedDimensions?.width ?? image?.width;
+  const height = loadedDimensions?.height ?? image?.height;
+  return width && height ? { '--chat-image-ratio': `${width} / ${height}` } : {};
 });
 
 const imageCandidates = computed<ChatImageCandidate[]>(() => {
@@ -738,6 +741,8 @@ const selectedCandidate = computed(() => imageCandidates.value.find((candidate) 
 const modalImageSrc = computed(() => selectedCandidate.value?.image || props.message.image?.url || '');
 const canApplySelectedCandidate = computed(() => Boolean(selectedCandidate.value && selectedCandidate.value.image !== props.message.image?.url && !selectedCandidate.value.id.endsWith('-current-image')));
 const imageViewerAspectRatio = computed(() => {
+  const loadedDimensions = loadedImageDimensions.value[selectedCandidate.value?.image || props.message.image?.url || ''];
+  if (loadedDimensions) return `${loadedDimensions.width} / ${loadedDimensions.height}`;
   const size = selectedCandidate.value?.size || props.message.image?.size || '';
   const [width, height] = size.split('x').map((value) => Number.parseInt(value, 10));
   if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) return `${width} / ${height}`;
@@ -1302,6 +1307,20 @@ function isBrokenImageSource(source: string | undefined) {
 function markBrokenImageSource(source: string | undefined) {
   if (!source || brokenImageSources.value.includes(source)) return;
   brokenImageSources.value = [...brokenImageSources.value, source];
+}
+
+function captureImageDimensions(event: Event) {
+  const imageElement = event.currentTarget as HTMLImageElement;
+  const source = props.message.image?.url;
+  const width = imageElement.naturalWidth;
+  const height = imageElement.naturalHeight;
+  if (!source || !width || !height) return;
+  const currentDimensions = loadedImageDimensions.value[source];
+  if (currentDimensions?.width === width && currentDimensions.height === height) return;
+  loadedImageDimensions.value = {
+    ...loadedImageDimensions.value,
+    [source]: { width, height }
+  };
 }
 
 function regenerateImage() {
@@ -3373,8 +3392,8 @@ onBeforeUnmount(() => {
 
 .chat-image-card {
   display: grid;
-  width: min(154px, 44vw);
-  max-width: 100%;
+  width: fit-content;
+  max-width: var(--link-chat-image-max-width, min(220px, 64vw));
   margin: 0;
   overflow: hidden;
   border: 1px solid #edf0f2;
@@ -3390,9 +3409,11 @@ onBeforeUnmount(() => {
 
 .chat-image-card img {
   display: block;
-  width: 100%;
-  aspect-ratio: var(--chat-image-ratio, 1 / 1);
-  object-fit: contain;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: var(--link-chat-image-max-height, min(360px, 62vh));
+  object-fit: var(--link-chat-image-fit, contain);
   background: #f4f5f6;
 }
 

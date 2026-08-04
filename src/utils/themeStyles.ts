@@ -12,7 +12,7 @@ const exportPosterWidth = 1080;
 const exportPosterHeight = 1350;
 
 export type ThemeStyleExportScope = 'global' | 'online' | 'offline';
-export const themeStyleTemplateVersion = '2026.08.03';
+export const themeStyleTemplateVersion = '2026.08.04';
 
 export const defaultGlobalThemeCss = `/* LINK 默认全站样式（安全模式）。
   模板版本：${themeStyleTemplateVersion}，适配当前 Themes 全局、线上、线下分层与新版页面结构。
@@ -417,6 +417,9 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 }
 
 .chat-room .chat-image-card {
+  display: block;
+  width: fit-content;
+  max-width: var(--link-chat-image-max-width, min(220px, 64vw));
   overflow: hidden;
   border-radius: 16px;
   background: #ffffff;
@@ -425,9 +428,11 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 
 .chat-room .chat-image-card img {
   display: block;
-  max-width: min(220px, 64vw);
-  max-height: min(280px, 72vw);
-  object-fit: cover;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: var(--link-chat-image-max-height, min(360px, 62vh));
+  object-fit: var(--link-chat-image-fit, contain);
 }
 
 .chat-room .chat-image-card figcaption {
@@ -842,8 +847,7 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 .chat-settings-page .switch-card span:not(.switch-track),
 .chat-settings-page .compact-field small,
 .chat-settings-page .upload-card span,
-.chat-settings-page .profile-preview span,
-.chat-settings-page .character-photo-empty {
+.chat-settings-page .profile-preview span {
   margin: 0;
   color: var(--online-muted);
   font-size: 12px;
@@ -862,7 +866,6 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 .chat-settings-page .secondary-action,
 .chat-settings-page .setting-action-button,
 .chat-settings-page .background-thumb-actions button:first-child,
-.chat-settings-page .character-photo-actions button,
 .chat-settings-page .call-text-button {
   background: var(--online-soft-green);
   color: #1f6b3a;
@@ -871,7 +874,6 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 
 .chat-settings-page .danger-action,
 .chat-settings-page .background-thumb-actions button:last-child,
-.chat-settings-page .character-photo-actions button:last-child,
 .chat-settings-page .call-clear-button {
   background: rgba(239, 68, 90, 0.1);
   color: var(--online-danger);
@@ -884,7 +886,6 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 .chat-settings-page .secondary-action,
 .chat-settings-page .danger-action,
 .chat-settings-page .background-thumb-actions button,
-.chat-settings-page .character-photo-actions button,
 .chat-settings-page .call-text-button,
 .chat-settings-page .sticker-bind-trigger,
 .chat-settings-page .local-book-row {
@@ -941,7 +942,6 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 .chat-settings-page .field select,
 .chat-settings-page .memory-card textarea,
 .chat-settings-page .memory-hidden-editor input,
-.chat-settings-page .character-photo-url-row input,
 .chat-settings-page .local-theme-style-field select,
 .chat-settings-page .model-select-shell,
 .chat-settings-page .sticker-bind-trigger,
@@ -957,8 +957,7 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 .chat-settings-page .background-color-card,
 .chat-settings-page .background-thumb-card,
 .chat-settings-page .bubble-preview,
-.chat-settings-page .sticker-group-popover,
-.chat-settings-page .character-photo-card {
+.chat-settings-page .sticker-group-popover {
   border: 1px solid rgba(42, 75, 60, 0.08);
   border-radius: 16px;
   background: rgba(250, 252, 250, 0.96);
@@ -970,7 +969,6 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 .chat-settings-page .field textarea,
 .chat-settings-page .field select,
 .chat-settings-page .memory-hidden-editor input,
-.chat-settings-page .character-photo-url-row input,
 .chat-settings-page .local-theme-style-field select {
   width: 100%;
   min-height: 44px;
@@ -1068,7 +1066,6 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 .chat-settings-page .background-manager,
 .chat-settings-page .background-library,
 .chat-settings-page .image-profile-grid,
-.chat-settings-page .character-photo-import-panel,
 .chat-settings-page .memory-records,
 .chat-settings-page .memory-timeline-list {
   display: grid;
@@ -1204,7 +1201,6 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 
 .chat-settings-page .memory-card-head,
 .chat-settings-page .memory-hidden-editor,
-.chat-settings-page .character-photo-url-row,
 .chat-settings-page .call-button-row,
 .chat-settings-page .inline-input-action,
 .chat-settings-page .editor-actions {
@@ -1231,16 +1227,13 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 .chat-settings-page .profile-fields,
 .chat-settings-page .identity-row,
 .chat-settings-page .local-book-list,
-.chat-settings-page .character-photo-library,
-.chat-settings-page .character-photo-card,
 .chat-settings-page .image-reference-fields {
   display: grid;
   gap: 10px;
   min-width: 0;
 }
 
-.chat-settings-page .identity-row,
-.chat-settings-page .character-photo-library {
+.chat-settings-page .identity-row {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -1248,7 +1241,6 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
 .chat-settings-page .profile-preview .avatar,
 .chat-settings-page .image-reference-preview,
 .chat-settings-page .image-reference-preview img,
-.chat-settings-page .character-photo-thumb,
 .chat-settings-page .background-thumb {
   overflow: hidden;
   background: #eef3f1;
@@ -1722,7 +1714,6 @@ export const defaultOnlineThemeCss = `/* LINK 线上页默认完整样式。
   .chat-settings-page .profile-avatar-grid,
   .chat-settings-page .appearance-tools-grid,
   .chat-settings-page .identity-row,
-  .chat-settings-page .character-photo-library,
   .sticker-keyboard-layer .manage-choice-row,
   .sticker-keyboard-layer .group-action-grid,
   .sticker-keyboard-layer .batch-action-row {

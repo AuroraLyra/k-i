@@ -52,7 +52,7 @@ const showPicker = ref(false);
 const imageModelScopes: Array<{ id: ImageModelScope; label: string }> = [
   { id: 'voom', label: 'VOOM' },
   { id: 'onlineChat', label: '线上聊天' },
-  { id: 'callBackground', label: '通话背景' }
+  { id: 'videoCall', label: '视频通话生图' }
 ];
 
 const imageModelOptions = computed(() => getConfiguredImageModelOptions(store.settings));

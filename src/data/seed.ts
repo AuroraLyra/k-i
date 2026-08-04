@@ -191,7 +191,7 @@ export const defaultSettings: AppSettings = {
   imageModelOverrides: {
     voom: { provider: '', model: '' },
     onlineChat: { provider: '', model: '' },
-    callBackground: { provider: '', model: '' }
+    videoCall: { provider: '', model: '' }
   },
   voomImageProvider: '',
   voomImageModel: '',
@@ -211,6 +211,7 @@ export const defaultSettings: AppSettings = {
   realityMcpSettings: createDefaultRealityMcpSettings(),
   imagePrivateOnly: true,
   imageGenerationEnabled: true,
+  imageAdvancedModeEnabled: true,
   githubBackup: {
     enabled: false,
     token: '',

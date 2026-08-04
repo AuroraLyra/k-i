@@ -78,6 +78,15 @@
             <span>API Key</span>
             <input v-model="draft.apiKey" autocomplete="off" type="password" />
           </label>
+
+          <label class="field">
+            <span>流式回复</span>
+            <select v-model="draft.streaming">
+              <option value="off">关闭（兼容旧接口）</option>
+              <option value="auto">自动尝试，失败时回退</option>
+              <option value="on">强制开启</option>
+            </select>
+          </label>
         </section>
 
         <section v-else-if="activeTab === 'models'" class="composer-section form-grid">

@@ -233,8 +233,7 @@ function sanitizeCharacterForBackup(character: CharacterProfile): CharacterProfi
     imageProfile: character.imageProfile
       ? {
           ...character.imageProfile,
-          referenceImage: stripLargeInlineAsset(character.imageProfile.referenceImage),
-          photos: character.imageProfile.photos
+          referenceImage: stripLargeInlineAsset(character.imageProfile.referenceImage)
         }
       : character.imageProfile
   };

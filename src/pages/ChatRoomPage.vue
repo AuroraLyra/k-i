@@ -140,10 +140,22 @@
     />
 
     <section v-if="activeCall && !callMinimized" class="call-screen" :class="[`call-screen--${activeCall.mode}`, `call-screen--${activeCall.status}`]" aria-live="polite">
-      <img v-if="callScreenBackgroundUrl" class="call-screen-background" :src="callScreenBackgroundUrl" alt="" aria-hidden="true" draggable="false" />
+      <img class="call-screen-image" :src="callScreenImageUrl" alt="" aria-hidden="true" draggable="false" />
       <div class="call-visual-layer">
         <div class="call-topbar">
-          <button class="call-mind-button" type="button" :aria-label="`查看${callPeerName}心声`" @click="openCharacterProfile">查看心声</button>
+          <span class="call-topbar-leading">
+            <button class="call-mind-button" type="button" :aria-label="`查看${callPeerName}心声`" @click="openCharacterProfile">查看心声</button>
+            <button
+              v-if="activeCall.mode === 'video' && activeCall.status === 'active'"
+              class="call-video-generate-button"
+              type="button"
+              :disabled="callVideoImageGenerating || !canGenerateCallVideoImage"
+              :title="canGenerateCallVideoImage ? (callGeneratedVideoImageUrl ? '重新生成视频画面' : '生成视频画面') : '请先在图片设置中配置视频通话生图模型'"
+              @click="generateCallVideoImage"
+            >
+              {{ callVideoImageGenerating ? '生成中' : callGeneratedVideoImageUrl ? '重新生成视频画面' : '生成视频画面' }}
+            </button>
+          </span>
           <span class="call-topbar-actions">
             <button v-if="activeCall.status !== 'ended'" type="button" aria-label="最小化通话" @click="minimizeActiveCall">
               <Minimize :size="18" />
@@ -154,7 +166,7 @@
           </span>
         </div>
 
-        <section v-if="activeCall.mode === 'video'" class="call-video-stage" :class="[callExpressionClass, { speaking: callCharacterSpeaking, active: activeCall.status === 'active' }]" :style="callVideoStageStyle" aria-label="角色视频画面">
+        <section v-if="activeCall.mode === 'video'" class="call-video-stage" :class="{ active: activeCall.status === 'active' }" aria-label="角色视频画面">
           <div class="call-video-copy">
             <h2>{{ callPeerName }}</h2>
             <p>{{ callPrimaryStatus }}</p>
@@ -821,11 +833,11 @@ import StickerLibraryModal from '@/components/stickers/StickerLibraryModal.vue';
 import { useAppStore, type AppActiveCallState } from '@/stores/appStore';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import { generateImageByProvider } from '@/services/ai';
+import { planImageVisualState } from '@/services/imageVisualPlanner';
 import { purgeFriendData } from '@/services/friendDeletion';
 import { synthesizeSpeech } from '@/services/tts';
 import type { AppSettings, CharacterImageProfile, CharacterProfile, ChatApiTrace, ChatCallMode, ChatCallStatus, ChatImageAttachment, ChatLocationAttachment, ChatMessage, ChatMessageQuote, ChatTransferStatus, ChatVoiceAttachment, ImageProviderType, Sticker, UserProfile } from '@/types/domain';
 import { getCharacterAiName, getCharacterDisplayName, getFriendRelationship } from '@/utils/character';
-import { collectCharacterPhotoImages, createCharacterPhotoRecord, normalizeCharacterPhotoRecords, normalizeHiddenSourcePhotoKeys } from '@/utils/characterPhotos';
 import { readChatImageFile } from '@/utils/imageFile';
 import { useKeyboardScrollGuard } from '@/utils/keyboardScrollGuard';
 import { resolveMessageGroupPositions, type MessageGroupPosition } from '@/utils/messageGrouping';
@@ -838,6 +850,7 @@ import { formatChatTimeDivider, shouldShowChatTimeDivider } from '@/utils/time';
 import { isVoomNarrationMessage, mergeVoomLikeMessages } from '@/utils/voomMessages';
 import { createId } from '@/utils/id';
 import { createGobangGame } from '@/utils/gobang';
+import { compileImageVisualPrompt, createFallbackImageVisualPlan } from '@/utils/imagePromptPlanner';
 
 type BrowserSpeechRecognitionAlternative = {
   transcript: string;
@@ -930,9 +943,8 @@ type SelectedImageModelOption = NonNullable<ReturnType<typeof getSelectedImageMo
 const voiceTranscriptLimit = 500;
 const composerDraftStoragePrefix = 'link.chat.composerDraft.';
 const defaultCallFloatPosition = { x: 16, y: 92 };
-const callBackgroundImageSize = { size: '832x1216', width: 832, height: 1216 };
-const callBackgroundRotationIntervalMs = 20_000;
-const callBackgroundNegativePrompt = 'crowd, multiple people, extra person, duplicate face, bad anatomy, deformed hands, extra fingers, text, watermark, logo, user interface, phone frame, notification badge, blurry, distorted perspective';
+const callVideoImageSize = { size: '832x1216', width: 832, height: 1216 };
+const callVideoImageNegativePrompt = 'crowd, multiple people, extra person, duplicate face, bad anatomy, deformed hands, extra fingers, text, watermark, logo, user interface, phone frame, notification badge, blurry, distorted perspective';
 const composerDrafts = new Map<string, string>();
 
 function composerDraftKey(conversationId: string) {
@@ -1062,8 +1074,7 @@ const activeCall = computed<ActiveCallState | null>({
       endedAt: call.endedAt,
       muted: call.muted,
       cameraEnabled: call.cameraEnabled,
-      speakerEnabled: call.speakerEnabled,
-      generatedBackgroundUrl: call.generatedBackgroundUrl
+      speakerEnabled: call.speakerEnabled
     };
   },
   set(call) {
@@ -1106,20 +1117,15 @@ const localCameraActive = ref(false);
 const localCameraError = ref('');
 const localCameraFacingMode = ref<CallCameraFacingMode>('user');
 const callVoiceActive = ref(false);
-const callMouthLevel = ref(0);
-const callGeneratedBackgroundUrl = ref('');
-const callRotatingBackgroundUrl = ref('');
-const callBackgroundRequestKey = ref('');
-const callBackgroundGenerating = ref(false);
-const callBackgroundRunId = ref(0);
-const callBackgroundPendingRefresh = ref(false);
+const callGeneratedVideoImageUrl = ref('');
+const callVideoImageGenerating = ref(false);
+const callVideoImageRunId = ref(0);
 let voiceRecorder: MediaRecorder | null = null;
 let voiceStream: MediaStream | null = null;
 let voiceChunks: Blob[] = [];
 let voiceRecognition: BrowserSpeechRecognition | null = null;
 let voiceTimer: number | undefined;
 let callTimer: number | undefined;
-let callBackgroundRotationTimer: number | undefined;
 let callAudio: HTMLAudioElement | null = null;
 let callRingtoneAudio: HTMLAudioElement | null = null;
 let callAmbientAudio: HTMLAudioElement | null = null;
@@ -1149,7 +1155,6 @@ let callVadAnalyser: AnalyserNode | null = null;
 let callVadFrame: number | undefined;
 let callVadRunId = 0;
 let callVadLastVoiceAt = 0;
-let callLipSyncFrame: number | undefined;
 
 const bottomStickThreshold = 72;
 const bottomRestoreSettleMs = 220;
@@ -1205,22 +1210,16 @@ const characterImageProfile = computed<CharacterImageProfile>(() => ({
   facePrompt: String(character.value?.imageProfile?.facePrompt ?? '').trim(),
   referenceImage: String(character.value?.imageProfile?.referenceImage ?? '').trim(),
   referenceImageEnabled: character.value?.imageProfile?.referenceImageEnabled !== false,
+  referenceImageMode: character.value?.imageProfile?.referenceImageMode === 'composition' ? 'composition' : 'identity',
   voomPortraitModeEnabled: character.value?.imageProfile?.voomPortraitModeEnabled !== false,
   seed: String(character.value?.imageProfile?.seed ?? '').trim(),
-  photos: normalizeCharacterPhotoRecords(character.value?.imageProfile?.photos),
-  hiddenSourcePhotoKeys: normalizeHiddenSourcePhotoKeys(character.value?.imageProfile?.hiddenSourcePhotoKeys)
+  seedLockEnabled: Boolean(character.value?.imageProfile?.seedLockEnabled),
+  wardrobe: {
+    guidance: String(character.value?.imageProfile?.wardrobe?.guidance ?? '').trim(),
+    inventory: String(character.value?.imageProfile?.wardrobe?.inventory ?? '').trim(),
+    avoid: String(character.value?.imageProfile?.wardrobe?.avoid ?? '').trim()
+  }
 }));
-const characterPhotoPool = computed(() => {
-  const currentCharacter = character.value;
-  if (!currentCharacter) return [];
-  return collectCharacterPhotoImages({
-    character: currentCharacter,
-    conversations: store.conversations,
-    messages: store.messages,
-    voomPosts: store.voomPosts
-  });
-});
-const callBackgroundPhotoPoolKey = computed(() => activeCall.value ? characterPhotoPool.value.join('|') : '');
 const allOnlineMessages = computed(() => {
   const messages = store.messagesForConversation(props.id).filter((message) => message.mode === 'online');
   const displayMessages = messages.filter((message) => !message.contextOnly && !message.gobangId && !isVoomNarrationMessage(message) && !isCallSubtitleMessage(message));
@@ -1371,7 +1370,6 @@ const callTranscriptMessages = computed(() => {
     .filter((message) => message.callId === callId && isCallSubtitleMessage(message));
 });
 const latestCallTranscriptMessage = computed(() => callTranscriptMessages.value.at(-1) ?? null);
-const latestCharacterCallMessage = computed(() => [...callTranscriptMessages.value].reverse().find((message) => message.sender === 'char') ?? null);
 const callCharacterAiName = computed(() => character.value ? getCharacterAiName(character.value) : '角色');
 const callUserAiName = computed(() => getUserAiName(conversationUser.value ?? boundUser.value));
 const callPeerName = computed(() => characterDisplayName.value);
@@ -1426,23 +1424,22 @@ function syncActiveCallMetadata() {
   });
 }
 
-const callLockedBackgroundUrl = computed(() => activeCall.value ? callGeneratedBackgroundUrl.value || activeCall.value.generatedBackgroundUrl || '' : '');
-const callPhotoBackgroundUrl = computed(() => activeCall.value ? callLockedBackgroundUrl.value || callRotatingBackgroundUrl.value : '');
-const callScreenBackgroundUrl = computed(() => callPhotoBackgroundUrl.value || character.value?.avatar || '');
-const callCharacterSpeaking = computed(() => Boolean(activeCall.value?.status === 'active' && (callStatusText.value.includes('正在说话') || callMouthLevel.value > 0.08)));
-const callVideoStageStyle = computed(() => ({
-  '--call-mouth-height': `${Math.round(5 + callMouthLevel.value * 13)}px`,
-  '--call-mouth-scale': (0.55 + callMouthLevel.value * 1.28).toFixed(2)
-}));
-const callExpressionClass = computed(() => {
-  const text = callMessageText(latestCharacterCallMessage.value ?? latestCallTranscriptMessage.value ?? ({ content: '' } as ChatMessage));
-  if (/惊|诶|啊|真的吗|不会吧|怎么会/.test(text)) return 'is-surprised';
-  if (/害羞|脸红|不好意思|想你|喜欢|抱/.test(text)) return 'is-shy';
-  if (/难过|抱歉|对不起|累|痛|哭|低落/.test(text)) return 'is-soft';
-  if (/哈哈|开心|太好了|笑|高兴|喜欢/.test(text)) return 'is-happy';
-  if (/嗯|想想|等等|也许|可能|为什么/.test(text)) return 'is-thinking';
-  return 'is-neutral';
+const appliedCallBackgroundImage = computed(() => {
+  if (activeCall.value?.mode === 'voice') return chatSettings.value.call.voiceBackgroundImage;
+  if (activeCall.value?.mode === 'video') return chatSettings.value.call.videoBackgroundImage;
+  return '';
 });
+const callScreenImageUrl = computed(() => (
+  appliedCallBackgroundImage.value
+  || character.value?.avatar
+  || defaultProfileAvatar
+));
+const canGenerateCallVideoImage = computed(() => Boolean(
+  activeCall.value?.mode === 'video'
+  && activeCall.value.status === 'active'
+  && store.settings?.imageGenerationEnabled !== false
+  && getSelectedImageModelOption(store.settings, 'videoCall')
+));
 const callCameraStatusLabel = computed(() => {
   if (activeCall.value?.mode !== 'video') return '';
   if (localCameraError.value) return localCameraError.value;
@@ -1457,20 +1454,11 @@ const recentCallSceneText = computed(() => callTranscriptMessages.value
   .join('\n')
   .slice(0, 900));
 
-function joinCallBackgroundPromptPieces(...pieces: Array<string | undefined>) {
+function joinCallVideoPromptPieces(...pieces: Array<string | undefined>) {
   return pieces.map((piece) => String(piece ?? '').trim()).filter(Boolean).join('\n');
 }
 
-function buildCallCharacterAppearancePrompt() {
-  const imageProfile = characterImageProfile.value;
-  return joinCallBackgroundPromptPieces(
-    imageProfile.appearancePrompt ? `Character appearance: ${imageProfile.appearancePrompt}` : '',
-    imageProfile.facePrompt ? `Face identity lock: ${imageProfile.facePrompt}` : ''
-  );
-}
-
-function buildCallSceneDescription() {
-  const call = activeCall.value;
+function buildCallVideoSceneDescription() {
   const currentCharacter = character.value;
   const profile = currentCharacter?.profile;
   const identityContext = [
@@ -1480,49 +1468,39 @@ function buildCallSceneDescription() {
     profile?.location,
     profile?.bio
   ].map((value) => String(value ?? '').trim()).filter(Boolean).join('; ').slice(0, 500);
-  const modeText = call?.mode === 'video' ? 'video call' : 'voice call';
-  const statusText = call?.status === 'active' ? 'connected' : call?.status === 'incoming-ringing' || call?.status === 'outgoing-ringing' ? 'ringing' : 'in-call';
-  return joinCallBackgroundPromptPieces(
-    `${callCharacterAiName.value} during a ${statusText} ${modeText} in LINK.`,
+  return joinCallVideoPromptPieces(
+    `${callCharacterAiName.value} during a connected video call in LINK.`,
     identityContext ? `Character context: ${identityContext}.` : '',
     recentCallSceneText.value ? `Recent call dialogue and mood:\n${recentCallSceneText.value}` : '',
     'Infer the character\'s current real environment, pose, outfit, styling, and facial expression from the dialogue, time, profile, and relationship context. If details are not explicit, choose a believable everyday moment that fits the character instead of a generic portrait.'
   );
 }
 
-function buildCallBackgroundPrompt() {
-  const sceneDescription = buildCallSceneDescription();
-  const characterAppearance = buildCallCharacterAppearancePrompt();
-  const faceConsistency = characterImageProfile.value.referenceImageEnabled && characterImageProfile.value.referenceImage
-    ? 'Use the character reference image as identity guidance; keep the same facial structure, eyes, nose, mouth, hairstyle, and overall likeness across call photos.'
-    : 'Keep the same character identity and consistent facial features across call photos.';
-  return joinCallBackgroundPromptPieces(
-    'A vertical 9:16 full-screen realistic character photo for a mobile call background.',
-    `Subject: ${callCharacterAiName.value}, one person only, shown as the clear main subject in the current moment of the call.`,
-    sceneDescription,
-    characterAppearance,
-    faceConsistency,
+function buildCallVideoImagePrompt(visualPrompt: string) {
+  return joinCallVideoPromptPieces(
+    'A vertical 9:16 full-screen realistic image for a mobile video call.',
+    visualPrompt,
     'Show a believable current background, natural pose, outfit, hairstyle, and facial expression; the image should feel like a fresh live call snapshot, not a staged studio portrait.',
     'The image fills the whole phone screen, immersive but not visually busy, with gentle space near the top and bottom for call controls, no text, no watermark, no user interface, no phone frame.'
   );
 }
 
-function buildCallBackgroundNegativePrompt(settings: AppSettings, provider: ImageProviderType) {
+function buildCallVideoImageNegativePrompt(settings: AppSettings, provider: ImageProviderType) {
   const promptPreset = getImagePromptPresetForProvider(settings, provider);
-  return joinCallBackgroundPromptPieces(
+  return joinCallVideoPromptPieces(
     promptPreset.negativePrompt,
     promptPreset.defaultNegativePrompt,
     defaultImageNegativePrompt,
-    callBackgroundNegativePrompt
+    callVideoImageNegativePrompt
   );
 }
 
-function buildCallBackgroundPositivePrompt(settings: AppSettings, provider: ImageProviderType) {
+function buildCallVideoImagePositivePrompt(settings: AppSettings, provider: ImageProviderType, visualPrompt: string) {
   const promptPreset = getImagePromptPresetForProvider(settings, provider);
-  return joinCallBackgroundPromptPieces(promptPreset.positivePrompt, buildCallBackgroundPrompt());
+  return joinCallVideoPromptPieces(promptPreset.positivePrompt, buildCallVideoImagePrompt(visualPrompt));
 }
 
-async function generateCallBackgroundImage(settings: AppSettings, selectedModel: SelectedImageModelOption) {
+async function generateCallVideoImageRequest(settings: AppSettings, selectedModel: SelectedImageModelOption) {
   const provider = selectedModel.provider;
   let imageSettings = settings;
   let model = selectedModel.model;
@@ -1538,150 +1516,114 @@ async function generateCallBackgroundImage(settings: AppSettings, selectedModel:
     model = modelParts.join('::') || settings.imageModel;
   }
   const imageProfile = characterImageProfile.value;
-  const positivePrompt = buildCallBackgroundPositivePrompt(settings, provider);
-  const negativePrompt = buildCallBackgroundNegativePrompt(settings, provider);
+  const call = activeCall.value;
+  const continuityKey = `videoCall:${call?.callId ?? props.id}`;
+  const visualPlanInput = {
+    scope: 'videoCall' as const,
+    description: buildCallVideoSceneDescription(),
+    characterName: callCharacterAiName.value,
+    characterPriority: true,
+    characterProfile: imageProfile,
+    context: recentCallSceneText.value,
+    continuityKey,
+    previousMoments: chatSettings.value.imageVisualMemory.moments.filter((moment) => moment.continuityKey === continuityKey)
+  };
+  const visualPlan = settings.imageAdvancedModeEnabled
+    ? (await planImageVisualState({
+        ...visualPlanInput,
+        settings,
+        modelOverride: store.getConversationTextModelOverride(chatSettings.value, 'summary')
+      })).plan
+    : createFallbackImageVisualPlan(visualPlanInput);
+  const promptParts = compileImageVisualPrompt({
+    plan: visualPlan,
+    basePrompt: buildCallVideoImagePositivePrompt(settings, provider, visualPlan.visualPrompt),
+    profile: imageProfile,
+    baseNegativePrompt: buildCallVideoImageNegativePrompt(settings, provider)
+  });
   const result = await generateImageByProvider(provider, imageSettings, {
-    positivePrompt,
-    negativePrompt,
-    referenceImage: imageProfile.referenceImageEnabled ? imageProfile.referenceImage : '',
-    size: callBackgroundImageSize.size,
-    width: callBackgroundImageSize.width,
-    height: callBackgroundImageSize.height,
+    positivePrompt: promptParts.positivePrompt,
+    negativePrompt: promptParts.negativePrompt,
+    referenceImage: promptParts.referenceImage,
+    size: callVideoImageSize.size,
+    width: callVideoImageSize.width,
+    height: callVideoImageSize.height,
     model,
-    seed: imageProfile.seed
+    seed: promptParts.seed
   });
-  return { imageUrl: result.imageUrl, provider: result.provider, model, positivePrompt, negativePrompt };
+  return {
+    imageUrl: result.imageUrl,
+    provider: result.provider,
+    model,
+    positivePrompt: promptParts.positivePrompt,
+    negativePrompt: promptParts.negativePrompt,
+    visualPlan
+  };
 }
 
-function resetCallBackgroundImage() {
-  callBackgroundRunId.value += 1;
-  callGeneratedBackgroundUrl.value = '';
-  callRotatingBackgroundUrl.value = '';
-  callBackgroundRequestKey.value = '';
-  callBackgroundGenerating.value = false;
-  callBackgroundPendingRefresh.value = false;
+function resetCallVideoImage() {
+  callVideoImageRunId.value += 1;
+  callGeneratedVideoImageUrl.value = '';
+  callVideoImageGenerating.value = false;
 }
 
-function stopCallBackgroundRotation() {
-  if (callBackgroundRotationTimer === undefined) return;
-  window.clearInterval(callBackgroundRotationTimer);
-  callBackgroundRotationTimer = undefined;
-}
-
-function pickCallRotatingBackground() {
-  const pool = characterPhotoPool.value;
-  if (!pool.length) {
-    callRotatingBackgroundUrl.value = '';
-    return;
-  }
-  if (pool.length === 1) {
-    callRotatingBackgroundUrl.value = pool[0] ?? '';
-    return;
-  }
-  const candidates = pool.filter((imageUrl) => imageUrl !== callRotatingBackgroundUrl.value);
-  const nextPool = candidates.length ? candidates : pool;
-  callRotatingBackgroundUrl.value = nextPool[Math.floor(Math.random() * nextPool.length)] ?? '';
-}
-
-function syncCallBackgroundRotation() {
-  const call = activeCall.value;
-  if (!call) {
-    stopCallBackgroundRotation();
-    callRotatingBackgroundUrl.value = '';
-    return;
-  }
-  const lockedBackgroundUrl = callLockedBackgroundUrl.value;
-  if (lockedBackgroundUrl) {
-    stopCallBackgroundRotation();
-    callRotatingBackgroundUrl.value = lockedBackgroundUrl;
-    return;
-  }
-  if (!characterPhotoPool.value.length) {
-    stopCallBackgroundRotation();
-    callRotatingBackgroundUrl.value = '';
-    return;
-  }
-  if (!callRotatingBackgroundUrl.value || !characterPhotoPool.value.includes(callRotatingBackgroundUrl.value)) pickCallRotatingBackground();
-  if (callBackgroundRotationTimer !== undefined) return;
-  callBackgroundRotationTimer = window.setInterval(pickCallRotatingBackground, callBackgroundRotationIntervalMs);
-}
-
-async function saveGeneratedCallPhoto(result: { imageUrl: string; provider: ImageProviderType; model: string; positivePrompt: string; negativePrompt: string }) {
-  const currentCharacter = character.value;
-  if (!currentCharacter) return;
-  const existingPhotos = normalizeCharacterPhotoRecords(currentCharacter.imageProfile?.photos);
-  if (existingPhotos.some((photo) => photo.imageUrl.trim() === result.imageUrl.trim())) return;
-  await store.saveCharacter({
-    ...currentCharacter,
-    imageProfile: {
-      ...characterImageProfile.value,
-      photos: [
-        createCharacterPhotoRecord({
-          imageUrl: result.imageUrl,
-          source: 'call-generated',
-          title: '通话角色照片',
-          prompt: result.positivePrompt,
-          negativePrompt: result.negativePrompt,
-          provider: result.provider,
-          model: result.model,
-          size: callBackgroundImageSize.size
-        }),
-        ...existingPhotos
-      ]
+async function applyGeneratedCallVideoBackground(imageUrl: string) {
+  const normalizedImageUrl = imageUrl.trim();
+  if (!normalizedImageUrl) return;
+  const currentSettings = chatSettings.value;
+  const videoBackgroundImages = [...new Set([
+    normalizedImageUrl,
+    ...currentSettings.call.videoBackgroundImages.map((image) => image.trim()).filter(Boolean)
+  ])];
+  const videoGeneratedBackgroundImages = [...new Set([
+    normalizedImageUrl,
+    ...currentSettings.call.videoGeneratedBackgroundImages.map((image) => image.trim()).filter(Boolean)
+  ])];
+  await store.saveConversationSettings({
+    ...currentSettings,
+    call: {
+      ...currentSettings.call,
+      videoBackgroundImage: normalizedImageUrl,
+      videoBackgroundImages,
+      videoGeneratedBackgroundImages
     }
   });
 }
 
-async function ensureCallBackgroundImage() {
+async function generateCallVideoImage() {
   const call = activeCall.value;
-  if (!call) {
-    resetCallBackgroundImage();
-    return;
-  }
-  syncCallBackgroundRotation();
   const settings = store.settings;
-  const selectedModel = settings && settings.imageGenerationEnabled !== false ? getSelectedImageModelOption(settings, 'callBackground') : null;
-  const imageProfile = characterImageProfile.value;
-  const sceneKey = buildCallSceneDescription();
-  const requestKey = [props.id, character.value?.id ?? '', call.callId, call.mode, selectedModel?.key ?? 'none', imageProfile.appearancePrompt, imageProfile.facePrompt, imageProfile.referenceImageEnabled ? imageProfile.referenceImage : '', imageProfile.seed, sceneKey].join(':');
-  if (callBackgroundRequestKey.value === requestKey && (callGeneratedBackgroundUrl.value || callBackgroundGenerating.value)) return;
-  if (callBackgroundGenerating.value) {
-    callBackgroundPendingRefresh.value = true;
+  const selectedModel = settings && settings.imageGenerationEnabled !== false
+    ? getSelectedImageModelOption(settings, 'videoCall')
+    : null;
+  if (!call || call.mode !== 'video' || call.status !== 'active' || callVideoImageGenerating.value) return;
+  if (!settings || !selectedModel) {
+    store.showConfigAlert('请先在图片设置中配置“视频通话生图”模型。', '无法生成视频画面');
     return;
   }
 
-  const runId = callBackgroundRunId.value + 1;
-  callBackgroundRunId.value = runId;
-  callBackgroundRequestKey.value = requestKey;
-  callBackgroundGenerating.value = false;
-
-  if (!settings || !selectedModel) return;
-
-  callBackgroundGenerating.value = true;
+  const runId = callVideoImageRunId.value + 1;
+  callVideoImageRunId.value = runId;
+  callVideoImageGenerating.value = true;
+  callStatusText.value = '正在生成视频画面';
   try {
-    const result = await generateCallBackgroundImage(settings, selectedModel);
-    if (runId !== callBackgroundRunId.value || callBackgroundRequestKey.value !== requestKey) return;
-    callGeneratedBackgroundUrl.value = result.imageUrl;
-    store.patchActiveCall(props.id, { generatedBackgroundUrl: result.imageUrl });
-    stopCallBackgroundRotation();
-    await saveGeneratedCallPhoto(result);
-    callRotatingBackgroundUrl.value = result.imageUrl;
+    const result = await generateCallVideoImageRequest(settings, selectedModel);
+    if (runId !== callVideoImageRunId.value || activeCall.value?.callId !== call.callId) return;
+    await applyGeneratedCallVideoBackground(result.imageUrl);
+    await store.recordConversationImageVisualPlan(props.id, result.visualPlan);
+    if (runId !== callVideoImageRunId.value || activeCall.value?.callId !== call.callId) return;
+    callGeneratedVideoImageUrl.value = result.imageUrl;
   } catch (error) {
-    console.warn('Call character photo generation failed, using photo pool fallback.', error);
+    if (runId === callVideoImageRunId.value) {
+      console.warn('Video call image generation failed.', error);
+      store.showConfigAlert(error instanceof Error ? error.message : '视频画面生成失败，请稍后重试。', '无法生成视频画面');
+    }
   } finally {
-    if (runId === callBackgroundRunId.value && callBackgroundRequestKey.value === requestKey) {
-      callBackgroundGenerating.value = false;
-      if (callBackgroundPendingRefresh.value) {
-        callBackgroundPendingRefresh.value = false;
-        void ensureCallBackgroundImage();
-      }
+    if (runId === callVideoImageRunId.value) {
+      callVideoImageGenerating.value = false;
+      if (activeCall.value?.callId === call.callId && activeCall.value.status === 'active') callStatusText.value = `${callModeLabel.value}中`;
     }
   }
-}
-
-function refreshCallBackground() {
-  syncCallBackgroundRotation();
-  void ensureCallBackgroundImage();
 }
 const stickerRecommendationBase = computed(() => {
   if (!chatSettings.value.stickerSuggestionsEnabled) return [];
@@ -2000,24 +1942,6 @@ watch([
   () => callPeerName.value,
   () => character.value?.avatar
 ], syncActiveCallMetadata, { flush: 'post' });
-
-watch([
-  () => activeCall.value?.callId,
-  () => activeCall.value?.mode,
-  () => character.value?.id,
-  () => callBackgroundPhotoPoolKey.value,
-  () => characterImageProfile.value.appearancePrompt,
-  () => characterImageProfile.value.facePrompt,
-  () => characterImageProfile.value.referenceImageEnabled,
-  () => characterImageProfile.value.referenceImage,
-  () => characterImageProfile.value.seed,
-  () => recentCallSceneText.value,
-  () => store.settings?.imageGenerationEnabled,
-  () => getSelectedImageModelOption(store.settings, 'callBackground')?.key ?? ''
-], () => {
-  syncCallBackgroundRotation();
-  void ensureCallBackgroundImage();
-}, { flush: 'post', immediate: true });
 
 watch(() => composerStickerSuggestions.value.length, () => {
   if (composerFocused || isMessageListNearBottom()) queueMessagesToBottomAfterLayout();
@@ -2347,7 +2271,6 @@ function startCallTimer(connectedAt = Date.now()) {
 
 function stopCallAudio() {
   callPlaybackRunId += 1;
-  stopCallLipSync();
   if (!callAudio) return;
   callAudio.pause();
   callAudio.src = '';
@@ -2741,44 +2664,14 @@ function handleCallInputBlur() {
   }, 120);
 }
 
-function stopCallLipSync() {
-  if (callLipSyncFrame !== undefined) {
-    window.cancelAnimationFrame(callLipSyncFrame);
-    callLipSyncFrame = undefined;
-  }
-  callMouthLevel.value = 0;
-}
-
-function startCallLipSync(audio: HTMLAudioElement, runId: number) {
-  stopCallLipSync();
-  const tick = () => {
-    if (runId !== callPlaybackRunId || audio.ended || audio.paused) {
-      callMouthLevel.value = 0;
-      return;
-    }
-    const time = audio.currentTime || 0;
-    const pulse = Math.abs(Math.sin(time * 18.5)) * 0.55 + Math.abs(Math.sin(time * 7.25)) * 0.32;
-    callMouthLevel.value = Math.min(1, Math.max(0.18, pulse));
-    callLipSyncFrame = window.requestAnimationFrame(tick);
-  };
-  callLipSyncFrame = window.requestAnimationFrame(tick);
-}
-
 function playCallAudioUrl(audioUrl: string, runId: number) {
   return new Promise<void>((resolve) => {
     if (runId !== callPlaybackRunId) return resolve();
     const audio = new Audio(audioUrl);
     callAudio = audio;
     audio.muted = !activeCall.value?.speakerEnabled;
-    audio.onplay = () => startCallLipSync(audio, runId);
-    audio.onended = () => {
-      stopCallLipSync();
-      resolve();
-    };
-    audio.onerror = () => {
-      stopCallLipSync();
-      resolve();
-    };
+    audio.onended = () => resolve();
+    audio.onerror = () => resolve();
     void audio.play().then(() => undefined, () => resolve());
   });
 }
@@ -2889,8 +2782,7 @@ async function scrollCallTranscript(options: { preferUnread?: boolean; unreadMes
 
 function closeActiveCall() {
   clearCallTimer();
-  stopCallBackgroundRotation();
-  resetCallBackgroundImage();
+  resetCallVideoImage();
   stopCallAudio();
   stopCallRingtone();
   stopCallAmbient();
@@ -3071,7 +2963,6 @@ async function connectActiveCall(direction: 'incoming' | 'outgoing', options: { 
     status: 'active',
     connectedAt
   };
-  refreshCallBackground();
   callStatusText.value = '已接通';
   stopCallRingtone();
   syncCallAmbientPlayback();
@@ -3083,6 +2974,7 @@ async function connectActiveCall(direction: 'incoming' | 'outgoing', options: { 
 async function startOutgoingCall(mode: ChatCallMode) {
   if (chatActionLocked.value || activeCall.value) return;
   showActionMenu.value = false;
+  resetCallVideoImage();
   const callId = createId('call');
   const startedAt = Date.now();
   const callEvent = await store.appendCallEventMessage(props.id, {
@@ -3102,10 +2994,8 @@ async function startOutgoingCall(mode: ChatCallMode) {
     startedAt,
     muted: false,
     cameraEnabled: false,
-    speakerEnabled: true,
-    generatedBackgroundUrl: ''
+    speakerEnabled: true
   };
-  refreshCallBackground();
   callStatusText.value = '正在等待接听';
   syncCallRingtonePlayback();
   await scrollMessagesToBottom();
@@ -3129,6 +3019,7 @@ function openIncomingCall(message: ChatMessage) {
   if (!call || activeCall.value) return;
   clearCallTimer();
   stopCallAudio();
+  resetCallVideoImage();
   activeCall.value = {
     callId: call.callId,
     eventMessageId: message.id,
@@ -3138,10 +3029,8 @@ function openIncomingCall(message: ChatMessage) {
     startedAt: call.startedAt,
     muted: false,
     cameraEnabled: false,
-    speakerEnabled: true,
-    generatedBackgroundUrl: ''
+    speakerEnabled: true
   };
-  refreshCallBackground();
   callStatusText.value = '';
   syncCallRingtonePlayback();
 }
@@ -4169,7 +4058,7 @@ onBeforeUnmount(() => {
     syncActiveCallMetadata();
   }
   clearCallTimer();
-  stopCallBackgroundRotation();
+  resetCallVideoImage();
   stopCallAudio();
   stopCallRingtone();
   stopCallAmbient();
@@ -4235,19 +4124,7 @@ onBeforeUnmount(() => {
   font-family: var(--app-current-font-family);
 }
 
-.call-screen::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  width: 100vw;
-  height: var(--app-height);
-  transform: translateZ(0) scale(1.01);
-  transform-origin: center;
-}
-
-.call-screen-background {
+.call-screen-image {
   position: fixed;
   inset: 0;
   z-index: 0;
@@ -4261,21 +4138,6 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 
-.call-screen::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  width: 100vw;
-  height: var(--app-height);
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.44), rgba(0, 0, 0, 0.28) 42%, rgba(0, 0, 0, 0.58));
-}
-
-.call-screen--video {
-  background: #111111;
-}
-
 .call-visual-layer {
   position: relative;
   z-index: 2;
@@ -4285,22 +4147,6 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: hidden;
   padding: calc(16px + var(--safe-top)) 18px calc(18px + var(--safe-bottom));
-}
-
-.call-visual-layer::before,
-.call-visual-layer::after {
-  content: '';
-  position: absolute;
-  pointer-events: none;
-}
-
-.call-visual-layer::before {
-  display: none;
-}
-
-.call-visual-layer::after {
-  inset: 0;
-  background: rgba(0, 0, 0, 0.34);
 }
 
 .call-topbar,
@@ -4325,6 +4171,13 @@ onBeforeUnmount(() => {
 
 .call-topbar-actions {
   display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.call-topbar-leading {
+  display: inline-flex;
+  min-width: 0;
   align-items: center;
   gap: 8px;
 }
@@ -4432,6 +4285,38 @@ onBeforeUnmount(() => {
 
 .call-video-stage.active .call-video-copy {
   position: static;
+}
+
+.call-video-generate-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1e2328;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.call-topbar .call-video-generate-button {
+  width: auto;
+  height: 34px;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: #1e2328;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call-video-generate-button:disabled {
+  cursor: default;
+  opacity: 0.58;
 }
 
 .call-video-copy h2,

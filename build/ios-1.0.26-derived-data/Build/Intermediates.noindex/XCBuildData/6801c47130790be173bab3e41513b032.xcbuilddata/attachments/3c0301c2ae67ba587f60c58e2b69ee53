@@ -1,0 +1,56 @@
+{
+  "" : {
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin-primary.dia",
+    "emit-module-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin-primary-emit-module.dia",
+    "pch" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin-primary.swiftdeps"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin/CAPPluginCall+Accelerators.swift" : {
+    "index-unit-output-path" : "/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/CAPPluginCall+Accelerators.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/CAPPluginCall+Accelerators.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/CAPPluginCall+Accelerators.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin/FilesystemConstants.swift" : {
+    "index-unit-output-path" : "/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemConstants.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemConstants.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemConstants.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin/FilesystemError.swift" : {
+    "index-unit-output-path" : "/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemError.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemError.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemError.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin/FilesystemLocationResolver.swift" : {
+    "index-unit-output-path" : "/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemLocationResolver.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemLocationResolver.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemLocationResolver.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin/FilesystemOperation.swift" : {
+    "index-unit-output-path" : "/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemOperation.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemOperation.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemOperation.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin/FilesystemOperationExecutor.swift" : {
+    "index-unit-output-path" : "/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemOperationExecutor.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemOperationExecutor.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemOperationExecutor.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin/FilesystemPlugin.swift" : {
+    "index-unit-output-path" : "/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/FilesystemPlugin.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin/IONFileStructures+Converters.swift" : {
+    "index-unit-output-path" : "/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/IONFileStructures+Converters.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/IONFileStructures+Converters.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/IONFileStructures+Converters.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin/LegacyFilesystemImplementation.swift" : {
+    "index-unit-output-path" : "/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/LegacyFilesystemImplementation.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/LegacyFilesystemImplementation.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorFilesystem.build/Release-iphoneos/FilesystemPlugin.build/Objects-normal/arm64/LegacyFilesystemImplementation.o"
+  }
+}

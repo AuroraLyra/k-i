@@ -29,7 +29,8 @@
     "test:fanfic-chapter": "tsx --tsconfig tsconfig.app.json scripts/fanfic-chapter-regression.ts",
     "test:theme-styles": "tsx --tsconfig tsconfig.app.json scripts/theme-styles-regression.ts",
     "test:role-operations": "tsx --tsconfig tsconfig.app.json scripts/role-operations-regression.ts",
-    "test:text-api-errors": "tsx --tsconfig tsconfig.app.json scripts/text-api-error-regression.ts"
+    "test:text-api-errors": "tsx --tsconfig tsconfig.app.json scripts/text-api-error-regression.ts",
+    "test:image-visual-planner": "tsx --tsconfig tsconfig.app.json scripts/image-visual-planner-regression.ts"
   },
   "dependencies": {
     "@capacitor-community/contacts": "^8.0.0",

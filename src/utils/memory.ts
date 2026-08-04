@@ -1,4 +1,4 @@
-import type { ChatMemorySettings, ChatMode, ConversationOfflineSettings, ConversationRoleGuidanceSettings, ConversationSettings, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineStructureKind, OfflineTonePreset, RingtoneAsset, VoomImageMode } from '@/types/domain';
+import type { ChatMemorySettings, ChatMode, ConversationImageVisualMemory, ConversationOfflineSettings, ConversationRoleGuidanceSettings, ConversationSettings, ImagePeoplePolicy, ImageReferencePolicy, ImageVisualMoment, ImageVisualScope, OfflineInterruptionMode, OfflineParagraphMode, OfflinePerspective, OfflinePromptPreset, OfflineRetellMode, OfflineStructureKind, OfflineTonePreset, RingtoneAsset, VoomImageMode } from '@/types/domain';
 import { createId } from './id';
 import { chatMemorySettingLimits, normalizeChatMemorySetting } from './memorySettings';
 import { normalizeChatModelOverrides } from './settings';
@@ -440,7 +440,15 @@ export const defaultConversationSettings: Omit<ConversationSettings, 'conversati
   },
   call: {
     ambientEnabled: false,
-    ambientVolume: 0.16
+    ambientVolume: 0.16,
+    voiceBackgroundImage: '',
+    voiceBackgroundImages: [],
+    videoBackgroundImage: '',
+    videoBackgroundImages: [],
+    videoGeneratedBackgroundImages: []
+  },
+  imageVisualMemory: {
+    moments: []
   },
   narrationModeEnabled: true,
   autoGenerateVoom: true,
@@ -463,6 +471,47 @@ export const defaultConversationSettings: Omit<ConversationSettings, 'conversati
   },
   offline: defaultOfflineSettings
 };
+
+function normalizeImageVisualScope(value: unknown): ImageVisualScope {
+  return value === 'voom' || value === 'videoCall' ? value : 'onlineChat';
+}
+
+function normalizeImagePeoplePolicy(value: unknown): ImagePeoplePolicy {
+  if (value === 'people-forbidden' || value === 'people-optional') return value;
+  return 'character-required';
+}
+
+function normalizeImageReferencePolicy(value: unknown): ImageReferencePolicy {
+  if (value === 'identity' || value === 'composition') return value;
+  return 'none';
+}
+
+function normalizeImageVisualMoment(value: Partial<ImageVisualMoment> | null | undefined): ImageVisualMoment | null {
+  const visualPrompt = String(value?.visualPrompt ?? '').trim();
+  if (!visualPrompt) return null;
+  return {
+    id: String(value?.id ?? '').trim() || createId('visual'),
+    scope: normalizeImageVisualScope(value?.scope),
+    continuityKey: String(value?.continuityKey ?? '').trim(),
+    peoplePolicy: normalizeImagePeoplePolicy(value?.peoplePolicy),
+    referencePolicy: normalizeImageReferencePolicy(value?.referencePolicy),
+    environment: String(value?.environment ?? '').trim(),
+    activity: String(value?.activity ?? '').trim(),
+    expression: String(value?.expression ?? '').trim(),
+    wardrobe: String(value?.wardrobe ?? '').trim(),
+    framing: String(value?.framing ?? '').trim(),
+    visualPrompt,
+    negativePrompt: String(value?.negativePrompt ?? '').trim(),
+    createdAt: Math.max(0, Number(value?.createdAt) || Date.now())
+  };
+}
+
+function normalizeConversationImageVisualMemory(value: Partial<ConversationImageVisualMemory> | null | undefined): ConversationImageVisualMemory {
+  const moments = Array.isArray(value?.moments)
+    ? value.moments.map((moment) => normalizeImageVisualMoment(moment)).filter((moment): moment is ImageVisualMoment => Boolean(moment))
+    : [];
+  return { moments: moments.sort((left, right) => right.createdAt - left.createdAt).slice(0, 18) };
+}
 
 export function normalizeConversationSettings(settings: Partial<ConversationSettings> | null | undefined, conversationId: string, _mode: ChatMode = 'online'): ConversationSettings {
   const memoryDefaults = defaultChatMemorySettings;
@@ -492,6 +541,20 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
   const proactiveReply = settings?.proactiveReply ?? defaultConversationSettings.proactiveReply;
   const callAmbientSound = normalizeOptionalRingtoneAsset(call.ambientSound);
   const ambientVolume = Math.min(0.6, Math.max(0.02, Number(call.ambientVolume) || defaultConversationSettings.call.ambientVolume));
+  const imageVisualMemory = normalizeConversationImageVisualMemory(settings?.imageVisualMemory);
+  const voiceBackgroundImage = String(call.voiceBackgroundImage ?? '').trim();
+  const voiceBackgroundImages = [
+    voiceBackgroundImage,
+    ...(Array.isArray(call.voiceBackgroundImages) ? call.voiceBackgroundImages : [])
+  ].map((image) => String(image ?? '').trim()).filter(Boolean);
+  const videoBackgroundImage = String(call.videoBackgroundImage ?? '').trim();
+  const videoBackgroundImages = [
+    videoBackgroundImage,
+    ...(Array.isArray(call.videoBackgroundImages) ? call.videoBackgroundImages : [])
+  ].map((image) => String(image ?? '').trim()).filter(Boolean);
+  const videoGeneratedBackgroundImages = (Array.isArray(call.videoGeneratedBackgroundImages) ? call.videoGeneratedBackgroundImages : [])
+    .map((image) => String(image ?? '').trim())
+    .filter((image) => Boolean(image) && videoBackgroundImages.includes(image));
 
   return {
     conversationId,
@@ -533,8 +596,14 @@ export function normalizeConversationSettings(settings: Partial<ConversationSett
     call: {
       ...(callAmbientSound ? { ambientSound: callAmbientSound } : {}),
       ambientEnabled: Boolean(call.ambientEnabled ?? defaultConversationSettings.call.ambientEnabled),
-      ambientVolume
+      ambientVolume,
+      voiceBackgroundImage,
+      voiceBackgroundImages: [...new Set(voiceBackgroundImages)],
+      videoBackgroundImage,
+      videoBackgroundImages: [...new Set(videoBackgroundImages)],
+      videoGeneratedBackgroundImages: [...new Set(videoGeneratedBackgroundImages)]
     },
+    imageVisualMemory,
     narrationModeEnabled: isLegacySettings ? defaultConversationSettings.narrationModeEnabled : settings?.narrationModeEnabled ?? defaultConversationSettings.narrationModeEnabled,
     autoGenerateVoom: settings?.autoGenerateVoom ?? defaultConversationSettings.autoGenerateVoom,
     voomFrequency,

@@ -1,0 +1,4 @@
+module FilePickerPlugin {
+header "FilePickerPlugin-Swift.h"
+export *
+}

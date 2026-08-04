@@ -579,7 +579,7 @@ export const defaultAppSettings: AppSettings = {
   imageModelOverrides: {
     voom: { provider: '', model: '' },
     onlineChat: { provider: '', model: '' },
-    callBackground: { provider: '', model: '' }
+    videoCall: { provider: '', model: '' }
   },
   voomImageProvider: '',
   voomImageModel: '',
@@ -599,6 +599,7 @@ export const defaultAppSettings: AppSettings = {
   realityMcpSettings: createDefaultRealityMcpSettings(),
   imagePrivateOnly: true,
   imageGenerationEnabled: true,
+  imageAdvancedModeEnabled: true,
   githubBackup: {
     enabled: false,
     token: '',
@@ -694,7 +695,7 @@ function normalizeImageModelOverrides(settings?: Partial<AppSettings> | null) {
     return {
       voom: disabledSelection,
       onlineChat: disabledSelection,
-      callBackground: disabledSelection
+      videoCall: disabledSelection
     } satisfies Record<ImageModelScope, ImageModelSelection>;
   }
   const legacySelection = {
@@ -702,10 +703,11 @@ function normalizeImageModelOverrides(settings?: Partial<AppSettings> | null) {
     model: settings?.voomImageModel
   };
   const overrides = settings?.imageModelOverrides;
+  const legacyCallBackground = (overrides as (Partial<Record<'callBackground', ImageModelSelection>> | undefined))?.callBackground;
   return {
     voom: normalizeImageModelSelection(overrides?.voom, legacySelection),
     onlineChat: normalizeImageModelSelection(overrides?.onlineChat, legacySelection),
-    callBackground: normalizeImageModelSelection(overrides?.callBackground)
+    videoCall: normalizeImageModelSelection(overrides?.videoCall ?? legacyCallBackground)
   } satisfies Record<ImageModelScope, ImageModelSelection>;
 }
 
@@ -1411,6 +1413,10 @@ function normalizeVendorModel(model: Partial<ApiVendorModel> | null | undefined)
   };
 }
 
+function normalizeVendorStreamingMode(value: unknown): ApiVendor['streaming'] {
+  return value === 'auto' || value === 'on' ? value : 'off';
+}
+
 function splitLegacyEndpoint(endpoint: string) {
   const trimmed = endpoint.trim();
   if (!trimmed) {
@@ -1454,6 +1460,7 @@ function normalizeVendor(vendor: Partial<ApiVendor> | null | undefined, fallback
     apiKey: String(vendor?.apiKey ?? '').trim(),
     avatar: normalizeVendorAvatar(vendor?.avatar),
     preferBase64ImageResponse: Boolean(vendor?.preferBase64ImageResponse),
+    streaming: normalizeVendorStreamingMode(vendor?.streaming),
     models
   };
 }
@@ -1932,6 +1939,7 @@ export function normalizeAppSettings(settings?: Partial<AppSettings> | null): Ap
     imageModel: resolvedImageConfig.model || normalized.imageModel,
     imageSize: normalized.imageOpenAi.size || normalized.imageSize,
     imagePromptPrefix: normalized.imageOpenAi.positivePrompt || normalized.imagePromptPrefix,
+    imageAdvancedModeEnabled: Boolean(settings?.imageAdvancedModeEnabled ?? defaultAppSettings.imageAdvancedModeEnabled),
     imageModelOverrides: normalized.imageModelOverrides,
     voomImageProvider: normalized.imageModelOverrides.voom.provider,
     voomImageModel: normalized.imageModelOverrides.voom.model,

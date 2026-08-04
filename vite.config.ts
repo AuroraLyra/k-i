@@ -723,16 +723,22 @@ export default defineConfig({
         start_url: base,
         icons: [
           {
-            src: 'link-icon-192.png?v=2',
+            src: 'link-icon-192.png?v=3',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any'
           },
           {
-            src: 'link-icon.png?v=2',
+            src: 'link-icon.png?v=3',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'any maskable'
+            purpose: 'any'
+          },
+          {
+            src: 'link-icon-maskable.png?v=3',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
           }
         ]
       },

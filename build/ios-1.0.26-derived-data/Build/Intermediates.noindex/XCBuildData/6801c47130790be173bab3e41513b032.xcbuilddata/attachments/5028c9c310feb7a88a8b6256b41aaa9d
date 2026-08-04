@@ -1,0 +1,31 @@
+{
+  "" : {
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePickerPlugin-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePickerPlugin-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePickerPlugin-primary.dia",
+    "emit-module-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePickerPlugin-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePickerPlugin-primary-emit-module.dia",
+    "pch" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePickerPlugin-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePickerPlugin-primary.swiftdeps"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capawesome/capacitor-file-picker/ios/Plugin/Classes/Enums/CustomError.swift" : {
+    "index-unit-output-path" : "/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/CustomError.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/CustomError.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/CustomError.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capawesome/capacitor-file-picker/ios/Plugin/Classes/Options/CopyFileOptions.swift" : {
+    "index-unit-output-path" : "/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/CopyFileOptions.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/CopyFileOptions.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/CopyFileOptions.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capawesome/capacitor-file-picker/ios/Plugin/FilePicker.swift" : {
+    "index-unit-output-path" : "/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePicker.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePicker.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePicker.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capawesome/capacitor-file-picker/ios/Plugin/FilePickerPlugin.swift" : {
+    "index-unit-output-path" : "/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePickerPlugin.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePickerPlugin.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapawesomeCapacitorFilePicker.build/Release-iphoneos/FilePickerPlugin.build/Objects-normal/arm64/FilePickerPlugin.o"
+  }
+}

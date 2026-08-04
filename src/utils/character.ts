@@ -1,5 +1,4 @@
-import type { CharacterImageProfile, CharacterInitialProfile, CharacterMcpBinding, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, CharacterThemeStyleBindings, FriendRelationship, FriendRelationshipStatus, VisualProfile } from '@/types/domain';
-import { normalizeCharacterPhotoRecords, normalizeHiddenSourcePhotoKeys } from '@/utils/characterPhotos';
+import type { CharacterImageProfile, CharacterImageReferenceMode, CharacterInitialProfile, CharacterMcpBinding, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, CharacterThemeStyleBindings, CharacterWardrobeProfile, FriendRelationship, FriendRelationshipStatus, VisualProfile } from '@/types/domain';
 import { normalizeVisualProfile, removeVisualProfileAvatar, toCharacterVisualProfile } from '@/utils/profile';
 import { normalizeChatModelOverrides } from '@/utils/settings';
 import { normalizeVoomFrequency } from '@/utils/voom';
@@ -116,20 +115,45 @@ function normalizeCharacterMcpBinding(binding: Partial<CharacterMcpBinding> | nu
   };
 }
 
+function normalizeCharacterImageReferenceMode(value: unknown): CharacterImageReferenceMode {
+  return value === 'composition' ? 'composition' : 'identity';
+}
+
+function normalizeCharacterWardrobe(wardrobe: Partial<CharacterWardrobeProfile> | null | undefined): CharacterWardrobeProfile {
+  const source = wardrobe as Record<string, unknown> | null | undefined;
+  const preservedLegacyDetails = Object.entries(source ?? {})
+    .filter(([key, value]) => !['guidance', 'inventory', 'avoid'].includes(key) && String(value ?? '').trim())
+    .map(([key, value]) => `${key}: ${String(value).trim()}`)
+    .join('\n');
+  return {
+    guidance: String(wardrobe?.guidance ?? '').trim(),
+    inventory: String(wardrobe?.inventory ?? preservedLegacyDetails).trim(),
+    avoid: String(wardrobe?.avoid ?? '').trim()
+  };
+}
+
 function normalizeCharacterImageProfile(profile: Partial<CharacterImageProfile> | null | undefined): CharacterImageProfile | undefined {
-  const photos = normalizeCharacterPhotoRecords(profile?.photos);
-  const hiddenSourcePhotoKeys = normalizeHiddenSourcePhotoKeys(profile?.hiddenSourcePhotoKeys);
   const normalized = {
     appearancePrompt: String(profile?.appearancePrompt ?? '').trim(),
     facePrompt: String(profile?.facePrompt ?? '').trim(),
     referenceImage: String(profile?.referenceImage ?? '').trim(),
     referenceImageEnabled: profile?.referenceImageEnabled !== false,
+    referenceImageMode: normalizeCharacterImageReferenceMode(profile?.referenceImageMode),
     voomPortraitModeEnabled: profile?.voomPortraitModeEnabled !== false,
     seed: String(profile?.seed ?? '').trim(),
-    photos,
-    hiddenSourcePhotoKeys
+    seedLockEnabled: Boolean(profile?.seedLockEnabled),
+    wardrobe: normalizeCharacterWardrobe(profile?.wardrobe)
   };
-  return normalized.appearancePrompt || normalized.facePrompt || normalized.referenceImage || normalized.seed || normalized.voomPortraitModeEnabled === false || photos.length || hiddenSourcePhotoKeys.length ? normalized : undefined;
+  return normalized.appearancePrompt
+    || normalized.facePrompt
+    || normalized.referenceImage
+    || normalized.seed
+    || normalized.seedLockEnabled
+    || normalized.referenceImageMode !== 'identity'
+    || normalized.voomPortraitModeEnabled === false
+    || Object.values(normalized.wardrobe).some(Boolean)
+    ? normalized
+    : undefined;
 }
 
 export function getCharacterInitialProfile(character: Pick<CharacterProfile, 'initialProfile' | 'nickname' | 'name'>): CharacterInitialProfile {

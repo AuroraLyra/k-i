@@ -237,15 +237,6 @@ async function compactCharacterProfileInlineImages(character: CharacterProfile):
   const nextReferenceImage = await compactInlineImageValue(character.imageProfile?.referenceImage, inlineProfileImageCompressionOptions);
   if (nextReferenceImage !== character.imageProfile?.referenceImage) changed = true;
 
-  const nextPhotos = character.imageProfile?.photos
-    ? await Promise.all(character.imageProfile.photos.map(async (photo) => {
-        const nextImageUrl = await compactInlineImageValueByAge(photo.imageUrl, photo.createdAt, photo.provider, inlineProfileImageCompressionOptions) ?? photo.imageUrl;
-        if (nextImageUrl === photo.imageUrl) return photo;
-        changed = true;
-        return { ...photo, imageUrl: nextImageUrl, updatedAt: Date.now() };
-      }))
-    : character.imageProfile?.photos;
-
   const nextBoundUserProfile = await compactVisualProfileInlineImages(character.boundUserProfile);
   if (nextBoundUserProfile !== character.boundUserProfile) changed = true;
 
@@ -260,7 +251,7 @@ async function compactCharacterProfileInlineImages(character: CharacterProfile):
     ? {
         ...character,
         avatar: nextAvatar ?? character.avatar,
-        imageProfile: character.imageProfile ? { ...character.imageProfile, referenceImage: nextReferenceImage ?? character.imageProfile.referenceImage, photos: nextPhotos ?? character.imageProfile.photos } : character.imageProfile,
+        imageProfile: character.imageProfile ? { ...character.imageProfile, referenceImage: nextReferenceImage ?? character.imageProfile.referenceImage } : character.imageProfile,
         boundUserProfile: nextBoundUserProfile,
         profile: nextProfile
       }

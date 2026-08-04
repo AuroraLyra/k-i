@@ -3,7 +3,7 @@ import type { ApiVendor, AppSettings, CharacterProfile, ChatApiReasoningFormat, 
 import { createId } from '@/utils/id';
 import { getCharacterAiName } from '@/utils/character';
 import { getUserAiName, getUserDisplayName, getUserVoomAuthorName } from '@/utils/profile';
-import { defaultNovelAiModels, defaultPollinationsModels, getResolvedApiConfig, getResolvedOpenAiImageConfig, isNovelAiV4FamilyModel, normalizeNovelAiUcPreset, novelAiOfficialApiUrl, novelAiProxyApiUrl } from '@/utils/settings';
+import { defaultNovelAiModels, defaultPollinationsModels, getPreferredApiVendor, getResolvedApiConfig, getResolvedOpenAiImageConfig, isNovelAiV4FamilyModel, normalizeNovelAiUcPreset, novelAiOfficialApiUrl, novelAiProxyApiUrl } from '@/utils/settings';
 import { estimateTokenCount } from '@/utils/memory';
 import { getCurrentUserTurnMessages } from '@/utils/messageTurns';
 import { parseModelJsonResponse } from '@/utils/aiResponse';
@@ -2206,15 +2206,18 @@ function getResolvedTextApiConfig(settings: AppSettings | undefined, modelOverri
       return {
         endpoint: apiUrl ? `${apiUrl}/${vendor.apiPath.trim().replace(/^\/+/, '')}` : '',
         apiKey: vendor.apiKey,
-        model: selection.model || vendor.models.find((model) => model.selected)?.id || vendor.models[0]?.id || ''
+        model: selection.model || vendor.models.find((model) => model.selected)?.id || vendor.models[0]?.id || '',
+        streaming: vendor.streaming
       };
     }
   }
 
   const resolved = getResolvedApiConfig(settings);
+  const preferredVendor = getPreferredApiVendor(settings);
   return {
     ...resolved,
-    model: selection.model || resolved.model
+    model: selection.model || resolved.model,
+    streaming: preferredVendor?.streaming ?? 'off'
   };
 }
 
@@ -2242,6 +2245,8 @@ export interface TextGenerationOptions {
   signal?: AbortSignal;
   jsonMode?: boolean;
   retryTransientFailures?: boolean;
+  onStreamText?: (text: string) => void;
+  onStreamStart?: () => void;
 }
 
 export interface TextGenerationUsage {
@@ -2508,6 +2513,134 @@ function extractTextApiResult(payload: unknown): TextGenerationResult {
   };
 }
 
+function extractTextApiStreamDelta(payload: unknown) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '';
+  const record = payload as Record<string, unknown>;
+  const choices = Array.isArray(record.choices) ? record.choices : [];
+  const firstChoice = choices[0] && typeof choices[0] === 'object' && !Array.isArray(choices[0])
+    ? choices[0] as Record<string, unknown>
+    : {};
+  const choiceDelta = firstChoice.delta && typeof firstChoice.delta === 'object' && !Array.isArray(firstChoice.delta)
+    ? firstChoice.delta as Record<string, unknown>
+    : {};
+  const responseDelta = record.delta && typeof record.delta === 'object' && !Array.isArray(record.delta)
+    ? record.delta as Record<string, unknown>
+    : {};
+  const candidates = [
+    choiceDelta.content,
+    choiceDelta.text,
+    firstChoice.delta,
+    firstChoice.text,
+    responseDelta.content,
+    responseDelta.text,
+    record.delta,
+    record.text
+  ];
+  for (const candidate of candidates) {
+    const fragments = normalizeTextApiReplyFragments(candidate);
+    if (fragments.length) return fragments.join('');
+  }
+  return '';
+}
+
+function updateStreamResultMetadata(result: TextGenerationResult, payload: unknown) {
+  const partial = extractTextApiResult(payload);
+  return {
+    ...result,
+    finishReason: partial.finishReason || result.finishReason,
+    status: partial.status || result.status,
+    incomplete: result.incomplete || partial.incomplete,
+    incompleteReason: partial.incompleteReason || result.incompleteReason,
+    requestId: partial.requestId || result.requestId,
+    usage: partial.usage ?? result.usage,
+    model: partial.model || result.model,
+    reasoning: partial.reasoning || result.reasoning,
+    reasoningFormat: partial.reasoningFormat ?? result.reasoningFormat
+  };
+}
+
+interface TextApiStreamReadResult {
+  result: TextGenerationResult;
+  streamed: boolean;
+  hasText: boolean;
+}
+
+async function readTextApiStreamResponse(response: Response, options: TextGenerationOptions): Promise<TextApiStreamReadResult> {
+  const contentType = response.headers.get('content-type')?.toLocaleLowerCase() ?? '';
+  if (!contentType.includes('text/event-stream')) {
+    const data = await readJsonPayload(response, '文本模型 API 返回异常');
+    return { result: extractTextApiResult(data), streamed: false, hasText: true };
+  }
+
+  if (!response.body) {
+    throw new Error('文本模型 API 流式响应没有可读取的数据流。');
+  }
+
+  options.onStreamStart?.();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let hasText = false;
+  let result: TextGenerationResult = {
+    text: '',
+    finishReason: '',
+    status: '',
+    incomplete: false,
+    incompleteReason: '',
+    requestId: ''
+  };
+
+  const consumeEvent = (event: string) => {
+    const data = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trimStart())
+      .join('\n')
+      .trim();
+    if (!data || data === '[DONE]') return;
+    try {
+      const payload = JSON.parse(data) as unknown;
+      const delta = extractTextApiStreamDelta(payload);
+      if (delta) {
+        hasText = true;
+        result = { ...result, text: `${result.text}${delta}` };
+        options.onStreamText?.(result.text);
+      }
+      result = updateStreamResultMetadata(result, payload);
+    } catch {}
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+      let separatorIndex = buffer.search(/\r?\n\r?\n/);
+      while (separatorIndex >= 0) {
+        const separatorLength = buffer[separatorIndex] === '\r' ? 4 : 2;
+        consumeEvent(buffer.slice(0, separatorIndex));
+        buffer = buffer.slice(separatorIndex + separatorLength);
+        separatorIndex = buffer.search(/\r?\n\r?\n/);
+      }
+      if (done) break;
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) consumeEvent(buffer);
+  } finally {
+    reader.releaseLock();
+  }
+
+  return { result, streamed: true, hasText };
+}
+
+async function isTextApiStreamingUnsupported(response: Response) {
+  try {
+    const payload = await response.clone().text();
+    return /(?:stream(?:ing)?|server-sent events|event-stream).{0,80}(?:unsupported|not supported|invalid|disable)|(?:unsupported|not supported|invalid).{0,80}(?:stream(?:ing)?|server-sent events|event-stream)/i.test(payload);
+  } catch {
+    return false;
+  }
+}
+
 async function callTextApiDetailed(settings: AppSettings | undefined, prompt: string, modelOverride = '', imageParts: TextApiContentPart[] = [], options: TextGenerationOptions = {}): Promise<TextGenerationResult> {
   const resolved = getResolvedTextApiConfig(settings, modelOverride);
   if (!resolved.endpoint.trim()) return { text: '', finishReason: '', status: '', incomplete: false, incompleteReason: '', requestId: '' };
@@ -2517,7 +2650,7 @@ async function callTextApiDetailed(settings: AppSettings | undefined, prompt: st
     ? [{ type: 'text' as const, text: prioritizedPrompt }, ...imageParts]
     : prioritizedPrompt;
 
-  const createRequestInit = (jsonMode: boolean): RequestInit => ({
+  const createRequestInit = (jsonMode: boolean, streaming: boolean): RequestInit => ({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -2529,16 +2662,26 @@ async function callTextApiDetailed(settings: AppSettings | undefined, prompt: st
       messages: [{ role: 'user', content }],
       temperature: options.temperature ?? 0.9,
       ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
-      ...(jsonMode ? { response_format: { type: 'json_object' } } : {})
+      ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+      ...(streaming ? { stream: true } : {})
     })
   });
 
-  let requestInit = createRequestInit(Boolean(options.jsonMode));
+  let streaming = resolved.streaming !== 'off';
+  let requestInit = createRequestInit(Boolean(options.jsonMode), streaming);
 
   let { response, requestEndpoint } = await fetchTextEndpoint(resolved.endpoint, requestInit);
   let errorClassification = response.ok ? null : await classifyTextApiResponseError(response);
   if (!response.ok && options.jsonMode && errorClassification?.responseFormatUnsupported) {
-    requestInit = createRequestInit(false);
+    requestInit = createRequestInit(false, streaming);
+    const compatibilityResult = await fetchTextEndpoint(resolved.endpoint, requestInit);
+    response = compatibilityResult.response;
+    requestEndpoint = compatibilityResult.requestEndpoint;
+    errorClassification = response.ok ? null : await classifyTextApiResponseError(response);
+  }
+  if (!response.ok && streaming && resolved.streaming === 'auto' && await isTextApiStreamingUnsupported(response)) {
+    streaming = false;
+    requestInit = createRequestInit(Boolean(options.jsonMode) && !errorClassification?.responseFormatUnsupported, false);
     const compatibilityResult = await fetchTextEndpoint(resolved.endpoint, requestInit);
     response = compatibilityResult.response;
     requestEndpoint = compatibilityResult.requestEndpoint;
@@ -2566,6 +2709,22 @@ async function callTextApiDetailed(settings: AppSettings | undefined, prompt: st
       [await createApiErrorMessage(response, '文本模型 API 请求失败'), statusHint, classificationHint].filter(Boolean).join('\n\n'),
       classification
     );
+  }
+
+  if (streaming) {
+    const streamResult = await readTextApiStreamResponse(response, options);
+    if (streamResult.hasText || !streamResult.streamed || resolved.streaming === 'on') {
+      return { ...streamResult.result, model: streamResult.result.model || resolved.model };
+    }
+
+    const fallbackInit = createRequestInit(Boolean(options.jsonMode), false);
+    const fallbackResponse = await fetchTextEndpoint(resolved.endpoint, fallbackInit);
+    if (!fallbackResponse.response.ok) {
+      throw new Error(await createApiErrorMessage(fallbackResponse.response, '文本模型 API 流式兼容回退失败'));
+    }
+    const fallbackData = await readJsonPayload(fallbackResponse.response, '文本模型 API 返回异常');
+    const fallbackResult = extractTextApiResult(fallbackData);
+    return { ...fallbackResult, model: fallbackResult.model || resolved.model };
   }
 
   const data = await readJsonPayload(response, '文本模型 API 返回异常');
@@ -2930,6 +3089,57 @@ class RoleplayReplyFormatError extends Error {
 const roleplayFormatRetryInstruction = `重要重试要求：上一次响应的 JSON 格式损坏。请从头重新生成完整响应，只输出一个 JSON 对象，不要 Markdown 代码块或解释。
 所有 content、translation 与 profileThemeContent 都必须是合法 JSON 字符串：换行写成 \\n，原始反斜杠写成 \\\\，双引号写成 \\"。不要省略结尾的引号、数组或花括号。`;
 
+function readPartialJsonString(value: string, startIndex: number) {
+  let text = '';
+  for (let index = startIndex; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === '"') return text;
+    if (character !== '\\') {
+      text += character;
+      continue;
+    }
+
+    const escaped = value[index + 1];
+    if (!escaped) break;
+    if (escaped === 'u') {
+      const hex = value.slice(index + 2, index + 6);
+      if (hex.length < 4 || !/^[\da-f]{4}$/i.test(hex)) break;
+      text += String.fromCharCode(Number.parseInt(hex, 16));
+      index += 5;
+      continue;
+    }
+    const escapeMap: Record<string, string> = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
+    text += escapeMap[escaped] ?? escaped;
+    index += 1;
+  }
+  return text;
+}
+
+function extractRoleplayStreamPreview(apiReply: string) {
+  const typedMessagePattern = /"type"\s*:\s*"(?:reply|text)"[^{}]{0,240}?"content"\s*:\s*"/g;
+  const typedMatch = typedMessagePattern.exec(apiReply);
+  if (typedMatch) return readPartialJsonString(apiReply, typedMatch.index + typedMatch[0].length);
+
+  const repliesMatch = /"replies"\s*:\s*\[\s*"/.exec(apiReply);
+  if (repliesMatch) return readPartialJsonString(apiReply, repliesMatch.index + repliesMatch[0].length);
+
+  const replyMatch = /"reply"\s*:\s*"/.exec(apiReply);
+  return replyMatch ? readPartialJsonString(apiReply, replyMatch.index + replyMatch[0].length) : '';
+}
+
+function roleplayStreamingOptions(input: GenerateReplyInput): Pick<TextGenerationOptions, 'signal' | 'onStreamStart' | 'onStreamText'> {
+  return {
+    ...(input.requestSignal ? { signal: input.requestSignal } : {}),
+    ...(input.onReplyStreamText ? {
+      onStreamStart: () => input.onReplyStreamText?.(''),
+      onStreamText: (text: string) => {
+        const preview = extractRoleplayStreamPreview(text);
+        if (preview) input.onReplyStreamText?.(preview);
+      }
+    } : {})
+  };
+}
+
 function normalizeVisibleThoughtChain(value: unknown) {
   if (typeof value === 'string') {
     const content = value.trim().slice(0, 60000);
@@ -3126,14 +3336,19 @@ function normalizeMcpPlannedCalls(payload: unknown, tools: ResolvedMcpTool[], li
   return calls;
 }
 
-function firstMcpPrelude(payload: string) {
+function mcpPreludeMessages(payload: string) {
   const parsed = JSON.parse(payload) as RoleplayReplyResult;
-  const segment = parsed.segments?.find((entry) => entry.type === 'reply' && entry.content.trim());
-  if (segment?.type === 'reply') return { content: segment.content.trim(), translation: segment.translation?.trim() || undefined };
-  const content = parsed.replies?.find((reply) => reply.trim())?.trim() || parsed.reply.trim();
-  if (!content) return null;
-  const index = parsed.replies?.findIndex((reply) => reply.trim() === content) ?? 0;
-  return { content, translation: parsed.replyTranslations?.[Math.max(0, index)]?.trim() || undefined };
+  const segmentMessages = (parsed.segments ?? [])
+    .filter((entry): entry is Extract<RoleplayReplySegment, { type: 'reply' }> => entry.type === 'reply' && Boolean(entry.content.trim()))
+    .map((entry) => ({ content: entry.content.trim(), translation: entry.translation?.trim() || undefined }));
+  if (segmentMessages.length) return segmentMessages;
+
+  return (parsed.replies ?? [parsed.reply])
+    .map((reply, index) => ({
+      content: reply.trim(),
+      translation: parsed.replyTranslations?.[index]?.trim() || undefined
+    }))
+    .filter((message) => Boolean(message.content));
 }
 
 function formatMcpAgentEvents(events: CompletedMcpToolCall[], sentPreludes: string[]) {
@@ -3154,7 +3369,7 @@ function formatMcpAgentEvents(events: CompletedMcpToolCall[], sentPreludes: stri
   return entries.length ? entries.join('\n') : '本轮尚未发送消息或调用工具。';
 }
 
-async function generateMcpAgentTurn(input: GenerateReplyInput, basePrompt: string, tools: ResolvedMcpTool[], events: CompletedMcpToolCall[], sentPreludes: string[], remainingCalls: number): Promise<McpAgentTurn> {
+async function generateMcpAgentTurn(input: GenerateReplyInput, basePrompt: string, tools: ResolvedMcpTool[], events: CompletedMcpToolCall[], sentPreludes: string[], remainingCalls: number, imageParts: TextApiContentPart[]): Promise<McpAgentTurn> {
   const plannerModeInstruction = input.mode === 'online'
     ? `当前是线上聊天。目录中的工具来自当前角色已绑定且启用的 MCP 服务；该角色可以直接调用服务内所有工具。
 角色必须基于人设、长期记忆、对话摘要、近期聊天和本轮氛围，自行决定不调用、调用哪些工具及其参数；不必等待用户明确提出工具请求。查询、读取、创建、修改、发送、发布和删除等操作均由角色根据上下文独立判断，工具调用后会真实执行。
@@ -3183,12 +3398,13 @@ ${JSON.stringify(mcpPlannerToolCatalog(tools), null, 2)}
 3. 还可以执行 ${remainingCalls} 次工具调用。每次只返回 0 或 1 个调用，便于先读取上一步真实结果再继续行动。
 4. 创建日程、提醒或闹钟时，所有 ISO 8601 时间必须相对于上面的当前现实时间，不能使用历史聊天里的旧日期；开始时间早于当前时间时不要调用写入工具。
 5. 只输出一个完整角色回复 JSON，并在顶层额外加入 calls：{"messages":[...],"messageActions":{...},"profileUpdate":{...},"calls":[{"toolRef":"serverId:toolName","serverId":"...","toolName":"...","arguments":{}}]}。不调用工具时 calls 必须是 []。
-6. calls 非空时，messages 只能包含一条 type 为 text 的行动前消息；它会在工具执行前立刻真实发给用户。可以自然表达“我去查一下”“我现在处理”等行动，但绝不能把未得到的工具结果说成已经查到、已经完成或已经发送。
+6. calls 非空时，messages 可以为空，也可以包含任意数量自然的 type 为 text 的行动前消息；它们会在工具执行前立刻真实发给用户。角色应自行决定是否有必要先说话、要说几句。可以自然表达“我去查一下”“我现在处理”等行动，但绝不能把未得到的工具结果说成已经查到、已经完成或已经发送。
 7. 上面标为 already-sent-role-messages 的内容已经真实发出，后续 messages 绝不能重复它们。`;
-  const apiResult = await callTextApiDetailed(input.settings, prompt, input.modelOverride, [], {
+  const apiResult = await callTextApiDetailed(input.settings, prompt, input.modelOverride, imageParts, {
     jsonMode: true,
     maxTokens: 8_192,
-    retryTransientFailures: input.requestRecovery?.retryTransientFailures
+    retryTransientFailures: input.requestRecovery?.retryTransientFailures,
+    ...roleplayStreamingOptions(input)
   });
   const parsed = parseModelJsonResponse(apiResult.text);
   return {
@@ -3259,7 +3475,7 @@ function toChatMcpOperation(operationId: string, serverId: string, serverName: s
   };
 }
 
-async function collectMcpReplyContext(input: GenerateReplyInput, basePrompt: string) {
+async function collectMcpReplyContext(input: GenerateReplyInput, basePrompt: string, imageParts: TextApiContentPart[]) {
   const tools = resolveMcpTools(input.settings, input.character);
   if (!tools.length) return { context: '', structuredResults: [] as ChatMcpResultAttachment[], toolCalls: [] as ChatMcpToolCallTrace[], operations: [] as ChatMcpOperation[], finalReplyPayload: '', finalApiResult: undefined as TextGenerationResult | undefined };
   const maxCalls = Math.max(1, Math.min(6, input.settings?.mcpSettings.maxToolCallsPerReply ?? 2));
@@ -3273,7 +3489,7 @@ async function collectMcpReplyContext(input: GenerateReplyInput, basePrompt: str
   for (let callIndex = 0; callIndex <= maxCalls; callIndex += 1) {
     let agentTurn: McpAgentTurn;
     try {
-      agentTurn = await generateMcpAgentTurn(input, basePrompt, tools, completedCalls, sentPreludes, maxCalls - callIndex);
+      agentTurn = await generateMcpAgentTurn(input, basePrompt, tools, completedCalls, sentPreludes, maxCalls - callIndex, imageParts);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'MCP 行动规划失败。';
       completedCalls.push({
@@ -3292,8 +3508,8 @@ async function collectMcpReplyContext(input: GenerateReplyInput, basePrompt: str
       finalApiResult = agentTurn.apiResult;
       break;
     }
-    const prelude = firstMcpPrelude(agentTurn.replyPayload);
-    if (prelude) {
+    const preludes = mcpPreludeMessages(agentTurn.replyPayload);
+    for (const prelude of preludes) {
       sentPreludes.push(prelude.content);
       await input.onMcpPrelude?.(prelude);
     }
@@ -3419,16 +3635,17 @@ function attachReplyTrace(payload: string, apiResult: TextGenerationResult, mcpR
 export async function generateRoleplayReply(input: GenerateReplyInput): Promise<string> {
   requireTextGenerationConfig(input.settings, input.modelOverride, '角色回复');
   const basePrompt = buildPrompt(input, { includeCurrentTurnStickerImages: true });
-  const mcpReply = await collectMcpReplyContext(input, basePrompt);
+  const imageParts = await getPreparedVisualImageParts(input);
+  const mcpReply = await collectMcpReplyContext(input, basePrompt, imageParts);
   if (mcpReply.finalReplyPayload) {
     return attachReplyTrace(mcpReply.finalReplyPayload, mcpReply.finalApiResult!, mcpReply, input);
   }
   const prompt = mcpReply.context ? `${basePrompt}\n\n${mcpReply.context}` : basePrompt;
-  const imageParts = await getPreparedVisualImageParts(input);
   const apiResult = await callTextApiDetailed(input.settings, prompt, input.modelOverride, imageParts, {
     jsonMode: true,
     maxTokens: 8192,
-    retryTransientFailures: input.requestRecovery?.retryTransientFailures
+    retryTransientFailures: input.requestRecovery?.retryTransientFailures,
+    ...roleplayStreamingOptions(input)
   });
   try {
     return attachReplyTrace(normalizeRoleplayReplyPayload(apiResult.text, input), apiResult, mcpReply, input);
@@ -3444,7 +3661,12 @@ export async function generateRoleplayReply(input: GenerateReplyInput): Promise<
     `${prompt}\n\n${roleplayFormatRetryInstruction}`,
     input.modelOverride,
     imageParts,
-    { jsonMode: true, maxTokens: 8192, retryTransientFailures: input.requestRecovery?.retryTransientFailures }
+    {
+      jsonMode: true,
+      maxTokens: 8192,
+      retryTransientFailures: input.requestRecovery?.retryTransientFailures,
+      ...roleplayStreamingOptions(input)
+    }
   );
   try {
     return attachReplyTrace(normalizeRoleplayReplyPayload(retryResult.text, input), retryResult, mcpReply, input);

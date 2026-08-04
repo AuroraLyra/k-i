@@ -78,7 +78,7 @@ defineEmits<{
   z-index: 82;
   align-items: center;
   padding: max(14px, var(--safe-top)) calc(10px + var(--safe-right)) max(14px, calc(10px + var(--safe-bottom))) calc(10px + var(--safe-left));
-  background: transparent;
+  background: rgba(255, 255, 255, 0.68);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }

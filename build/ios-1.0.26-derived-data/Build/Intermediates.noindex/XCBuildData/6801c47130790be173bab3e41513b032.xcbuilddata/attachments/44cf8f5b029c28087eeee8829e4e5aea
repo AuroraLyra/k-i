@@ -1,0 +1,16 @@
+{
+  "" : {
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorShare.build/Release-iphoneos/SharePlugin.build/Objects-normal/arm64/SharePlugin-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorShare.build/Release-iphoneos/SharePlugin.build/Objects-normal/arm64/SharePlugin-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorShare.build/Release-iphoneos/SharePlugin.build/Objects-normal/arm64/SharePlugin-primary.dia",
+    "emit-module-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorShare.build/Release-iphoneos/SharePlugin.build/Objects-normal/arm64/SharePlugin-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorShare.build/Release-iphoneos/SharePlugin.build/Objects-normal/arm64/SharePlugin-primary-emit-module.dia",
+    "pch" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorShare.build/Release-iphoneos/SharePlugin.build/Objects-normal/arm64/SharePlugin-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorShare.build/Release-iphoneos/SharePlugin.build/Objects-normal/arm64/SharePlugin-primary.swiftdeps"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/share/ios/Sources/SharePlugin/SharePlugin.swift" : {
+    "index-unit-output-path" : "/CapacitorShare.build/Release-iphoneos/SharePlugin.build/Objects-normal/arm64/SharePlugin.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorShare.build/Release-iphoneos/SharePlugin.build/Objects-normal/arm64/SharePlugin.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorShare.build/Release-iphoneos/SharePlugin.build/Objects-normal/arm64/SharePlugin.o"
+  }
+}

@@ -2,7 +2,7 @@ import { computed, ref, toRaw, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { applyMemoryStoreMutation, deleteEntity, loadAllMessages, loadAllMessagesByConversation, loadAppStartupSnapshot, loadMessagesBeforeConversationCursor, loadSnapshot, pruneUnusedStoredMediaCache, putEntity, replaceSnapshot, scheduleStartupStorageMaintenance } from '@/data/db';
 import { defaultSettings } from '@/data/seed';
-import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatGobangAttachment, ChatImageAttachment, ChatImageCandidate, ChatLinkPreviewAttachment, ChatLocationAttachment, ChatMcpOperation, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, ThoughtChainTheme, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
+import type { AppSettings, AppSnapshot, CharacterProfile, CharacterProfileHistoryEntry, CharacterProfileHistoryField, ChatCallAttachment, ChatCallMode, ChatCallStatus, ChatGobangAttachment, ChatImageAttachment, ChatImageCandidate, ChatLinkPreviewAttachment, ChatLocationAttachment, ChatMcpOperation, ChatMessage, ChatMessageQuote, ChatMode, ChatModelOverrides, ChatModelScope, ChatMusicListenInviteAttachment, ChatMusicListenInviteStatus, ChatOfflineInvitationAttachment, ChatOfflineInvitationStatus, ChatSmallTheaterLinkAttachment, ChatTransferAttachment, ChatTransferStatus, ChatVoiceAttachment, Conversation, ConversationSettings, CoupleSpaceState, FavoriteMessageKind, FavoriteMessageRecord, GenerateReplyInput, GeneratedImageRecord, GroupDiscoveryCandidate, GroupMember, GroupNpcDraft, ImageModuleId, ImageVisualScope, MusicCommentThread, MusicListeningContext, MusicTrack, ProfileHomepageRecord, ProfileTheme, SmallTheater, SmallTheaterTopic, Sticker, StickerGroup, ThoughtChainTheme, UserProfile, VisualProfile, VoomComment, VoomFrequency, VoomImageCandidate, VoomPost, VoomPostVisibility, WorldBookEntry } from '@/types/domain';
 import type { CharacterEconomySnapshot, ChatCommerceAttachment, ChatShopShareAttachment } from '@/types/commerce';
 import type { MemoryAssertion, MemoryCaptureStatus, MemoryCompressionStats, MemoryEdge, MemoryEmbeddingCache, MemoryEntity, MemoryEpisode, MemoryRecallResult, MemoryStateSnapshot, MemoryTheme } from '@/types/memory';
 import { createAccountId, createId } from '@/utils/id';
@@ -48,6 +48,8 @@ import { formatChatMcpOperation, formatChatMcpOperations } from '@/utils/mcpOper
 import { createChatLinkPreview, fetchChatLinkPreview } from '@/services/linkPreview';
 import { replyMessageDeliveryGap, shouldStageOnlineReplyDelivery, waitForReplyDelivery } from '@/utils/replyDelivery';
 import { compareConversationMessageOrder, createConversationMessageCursor, type ConversationMessageCursor } from '@/data/messagePagination';
+import { planImageVisualState } from '@/services/imageVisualPlanner';
+import { compileImageVisualPrompt, createFallbackImageVisualPlan, createImageVisualMoment, type ImageVisualPlan } from '@/utils/imagePromptPlanner';
 
 interface CreateUserVoomPostPayload {
   userId: string;
@@ -121,7 +123,6 @@ export interface AppActiveCallState {
   muted: boolean;
   cameraEnabled: boolean;
   speakerEnabled: boolean;
-  generatedBackgroundUrl?: string;
   minimized: boolean;
   floatPosition: { x: number; y: number };
   peerName: string;
@@ -297,6 +298,7 @@ export const useAppStore = defineStore('app', () => {
   const regeneratingChatImageMessageIds = new Set<string>();
   const regeneratingVoomImagePostIds = new Set<string>();
   const activeReplyRunIds = new Map<string, string>();
+  const activeReplyRequestAbortControllers = new Map<string, AbortController>();
   const activeReplyDeliveryAbortControllers = new Map<string, AbortController>();
   const activeGobangRequestIds = new Map<string, string>();
   const activeGobangRequestCount = ref(0);
@@ -1663,6 +1665,7 @@ export const useAppStore = defineStore('app', () => {
 
   function cancelConversationReply(conversationId: string) {
     replyCancelVersions.set(conversationId, (replyCancelVersions.get(conversationId) ?? 0) + 1);
+    activeReplyRequestAbortControllers.get(conversationId)?.abort();
     activeReplyDeliveryAbortControllers.get(conversationId)?.abort();
     activeReplyRunIds.delete(conversationId);
     replyingConversationIds.value = replyingConversationIds.value.filter((id) => id !== conversationId);
@@ -2432,7 +2435,6 @@ export const useAppStore = defineStore('app', () => {
       muted: false,
       cameraEnabled: false,
       speakerEnabled: true,
-      generatedBackgroundUrl: '',
       minimized: false,
       floatPosition: { x: 16, y: 92 },
       peerName: getCharacterVoomDisplayName(character),
@@ -5604,17 +5606,14 @@ export const useAppStore = defineStore('app', () => {
 
   async function compactCharacterForBackup(character: CharacterProfile, compactImage: BackupImageCompactor): Promise<CharacterProfile> {
     const imageProfile = character.imageProfile;
-    if (!imageProfile?.photos.length) return character;
-    const photos = imageProfile.photos;
-    const nextPhotos = await Promise.all(photos.map(async (photo) => ({
-      ...photo,
-      imageUrl: await compactImage(photo.imageUrl)
-    })));
+    if (!imageProfile?.referenceImage) return character;
+    const referenceImage = await compactImage(imageProfile.referenceImage);
+    if (referenceImage === imageProfile.referenceImage) return character;
     return {
       ...character,
       imageProfile: {
         ...imageProfile,
-        photos: nextPhotos
+        referenceImage
       }
     };
   }
@@ -7602,11 +7601,11 @@ export const useAppStore = defineStore('app', () => {
     if (!modelOverride) {
       setMemoryCaptureStatus(conversationId, {
         phase: 'waiting-model',
-        message: '尚未配置“总结、图谱模型”，自动记忆暂时不会写入。',
+        message: '尚未配置“总结、图谱、视觉导演模型”，自动记忆暂时不会写入。',
         lastAttemptAt: Date.now(),
-        lastError: options.force ? '请先在模型切换中配置“总结、图谱模型”。记忆不会回退使用线上或线下聊天模型。' : ''
+        lastError: options.force ? '请先在模型切换中配置“总结、图谱、视觉导演模型”。记忆不会回退使用线上或线下聊天模型。' : ''
       });
-      if (options.force) throw new Error('请先在模型切换中配置“总结、图谱模型”。记忆不会回退使用线上或线下聊天模型。');
+      if (options.force) throw new Error('请先在模型切换中配置“总结、图谱、视觉导演模型”。记忆不会回退使用线上或线下聊天模型。');
       return null;
     }
     const graph = memoryGraphForConversation(conversationId);
@@ -8022,7 +8021,7 @@ export const useAppStore = defineStore('app', () => {
     if (!sourceMessages.length) throw new Error('原始楼层已不存在，无法重新生成这篇日记。');
     const chatSettings = settingsForConversation(conversation.id);
     const modelOverride = getMemorySummaryModelOverride(chatSettings);
-    if (!modelOverride) throw new Error('请先在模型切换中配置“总结、图谱模型”。记忆不会回退使用线上或线下聊天模型。');
+    if (!modelOverride) throw new Error('请先在模型切换中配置“总结、图谱、视觉导演模型”。记忆不会回退使用线上或线下聊天模型。');
     const graph = memoryGraphForConversation(conversation.id);
     if (capturingMemoryBrainIds.has(graph.brainId) || rebuildingMemoryBrainIds.has(graph.brainId)) throw new Error('当前角色记忆正在写入，请稍后再试。');
     const characterName = getCharacterAiName(character);
@@ -8534,10 +8533,19 @@ export const useAppStore = defineStore('app', () => {
     const replyRunId = startConversationReply(conversationId);
     if (!replyRunId) return;
     const replyCancelVersion = replyCancelVersions.get(conversationId) ?? 0;
+    const replyRequestAbortController = new AbortController();
+    activeReplyRequestAbortControllers.set(conversationId, replyRequestAbortController);
     const generationStartedAt = Date.now();
     if (conversation.activeMode === 'online' && conversation.kind !== 'group') {
       scheduleCharacterReadReceipt(conversationId, generationStartedAt);
     }
+    let streamingPreviewMessageId = '';
+    const clearStreamingPreview = () => {
+      if (!streamingPreviewMessageId) return;
+      const previewId = streamingPreviewMessageId;
+      streamingPreviewMessageId = '';
+      messages.value = messages.value.filter((message) => message.id !== previewId);
+    };
     try {
       if (chatSettings.stickerVisionEnabled) {
         await localizeRecentStickerMessagesForVision(conversationId);
@@ -8552,9 +8560,34 @@ export const useAppStore = defineStore('app', () => {
       if (!replyInputBundle) return;
       const mcpOperationMessageIds = new Map<string, string>();
       const replyBatchId = createId('reply');
+      const publishReplyStreamText = (content: string) => {
+        if (isReplyRunCancelled(conversationId, replyCancelVersion)) return;
+        if (!content.trim()) {
+          clearStreamingPreview();
+          return;
+        }
+        const previewIndex = messages.value.findIndex((message) => message.id === streamingPreviewMessageId);
+        if (previewIndex >= 0) {
+          messages.value[previewIndex] = { ...messages.value[previewIndex], content };
+          return;
+        }
+        const previewMessage: ChatMessage = {
+          id: createId('stream'),
+          conversationId,
+          sender: 'char',
+          mode: conversation.activeMode,
+          content,
+          replyBatchId,
+          createdAt: Date.now(),
+          status: 'sending'
+        };
+        streamingPreviewMessageId = previewMessage.id;
+        messages.value.push(previewMessage);
+      };
       const publishMcpPrelude = async (prelude: { content: string; translation?: string }) => {
         const content = prelude.content.trim();
         if (!content) return;
+        clearStreamingPreview();
         const nextMessage: ChatMessage = {
           id: createId('msg'),
           conversationId,
@@ -8593,10 +8626,13 @@ export const useAppStore = defineStore('app', () => {
         }
         await putEntity('messages', nextMessage);
       };
+      replyInputBundle.input.requestSignal = replyRequestAbortController.signal;
+      replyInputBundle.input.onReplyStreamText = publishReplyStreamText;
       replyInputBundle.input.onMcpPrelude = publishMcpPrelude;
       replyInputBundle.input.onMcpOperation = publishMcpOperation;
       const replyPayload = options?.generatedReplyPayload ?? await generateRoleplayReply(replyInputBundle.input);
       if (isReplyRunCancelled(conversationId, replyCancelVersion)) return [];
+      clearStreamingPreview();
       const parsedReply = JSON.parse(replyPayload) as RoleplayReplyResult;
       for (const operation of parsedReply.mcpOperations ?? []) {
         if (!mcpOperationMessageIds.has(operation.id)) await publishMcpOperation(operation);
@@ -9248,6 +9284,7 @@ export const useAppStore = defineStore('app', () => {
       }
       return charMessages;
     } catch (error) {
+      clearStreamingPreview();
       if (isReplyRunCancelled(conversationId, replyCancelVersion)) return [];
       if (options?.proactive) {
         console.error(error);
@@ -9255,6 +9292,10 @@ export const useAppStore = defineStore('app', () => {
         showConfigAlert(error instanceof Error ? error.message : 'AI 回复失败，请检查 API 模型配置。', '回复异常');
       }
     } finally {
+      clearStreamingPreview();
+      if (activeReplyRequestAbortControllers.get(conversationId) === replyRequestAbortController) {
+        activeReplyRequestAbortControllers.delete(conversationId);
+      }
       finishConversationReply(conversationId, replyRunId);
     }
   }
@@ -10446,17 +10487,6 @@ export const useAppStore = defineStore('app', () => {
     return characterById(characterId)?.imageProfile?.voomPortraitModeEnabled !== false;
   }
 
-  function buildVoomPortraitPrompt(post: VoomPost) {
-    if (!isVoomPortraitPromptRequired(post.charId)) return '';
-    const authorName = voomAuthorNameForPost(post).trim();
-    const subject = authorName ? `发布角色「${authorName}」本人` : '发布角色本人';
-    return [
-      `VOOM 人像模式开启：图片必须以${subject}为明确主体`,
-      '必须生成清晰可见的人像、半身像或全身像，人物占据画面主要视觉焦点',
-      '即使描述包含环境、物品或氛围，也要把人物放在前景主体位置，不能生成纯风景、纯物品、抽象图、空镜或无人物画面'
-    ].join(', ');
-  }
-
   function normalizePromptPieces(...pieces: Array<string | undefined>) {
     return pieces.map((piece) => String(piece ?? '').trim()).filter(Boolean).join('\n');
   }
@@ -10473,24 +10503,6 @@ export const useAppStore = defineStore('app', () => {
   function getImageCharacterProfile(characterId: string) {
     const character = characterById(characterId);
     return character?.imageProfile;
-  }
-
-  function buildCharacterAppearancePrompt(characterId: string) {
-    const imageProfile = getImageCharacterProfile(characterId);
-    return normalizePromptPieces(
-      imageProfile?.appearancePrompt ? `Character appearance: ${imageProfile.appearancePrompt}` : '',
-      imageProfile?.facePrompt ? `Face identity lock: ${imageProfile.facePrompt}` : ''
-    );
-  }
-
-  function getCharacterImageReference(characterId: string) {
-    const imageProfile = getImageCharacterProfile(characterId);
-    if (!imageProfile?.referenceImageEnabled) return '';
-    return imageProfile.referenceImage.trim();
-  }
-
-  function getCharacterImageSeed(characterId: string) {
-    return getImageCharacterProfile(characterId)?.seed.trim() ?? '';
   }
 
   function buildImageNegativePrompt(basePrompt: string, defaultNegativePrompt = '', extraNegativePrompt = '') {
@@ -10510,7 +10522,12 @@ export const useAppStore = defineStore('app', () => {
     );
   }
 
-  function buildFinalImagePrompt(input: {
+  function conversationIdForImage(characterId: string, preferredConversationId = '') {
+    if (preferredConversationId && conversationById(preferredConversationId)) return preferredConversationId;
+    return conversations.value.find((conversation) => conversation.charId === characterId)?.id ?? '';
+  }
+
+  async function buildPlannedImagePrompt(input: {
     scope: 'onlineChat' | 'voom';
     characterId: string;
     description: string;
@@ -10518,26 +10535,69 @@ export const useAppStore = defineStore('app', () => {
     basePrompt: string;
     template?: string;
     post?: VoomPost;
+    conversationId?: string;
   }) {
+    const conversationId = conversationIdForImage(input.characterId, input.conversationId ?? input.post?.conversationId ?? '');
+    const chatSettings = settingsForConversation(conversationId);
+    const character = characterById(input.characterId);
     const generationPrompt = String(input.generationPrompt ?? '').trim() || buildLocalImageGenerationPrompt(input.description, input.scope, input.characterId, input.post);
-    const characterAppearance = buildCharacterAppearancePrompt(input.characterId);
-    const faceConsistency = getCharacterImageReference(input.characterId)
-      ? 'Use the character reference image as identity guidance; keep the same facial structure, eyes, nose, mouth, hairstyle, and overall likeness across generations.'
-      : 'Keep the same character identity and consistent facial features across generations.';
+    const scope: ImageVisualScope = input.scope;
+    const continuityKey = `${input.scope}:${input.post?.id || conversationId || input.characterId}`;
+    const visualPlanInput = {
+      scope,
+      description: input.description,
+      characterName: character ? getCharacterAiName(character) : '',
+      characterPriority: !settings.value?.imageAdvancedModeEnabled || (input.scope === 'voom' && isVoomPortraitPromptRequired(input.characterId)),
+      characterProfile: character?.imageProfile,
+      context: normalizePromptPieces(generationPrompt, input.post?.content ? `Post: ${input.post.content}` : ''),
+      continuityKey,
+      previousMoments: chatSettings.imageVisualMemory.moments.filter((moment) => moment.continuityKey === continuityKey)
+    };
+    const visualPlan = settings.value?.imageAdvancedModeEnabled
+      ? (await planImageVisualState({
+          ...visualPlanInput,
+          settings: settings.value,
+          modelOverride: getConversationTextModelOverride(chatSettings, 'summary')
+        })).plan
+      : createFallbackImageVisualPlan(visualPlanInput);
     const postContent = input.post?.content?.trim() ?? '';
     const templatePrompt = fillImageSceneTemplate(input.template ?? '', {
       basePrompt: input.basePrompt,
-      sceneDescription: input.description,
+      sceneDescription: visualPlan.visualPrompt,
       generationPrompt,
-      characterAppearance,
-      faceConsistency,
+      characterAppearance: '',
+      faceConsistency: '',
       postContent
     });
-    const voomPortraitPrompt = input.scope === 'voom' ? buildVoomPortraitPrompt(input.post ?? {} as VoomPost) : '';
+    const compiled = compileImageVisualPrompt({
+      plan: visualPlan,
+      basePrompt: templatePrompt,
+      profile: character?.imageProfile
+    });
     return {
       generationPrompt,
-      positivePrompt: normalizePromptPieces(templatePrompt, voomPortraitPrompt)
+      visualPlan,
+      conversationId,
+      positivePrompt: compiled.positivePrompt,
+      negativePrompt: compiled.negativePrompt,
+      referenceImage: compiled.referenceImage,
+      seed: compiled.seed
     };
+  }
+
+  async function recordConversationImageVisualPlan(conversationId: string, plan: ImageVisualPlan) {
+    const normalizedConversationId = conversationId.trim();
+    if (!normalizedConversationId || !conversationById(normalizedConversationId)) return;
+    const chatSettings = settingsForConversation(normalizedConversationId);
+    const moment = createImageVisualMoment(plan, createId('visual'));
+    const moments = [
+      moment,
+      ...chatSettings.imageVisualMemory.moments.filter((entry) => entry.id !== moment.id)
+    ].slice(0, 18);
+    await saveConversationSettings({
+      ...chatSettings,
+      imageVisualMemory: { moments }
+    });
   }
 
   async function generateChatImageCandidate(description: string, generationPrompt = '', characterId = '') {
@@ -10547,7 +10607,7 @@ export const useAppStore = defineStore('app', () => {
 
     const provider = selectedModel.provider;
     const promptPreset = getImagePromptPresetForProvider(settings.value, provider);
-    const promptBundle = buildFinalImagePrompt({
+    const promptBundle = await buildPlannedImagePrompt({
       scope: 'onlineChat',
       characterId,
       description: imageDescription,
@@ -10555,9 +10615,9 @@ export const useAppStore = defineStore('app', () => {
       basePrompt: promptPreset.positivePrompt,
       template: promptPreset.onlineChatTemplate
     });
-    const referenceImage = getCharacterImageReference(characterId);
-    const seed = getCharacterImageSeed(characterId);
-    const negativePrompt = buildImageNegativePrompt(promptPreset.negativePrompt, promptPreset.defaultNegativePrompt);
+    const referenceImage = promptBundle.referenceImage;
+    const seed = promptBundle.seed;
+    const negativePrompt = buildImageNegativePrompt(promptPreset.negativePrompt, promptPreset.defaultNegativePrompt, promptBundle.negativePrompt);
     const imageSize = getImageGenerationSize(settings.value, provider);
     let imageSettings = settings.value;
     const imageOverrides = {
@@ -10585,6 +10645,7 @@ export const useAppStore = defineStore('app', () => {
 
     const result = await generateImageByProvider(provider, imageSettings, imageOverrides);
     const imageUrl = result.imageUrl;
+    await recordConversationImageVisualPlan(promptBundle.conversationId, promptBundle.visualPlan);
     return createChatImageCandidate({
       image: imageUrl,
       description: imageDescription,
@@ -10594,7 +10655,7 @@ export const useAppStore = defineStore('app', () => {
       seed,
       provider: result.provider,
       model: selectedModel.label,
-      size: getVoomImageSizeLabel(result.provider)
+      size: imageSize.size
     });
   }
 
@@ -10759,7 +10820,7 @@ export const useAppStore = defineStore('app', () => {
     regeneratingVoomImagePostIds.add(normalizedPostId);
     const provider = selectedModel.provider;
     const promptPreset = getImagePromptPresetForProvider(settings.value, provider);
-    const promptBundle = buildFinalImagePrompt({
+    const promptBundle = await buildPlannedImagePrompt({
       scope: 'voom',
       characterId: post.charId,
       description: imageDescription,
@@ -10768,12 +10829,12 @@ export const useAppStore = defineStore('app', () => {
       template: promptPreset.voomTemplate,
       post
     });
-    const referenceImage = getCharacterImageReference(post.charId);
-    const seed = getCharacterImageSeed(post.charId);
+    const referenceImage = promptBundle.referenceImage;
+    const seed = promptBundle.seed;
     const negativePrompt = buildImageNegativePrompt(
       promptPreset.negativePrompt,
       promptPreset.defaultNegativePrompt,
-      isVoomPortraitPromptRequired(post.charId) ? 'no person, empty scene, scenery only, object only, abstract image, background only, missing person' : ''
+      promptBundle.negativePrompt
     );
     const imageSize = getImageGenerationSize(settings.value, provider);
     let imageSettings = settings.value;
@@ -10828,6 +10889,7 @@ export const useAppStore = defineStore('app', () => {
         imageCandidates: [...(latestPost.imageCandidates ?? []), nextCandidate]
       };
       await saveVoomPost(nextPost);
+      await recordConversationImageVisualPlan(promptBundle.conversationId, promptBundle.visualPlan);
       await addGeneratedImage({
         provider: result.provider,
         imageUrl,
@@ -10885,7 +10947,7 @@ export const useAppStore = defineStore('app', () => {
     regeneratingVoomImagePostIds.add(post.id);
     const provider = selectedModel.provider;
     const promptPreset = getImagePromptPresetForProvider(settings.value, provider);
-    const promptBundle = buildFinalImagePrompt({
+    const promptBundle = await buildPlannedImagePrompt({
       scope: 'voom',
       characterId: post.charId,
       description: imageDescription,
@@ -10894,12 +10956,12 @@ export const useAppStore = defineStore('app', () => {
       template: promptPreset.voomTemplate,
       post
     });
-    const referenceImage = getCharacterImageReference(post.charId);
-    const seed = getCharacterImageSeed(post.charId);
+    const referenceImage = promptBundle.referenceImage;
+    const seed = promptBundle.seed;
     const negativePrompt = buildImageNegativePrompt(
       promptPreset.negativePrompt,
       promptPreset.defaultNegativePrompt,
-      isVoomPortraitPromptRequired(post.charId) ? 'no person, empty scene, scenery only, object only, abstract image, background only, missing person' : ''
+      promptBundle.negativePrompt
     );
     const imageSize = getImageGenerationSize(settings.value, provider);
     let imageSettings = settings.value;
@@ -10951,6 +11013,7 @@ export const useAppStore = defineStore('app', () => {
         imageProvider: result.provider,
         imageCandidates: [...(post.imageCandidates ?? []), nextCandidate]
       };
+      await recordConversationImageVisualPlan(promptBundle.conversationId, promptBundle.visualPlan);
       await addGeneratedImage({
         provider: result.provider,
         imageUrl,
@@ -11467,6 +11530,8 @@ export const useAppStore = defineStore('app', () => {
     maybeRequestProactiveGroupReply,
     runProactiveGroupScheduler,
     saveConversationSettings,
+    getConversationTextModelOverride,
+    recordConversationImageVisualPlan,
     saveCharacterModelOverridesForConversation,
     saveStickerGroup,
     addStickerGroup,

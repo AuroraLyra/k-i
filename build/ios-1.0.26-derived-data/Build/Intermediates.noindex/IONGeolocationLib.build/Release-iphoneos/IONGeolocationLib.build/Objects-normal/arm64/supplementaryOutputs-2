@@ -1,0 +1,12 @@
+{
+  "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/SourcePackages/checkouts/ion-ios-geolocation/IONGeolocationLib/IONGLOCAuthorisation.swift" : {
+    "abi-baseline-json" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONGeolocationLib.build/Release-iphoneos/IONGeolocationLib.build/Objects-normal/arm64/IONGeolocationLib.abi.json",
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONGeolocationLib.build/Release-iphoneos/IONGeolocationLib.build/Objects-normal/arm64/IONGeolocationLib-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONGeolocationLib.build/Release-iphoneos/IONGeolocationLib.build/Objects-normal/arm64/IONGeolocationLib-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONGeolocationLib.build/Release-iphoneos/IONGeolocationLib.build/Objects-normal/arm64/IONGeolocationLib-primary.dia",
+    "objc-header" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONGeolocationLib.build/Release-iphoneos/IONGeolocationLib.build/Objects-normal/arm64/IONGeolocationLib-Swift.h",
+    "swiftdoc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONGeolocationLib.build/Release-iphoneos/IONGeolocationLib.build/Objects-normal/arm64/IONGeolocationLib.swiftdoc",
+    "swiftmodule" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONGeolocationLib.build/Release-iphoneos/IONGeolocationLib.build/Objects-normal/arm64/IONGeolocationLib.swiftmodule",
+    "swiftsourceinfo" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/IONGeolocationLib.build/Release-iphoneos/IONGeolocationLib.build/Objects-normal/arm64/IONGeolocationLib.swiftsourceinfo"
+  }
+}

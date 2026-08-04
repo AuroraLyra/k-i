@@ -1,0 +1,16 @@
+{
+  "" : {
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorApp.build/Release-iphoneos/AppPlugin.build/Objects-normal/arm64/AppPlugin-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorApp.build/Release-iphoneos/AppPlugin.build/Objects-normal/arm64/AppPlugin-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorApp.build/Release-iphoneos/AppPlugin.build/Objects-normal/arm64/AppPlugin-primary.dia",
+    "emit-module-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorApp.build/Release-iphoneos/AppPlugin.build/Objects-normal/arm64/AppPlugin-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorApp.build/Release-iphoneos/AppPlugin.build/Objects-normal/arm64/AppPlugin-primary-emit-module.dia",
+    "pch" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorApp.build/Release-iphoneos/AppPlugin.build/Objects-normal/arm64/AppPlugin-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorApp.build/Release-iphoneos/AppPlugin.build/Objects-normal/arm64/AppPlugin-primary.swiftdeps"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/app/ios/Sources/AppPlugin/AppPlugin.swift" : {
+    "index-unit-output-path" : "/CapacitorApp.build/Release-iphoneos/AppPlugin.build/Objects-normal/arm64/AppPlugin.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorApp.build/Release-iphoneos/AppPlugin.build/Objects-normal/arm64/AppPlugin.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.26-derived-data/Build/Intermediates.noindex/CapacitorApp.build/Release-iphoneos/AppPlugin.build/Objects-normal/arm64/AppPlugin.o"
+  }
+}

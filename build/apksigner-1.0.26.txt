@@ -1,0 +1,17 @@
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): false
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: C=CN, O=BabyLink, OU=Release, CN=BabyLink
+Signer #1 certificate SHA-256 digest: 36e6da3468f60df865693f778ebc5a4191e5cb7ee55772b950390891d6b89f71
+Signer #1 certificate SHA-1 digest: 934b8fc6bc481e7d870cae4ef55c5ff63de0221d
+Signer #1 certificate MD5 digest: d269686cccdb4828632c9e915bc9c48a
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 4096
+Signer #1 public key SHA-256 digest: cfa1a4d31110c6acf741765ea0d019389bb7355d8b94443425ba794ec498e5d8
+Signer #1 public key SHA-1 digest: 576a663ec51cd7e774da36340c04edd41ebcf52e
+Signer #1 public key MD5 digest: cdcbdd74a2323b114dcaf40e27eaa7e7

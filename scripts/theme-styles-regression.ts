@@ -1,4 +1,4 @@
-import { upgradeLegacyOnlineThemeCss } from '../src/utils/themeCssCompatibility';
+import { ensureOnlineThemeImageCompatibility, upgradeLegacyOnlineThemeCss } from '../src/utils/themeCssCompatibility';
 import { defaultGlobalThemeCss, defaultOfflineThemeCss, defaultOnlineThemeCss, themeStyleTemplateVersion } from '../src/utils/themeStyles';
 
 function expectMatch(value: string, pattern: RegExp) {
@@ -24,6 +24,14 @@ expectMatch(upgradedCss, /\.message-row\.user:is\(\.message-group-first, \.messa
 expectMatch(upgradedCss, /\.message-row\.char:is\(\.message-group-middle, \.message-group-last\) \.bubble/);
 expectMatch(upgradedCss, /\.other-card:has\(\+ \.other-card\)/);
 expectNoMatch(upgradedCss, /\.message-row\.(?:user|char):not\(\s*:has/);
+
+const compatibleImageCss = ensureOnlineThemeImageCompatibility(`
+.chat-room .chat-image-card { width: 154px; aspect-ratio: 1 / 1; }
+.chat-room .chat-image-card img { height: 154px; object-fit: cover; }
+`);
+expectMatch(compatibleImageCss, /--link-chat-image-max-width/);
+expectMatch(compatibleImageCss, /object-fit: var\(--link-chat-image-fit, contain\) !important/);
+expectMatch(compatibleImageCss, /aspect-ratio: auto !important/);
 
 for (const css of [defaultGlobalThemeCss, defaultOnlineThemeCss, defaultOfflineThemeCss]) {
   expectMatch(css, new RegExp(`模板版本：${themeStyleTemplateVersion.replaceAll('.', '\\.')}`));
