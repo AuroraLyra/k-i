@@ -2,6 +2,7 @@ import type { ApiVendor, ApiVendorModel, AppKeepAliveSettings, AppRingtoneSettin
 import { createBuiltinNotificationInboxMcpServer, createBuiltinRealityMcpServer } from '@/data/realityMcp';
 import { createId } from './id';
 import { normalizeThoughtChainThemes } from './thoughtChainThemes';
+import { defaultGlobalBottomBarOffset, normalizeGlobalBottomBarOffset } from './themeBottomBar';
 import { normalizeGlobalThemeScale } from './themeScale';
 
 export const novelAiOfficialApiUrl = 'https://image.novelai.net';
@@ -200,7 +201,7 @@ export function createDefaultThemeSettings(): AppThemeSettings {
       activeFontId: '',
       entries: []
     },
-    global: { scale: 1, fullscreen: true, style: { ...emptyStyleScope } },
+    global: { scale: 1, bottomBarOffset: defaultGlobalBottomBarOffset, fullscreen: true, style: { ...emptyStyleScope } },
     online: { ...emptyStyleScope },
     offline: { ...emptyStyleScope }
   };
@@ -988,6 +989,7 @@ function normalizeThemeStyleScope(settings: Partial<ThemeStyleScopeSettings> | n
 function normalizeThemeGlobalSettings(settings: Partial<ThemeGlobalSettings> | null | undefined): ThemeGlobalSettings {
   return {
     scale: normalizeGlobalThemeScale(settings?.scale),
+    bottomBarOffset: normalizeGlobalBottomBarOffset(settings?.bottomBarOffset),
     fullscreen: settings?.fullscreen ?? true,
     style: normalizeThemeStyleScope(settings?.style)
   };

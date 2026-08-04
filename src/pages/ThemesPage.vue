@@ -111,13 +111,53 @@
               </footer>
             </article>
 
+            <article v-if="supportsIosWebBottomBarAdjustment" class="global-bottom-bar-card">
+              <header class="global-card-head">
+                <span class="font-mark"><ArrowUp :size="18" /></span>
+                <div>
+                  <p class="section-kicker">Bottom Bar Position</p>
+                  <h2>底栏位置</h2>
+                </div>
+                <strong>{{ globalBottomBarOffsetLabel }}</strong>
+              </header>
+
+              <p class="bottom-bar-adjustment-note">仅调整 iOS 网页与 PWA 的底部导航留白，不影响 Android、APK 或 IPA。</p>
+
+              <div class="scale-range-shell">
+                <input
+                  class="scale-range"
+                  type="range"
+                  :min="minGlobalBottomBarOffset"
+                  :max="maxGlobalBottomBarOffset"
+                  :step="globalBottomBarOffsetStep"
+                  :value="globalBottomBarOffset"
+                  :aria-valuetext="`底栏${globalBottomBarOffsetLabel}`"
+                  aria-label="调整底栏位置"
+                  @input="updateGlobalBottomBarOffsetFromInput"
+                />
+                <div class="scale-range-meta" aria-hidden="true">
+                  <span>{{ formatGlobalBottomBarOffset(minGlobalBottomBarOffset) }}</span>
+                  <span>{{ formatGlobalBottomBarOffset(maxGlobalBottomBarOffset) }}</span>
+                </div>
+              </div>
+
+              <footer class="scale-actions" aria-label="底栏位置快捷操作">
+                <button class="scale-action" type="button" :disabled="globalBottomBarOffset <= minGlobalBottomBarOffset" aria-label="上移底栏" @click="nudgeGlobalBottomBarOffset(-globalBottomBarOffsetStep)">
+                  <ArrowUp :size="16" />
+                </button>
+                <button class="scale-reset" type="button" :disabled="globalBottomBarOffset === 0" @click="setGlobalBottomBarOffset(0)">默认</button>
+                <button class="scale-action" type="button" :disabled="globalBottomBarOffset >= maxGlobalBottomBarOffset" aria-label="下移底栏" @click="nudgeGlobalBottomBarOffset(globalBottomBarOffsetStep)">
+                  <ArrowDown :size="16" />
+                </button>
+              </footer>
+            </article>
+
             <article class="global-fullscreen-card">
               <span class="font-mark"><Maximize2 :size="18" /></span>
               <div class="global-fullscreen-copy">
                 <p class="section-kicker">Immersive View</p>
                 <h2>全屏显示</h2>
-                <small v-if="fullscreenManagedByPwa">当前 PWA 由安装清单固定为全屏显示；如需恢复系统栏，请卸载后以普通网站模式使用。</small>
-                <small v-else>App 与支持的 PWA 会隐藏系统栏；普通网页需浏览器授权，iOS Safari 网页无法隐藏原生状态栏。</small>
+                <small>App 与支持全屏 API 的浏览器或 PWA 会隐藏系统栏；普通网页需浏览器授权，iOS Safari 网页无法隐藏原生状态栏。</small>
               </div>
               <button
                 class="fullscreen-switch"
@@ -125,8 +165,8 @@
                 type="button"
                 role="switch"
                 :aria-checked="fullscreenEnabled"
-                :aria-label="fullscreenManagedByPwa ? 'PWA 全屏显示已由安装模式托管' : fullscreenEnabled ? '关闭全屏显示' : '开启全屏显示'"
-                :disabled="fullscreenBusy || fullscreenManagedByPwa"
+                :aria-label="fullscreenEnabled ? '关闭全屏显示' : '开启全屏显示'"
+                :disabled="fullscreenBusy"
                 @click="toggleFullscreen"
               >
                 <span></span>
@@ -386,10 +426,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { FileCode2, Globe2, LoaderCircle, Maximize2, Minus, Moon, Plus, Share2, Type, Upload, Wifi } from 'lucide-vue-next';
+import { Capacitor } from '@capacitor/core';
+import { ArrowDown, ArrowUp, FileCode2, Globe2, LoaderCircle, Maximize2, Minus, Moon, Plus, Share2, Type, Upload, Wifi } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import { useAppStore } from '@/stores/appStore';
-import { pickNativePngFile, shareNativeDataUrl } from '@/services/nativeFile';
+import { pickNativePngFile } from '@/services/nativeFile';
 import { getLastNativeDisplayState } from '@/services/nativeDisplay';
 import { getFullscreenEnvironment, setFullscreenEnabled } from '@/services/systemBars';
 import { cacheThemeFontEntry, cacheThemeFontFile, getThemeFontCss, getThemeFontFileUrl, hasPersistedThemeFontCache, isThemeFontStylesheetEntry } from '@/services/themeFontCache';
@@ -397,6 +438,7 @@ import type { AppSettings, AppThemeSettings, ThemeFontEntry, ThemeFontSource, Th
 import { createId } from '@/utils/id';
 import { downloadDataUrl } from '@/utils/download';
 import { normalizeAppSettings } from '@/utils/settings';
+import { globalBottomBarOffsetStep, maxGlobalBottomBarOffset, minGlobalBottomBarOffset, normalizeGlobalBottomBarOffset } from '@/utils/themeBottomBar';
 import { globalThemeScaleStepPercent, maxGlobalThemeScalePercent, minGlobalThemeScalePercent, normalizeGlobalThemeScalePercent } from '@/utils/themeScale';
 import {
   decodeThemeStylePresetsFromPng,
@@ -492,9 +534,10 @@ const fontSettings = computed(() => themeSettings.value.fonts);
 const fontEntries = computed(() => fontSettings.value.entries);
 const globalScalePercent = computed(() => normalizeGlobalThemeScalePercent((themeSettings.value.global?.scale ?? 1) * 100));
 const globalScaleLabel = computed(() => formatGlobalScalePercent(globalScalePercent.value));
-const fullscreenEnvironment = computed(() => getFullscreenEnvironment());
-const fullscreenManagedByPwa = computed(() => fullscreenEnvironment.value === 'pwa');
-const fullscreenEnabled = computed(() => fullscreenManagedByPwa.value || Boolean(themeSettings.value.global?.fullscreen));
+const globalBottomBarOffset = computed(() => normalizeGlobalBottomBarOffset(themeSettings.value.global?.bottomBarOffset));
+const globalBottomBarOffsetLabel = computed(() => formatGlobalBottomBarOffset(globalBottomBarOffset.value));
+const supportsIosWebBottomBarAdjustment = !Capacitor.isNativePlatform() && isIosDevice();
+const fullscreenEnabled = computed(() => Boolean(themeSettings.value.global?.fullscreen));
 const activeTab = computed<ThemeTab>(() => {
   const tab = String(route.query.tab ?? 'font');
   return tabs.some((item) => item.id === tab) ? tab as ThemeTab : 'font';
@@ -585,6 +628,7 @@ function cloneThemeSettings(settings: AppThemeSettings): AppThemeSettings {
     },
     global: {
       scale: settings.global.scale,
+      bottomBarOffset: settings.global.bottomBarOffset,
       fullscreen: settings.global.fullscreen,
       style: cloneStyleScope(settings.global.style)
     },
@@ -601,6 +645,17 @@ function formatGlobalScalePercent(value: number) {
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
 }
 
+function isIosDevice() {
+  if (typeof navigator === 'undefined') return false;
+  const userAgent = navigator.userAgent;
+  return /iPad|iPhone|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && /Mobile/.test(userAgent) && navigator.maxTouchPoints > 1);
+}
+
+function formatGlobalBottomBarOffset(value: number) {
+  if (value === 0) return '默认';
+  return value > 0 ? `下移 ${value}px` : `上移 ${Math.abs(value)}px`;
+}
+
 async function setGlobalScale(percent: number) {
   const nextPercent = clampGlobalScalePercent(percent);
   if (nextPercent === globalScalePercent.value) return;
@@ -608,6 +663,17 @@ async function setGlobalScale(percent: number) {
   nextThemeSettings.global.scale = nextPercent / 100;
   await saveThemeSettings(nextThemeSettings);
   feedbackMessage.value = nextPercent === 100 ? '已恢复默认显示大小。' : `已调整为 ${nextPercent}% 显示大小。`;
+}
+
+async function setGlobalBottomBarOffset(offset: number) {
+  const nextOffset = normalizeGlobalBottomBarOffset(offset);
+  if (nextOffset === globalBottomBarOffset.value) return;
+  const nextThemeSettings = cloneThemeSettings(themeSettings.value);
+  nextThemeSettings.global.bottomBarOffset = nextOffset;
+  await saveThemeSettings(nextThemeSettings);
+  feedbackMessage.value = nextOffset === 0
+    ? '已恢复 iOS 网页与 PWA 的默认底栏位置。'
+    : `已将 iOS 网页与 PWA 底栏${formatGlobalBottomBarOffset(nextOffset)}。`;
 }
 
 async function toggleFullscreen() {
@@ -634,7 +700,9 @@ async function toggleFullscreen() {
     await saveThemeSettings(nextThemeSettings);
     if (!next) await setFullscreenEnabled(false);
     const nativeState = getLastNativeDisplayState();
-    if (next && nativeState?.applied === false && (nativeState.statusBarVisible || nativeState.navigationBarVisible)) {
+    if (!next && getFullscreenEnvironment() === 'pwa') {
+      fullscreenFeedback.value = '已保存关闭偏好。当前安装仍使用旧版全屏清单；关闭后重新打开 PWA，若系统栏仍未恢复请重新安装。';
+    } else if (next && nativeState?.applied === false && (nativeState.statusBarVisible || nativeState.navigationBarVisible)) {
       fullscreenFeedback.value = `已开启持续沉浸模式，系统栏正在重试隐藏（状态栏：${nativeState.statusBarVisible ? '仍显示' : '已隐藏'}；导航栏：${nativeState.navigationBarVisible ? '仍显示' : '已隐藏'}）。`;
       fullscreenFeedbackError.value = true;
     } else {
@@ -654,8 +722,17 @@ function updateGlobalScaleFromInput(event: Event) {
   void setGlobalScale(Number(input.value));
 }
 
+function updateGlobalBottomBarOffsetFromInput(event: Event) {
+  const input = event.target as HTMLInputElement;
+  void setGlobalBottomBarOffset(Number(input.value));
+}
+
 function nudgeGlobalScale(delta: number) {
   void setGlobalScale(globalScalePercent.value + delta);
+}
+
+function nudgeGlobalBottomBarOffset(delta: number) {
+  void setGlobalBottomBarOffset(globalBottomBarOffset.value + delta);
 }
 
 function sanitizeFontFamily(value: string) {
@@ -1284,7 +1361,7 @@ function exportSelectedThemeStyles() {
         coverImageDataUrl: styleExportCoverPreview.value || undefined
       });
       const fileName = getDownloadFileName(presets);
-      if (!await shareNativeDataUrl(dataUrl, fileName)) await downloadDataUrl(dataUrl, fileName);
+      await downloadDataUrl(dataUrl, fileName);
       styleExportError.value = '';
       showStyleExporter.value = false;
       feedbackMessage.value = `已导出 ${presets.length} 个${activeStyleLabel.value}样式 PNG。`;
@@ -1393,8 +1470,8 @@ function formatFontMeta(entry: ThemeFontEntry) {
   overflow-x: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  scroll-padding-bottom: calc(76px + var(--safe-bottom));
-  padding: 10px 16px calc(76px + var(--safe-bottom));
+  scroll-padding-bottom: calc(76px + var(--bottom-bar-safe-bottom));
+  padding: 10px 16px calc(76px + var(--bottom-bar-safe-bottom));
 }
 
 .themes-panel {
@@ -1431,7 +1508,8 @@ function formatFontMeta(entry: ThemeFontEntry) {
   min-width: 0;
 }
 
-.global-scale-card {
+.global-scale-card,
+.global-bottom-bar-card {
   display: grid;
   gap: 14px;
   min-width: 0;
@@ -1442,6 +1520,13 @@ function formatFontMeta(entry: ThemeFontEntry) {
     radial-gradient(circle at top right, rgba(6, 199, 85, 0.11), transparent 36%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 248, 0.95));
   box-shadow: 0 12px 30px rgba(16, 24, 20, 0.06);
+}
+
+.bottom-bar-adjustment-note {
+  margin: -4px 0 0;
+  color: #737b76;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .global-fullscreen-card {
@@ -2358,7 +2443,7 @@ function formatFontMeta(entry: ThemeFontEntry) {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 3px;
-  padding: 7px calc(8px + var(--safe-right)) calc(9px + var(--safe-bottom)) calc(8px + var(--safe-left));
+  padding: 7px calc(8px + var(--safe-right)) calc(9px + var(--bottom-bar-safe-bottom)) calc(8px + var(--safe-left));
   border-top: 1px solid rgba(17, 17, 17, 0.05);
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(18px);

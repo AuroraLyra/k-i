@@ -7,9 +7,13 @@ interface NativeMediaPlugin {
 
 const LinkMedia = registerPlugin<NativeMediaPlugin>('LinkMedia');
 
+export function isNativePhotoLibrarySaveAvailable() {
+  const platform = Capacitor.getPlatform();
+  return (platform === 'android' || platform === 'ios') && Capacitor.isPluginAvailable('LinkMedia');
+}
+
 export function isNativeImageSaveAvailable() {
-  return Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('LinkMedia')
-    || isNativeFileShareAvailable();
+  return isNativePhotoLibrarySaveAvailable() || isNativeFileShareAvailable();
 }
 
 function blobToDataUrl(blob: Blob) {
@@ -23,7 +27,7 @@ function blobToDataUrl(blob: Blob) {
 
 export async function saveNativeImage(blob: Blob, fileName: string) {
   if (!isNativeImageSaveAvailable()) return false;
-  if (Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('LinkMedia')) {
+  if (isNativePhotoLibrarySaveAvailable() && /^image\/(?:png|jpe?g|webp|gif)$/i.test(blob.type)) {
     const result = await LinkMedia.saveImage({ dataUrl: await blobToDataUrl(blob), fileName });
     return result.saved;
   }

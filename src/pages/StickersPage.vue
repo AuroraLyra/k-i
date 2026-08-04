@@ -6,6 +6,9 @@
       </button>
 
       <div class="stickers-actions">
+        <button class="stickers-action-button" type="button" aria-label="分享 Stickers" @click="openShareModal">
+          <Share2 :size="20" stroke-width="2.35" />
+        </button>
         <button class="stickers-action-button" type="button" aria-label="导入 Stickers" @click="openImportModal">
           <Plus :size="20" stroke-width="2.4" />
         </button>
@@ -49,6 +52,16 @@
       @update:new-group-name="importNewGroupName = $event"
       @create-group="createImportGroup"
       @submit="submitImport"
+    />
+
+    <StickerShareModal
+      v-model="showShareModal"
+      :groups="shareGroups"
+      :default-group-id="activeGroupId"
+      :feedback="shareFeedback"
+      :disabled="sharing"
+      @save="saveSelectedGroups"
+      @submit="shareSelectedGroups"
     />
 
     <AppModal :model-value="showMaintenanceModal" title="Stickers 维护" :show-header="false" variant="ins" @update:model-value="showMaintenanceModal = $event">
@@ -112,13 +125,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { Layers2, LoaderCircle, PencilLine, Plus, ScanSearch, Settings2, Trash2 } from 'lucide-vue-next';
+import { Layers2, LoaderCircle, PencilLine, Plus, ScanSearch, Settings2, Share2, Trash2 } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import StickerImportModal, { type StickerImportTab } from '@/components/stickers/StickerImportModal.vue';
 import StickerLibraryPanel from '@/components/stickers/StickerLibraryPanel.vue';
+import StickerShareModal, { type StickerShareGroupOption } from '@/components/stickers/StickerShareModal.vue';
+import { shareNativeFile } from '@/services/nativeFile';
+import { isNativePhotoLibrarySaveAvailable, saveNativeImage } from '@/services/nativeMedia';
 import { useAppStore } from '@/stores/appStore';
 import type { Sticker, StickerSourceType } from '@/types/domain';
 import { RECENT_STICKER_GROUP_ID, createImageFileStickerDraft, getStickerDisplayImageUrl, parseStickerImportText, readStickerImportFile, type StickerImportDraft } from '@/utils/stickers';
+import { createStickerSharePng, decodeStickerSharePng, isLikelyStickerSharePngFile, type StickerSharePackage } from '@/utils/stickerShare';
 
 type MaintenanceTab = 'invalid' | 'dedupe';
 type MaintenanceBusy = 'invalid' | 'dedupe' | 'delete';
@@ -140,6 +157,9 @@ const selectedFiles = ref<File[]>([]);
 const importNewGroupName = ref('');
 const importFeedback = ref('');
 const importing = ref(false);
+const showShareModal = ref(false);
+const sharing = ref(false);
+const shareFeedback = ref('');
 const showMaintenanceModal = ref(false);
 const activeMaintenanceTab = ref<MaintenanceTab>('invalid');
 const maintenanceBusy = ref<MaintenanceBusy | null>(null);
@@ -150,9 +170,15 @@ const duplicateStickerCandidates = ref<MaintenanceCandidate[]>([]);
 const duplicateKeeperUpdates = ref<Sticker[]>([]);
 
 const groups = computed(() => store.sortedStickerGroups ?? []);
+const shareGroups = computed<StickerShareGroupOption[]>(() => groups.value.map((group) => ({
+  id: group.id,
+  name: group.name,
+  stickerCount: store.stickersForGroup(group.id).length
+})));
 const importDisabled = computed(() => {
-  if (importing.value || !importTargetGroupId.value) return true;
-  return importTab.value === 'url' ? !importText.value.trim() : !selectedFiles.value.length;
+  if (importing.value) return true;
+  if (importTab.value === 'file') return !selectedFiles.value.length;
+  return !importTargetGroupId.value || !importText.value.trim();
 });
 const activeMaintenanceCandidates = computed(() => activeMaintenanceTab.value === 'invalid' ? invalidStickerCandidates.value : duplicateStickerCandidates.value);
 const isScanningActiveTab = computed(() => maintenanceBusy.value === activeMaintenanceTab.value);
@@ -199,8 +225,16 @@ function resetImportState() {
 function openImportModal() {
   importTab.value = 'url';
   resetImportState();
+  showShareModal.value = false;
   showMaintenanceModal.value = false;
   showImportModal.value = true;
+}
+
+function openShareModal() {
+  shareFeedback.value = '';
+  showImportModal.value = false;
+  showMaintenanceModal.value = false;
+  showShareModal.value = true;
 }
 
 function openMaintenanceModal() {
@@ -223,8 +257,81 @@ function setMaintenanceTab(tab: MaintenanceTab) {
 
 function openManagePage() {
   showImportModal.value = false;
+  showShareModal.value = false;
   showMaintenanceModal.value = false;
   void router.push({ name: 'stickers-manage' });
+}
+
+function downloadSharePng(blob: Blob, fileName: string) {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  anchor.rel = 'noopener';
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  window.setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  }, 60_000);
+}
+
+async function shareStickerPng(blob: Blob, fileName: string) {
+  if (await shareNativeFile(blob, fileName)) return '已打开系统分享面板。';
+  const file = new File([blob], fileName, { type: 'image/png' });
+  const canShareFiles = typeof navigator !== 'undefined'
+    && typeof navigator.share === 'function'
+    && (!navigator.canShare || navigator.canShare({ files: [file] }));
+  if (canShareFiles) {
+    await navigator.share({
+      title: 'BabyLink Stickers 分享包',
+      text: '这是一个 BabyLink Stickers PNG 分享包，请在 Stickers 页面点击 + 导入。',
+      files: [file]
+    });
+    return '已打开系统分享面板。';
+  }
+  downloadSharePng(blob, fileName);
+  return '当前设备不支持直接分享，已下载 PNG 文件。';
+}
+
+async function saveStickerPng(blob: Blob, fileName: string) {
+  if (isNativePhotoLibrarySaveAvailable()) {
+    const saved = await saveNativeImage(blob, fileName);
+    if (saved) return 'PNG 已保存到系统相册。';
+  }
+  downloadSharePng(blob, fileName);
+  return 'PNG 已下载；请在浏览器或系统下载中查看。';
+}
+
+async function exportSelectedGroups(groupIds: string[], delivery: (blob: Blob, fileName: string) => Promise<string>) {
+  if (sharing.value) return;
+  sharing.value = true;
+  shareFeedback.value = '';
+  try {
+    const selectedGroupIds = new Set(groupIds);
+    const result = await createStickerSharePng(
+      groups.value.filter((group) => selectedGroupIds.has(group.id)),
+      store.sortedStickers
+    );
+    shareFeedback.value = await delivery(result.blob, result.fileName);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      shareFeedback.value = '已取消分享。';
+      return;
+    }
+    shareFeedback.value = error instanceof Error ? error.message : '贴纸分享失败，请重试。';
+  } finally {
+    sharing.value = false;
+  }
+}
+
+async function saveSelectedGroups(groupIds: string[]) {
+  await exportSelectedGroups(groupIds, saveStickerPng);
+}
+
+async function shareSelectedGroups(groupIds: string[]) {
+  await exportSelectedGroups(groupIds, shareStickerPng);
 }
 
 function isRemoteImageUrl(value: string) {
@@ -422,19 +529,26 @@ function importSourceTypeForFile(file: File): StickerSourceType {
   return 'url';
 }
 
-async function buildImportDrafts() {
-  if (importTab.value === 'url') return parseStickerImportText(importText.value, 'url');
+async function buildImportContent(): Promise<{ drafts: StickerImportDraft[]; stickerPackages: StickerSharePackage[] }> {
+  if (importTab.value === 'url') return { drafts: parseStickerImportText(importText.value, 'url'), stickerPackages: [] };
 
   const drafts: StickerImportDraft[] = [];
+  const stickerPackages: StickerSharePackage[] = [];
   for (const file of selectedFiles.value) {
+    const stickerPackage = await decodeStickerSharePng(file);
+    if (stickerPackage) {
+      stickerPackages.push(stickerPackage);
+      continue;
+    }
+    if (isLikelyStickerSharePngFile(file)) throw new Error('这张 PNG 不是有效的 BabyLink Stickers 分享包，请确认发送方以文件形式转发。');
     if (file.type.startsWith('image/')) {
-        drafts.push(createImageFileStickerDraft(file));
+      drafts.push(createImageFileStickerDraft(file));
       continue;
     }
     const text = await readStickerImportFile(file);
     drafts.push(...parseStickerImportText(text, importSourceTypeForFile(file)));
   }
-  return drafts;
+  return { drafts, stickerPackages };
 }
 
 async function submitImport() {
@@ -442,17 +556,24 @@ async function submitImport() {
   importing.value = true;
   importFeedback.value = '';
   try {
-    const drafts = await buildImportDrafts();
-    if (!drafts.length) {
+    const { drafts, stickerPackages } = await buildImportContent();
+    if (!drafts.length && !stickerPackages.length) {
       importFeedback.value = '没有识别到可导入的 Stickers 内容。';
       return;
     }
-    const created = await store.importStickers(drafts, [importTargetGroupId.value]);
-    if (!created.length) {
+    if (drafts.length && !importTargetGroupId.value) {
+      importFeedback.value = '请先添加并选择一个目标分组，再导入普通图片或文本。';
+      return;
+    }
+    const importedSharePackages = await Promise.all(stickerPackages.map((stickerPackage) => store.importStickerSharePackage(stickerPackage)));
+    const created = drafts.length ? await store.importStickers(drafts, [importTargetGroupId.value]) : [];
+    const sharedStickerCount = importedSharePackages.reduce((total, result) => total + result.createdStickers.length, 0);
+    if (!created.length && !sharedStickerCount) {
       importFeedback.value = '没有新增 Stickers。';
       return;
     }
-    activeGroupId.value = importTargetGroupId.value;
+    const createdShareGroup = importedSharePackages.flatMap((result) => result.createdGroups)[0];
+    activeGroupId.value = createdShareGroup?.id ?? importTargetGroupId.value;
     resetImportState();
     showImportModal.value = false;
   } catch (error) {

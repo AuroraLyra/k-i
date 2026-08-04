@@ -1,0 +1,41 @@
+{
+  "" : {
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactsPlugin-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactsPlugin-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactsPlugin-primary.dia",
+    "emit-module-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactsPlugin-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactsPlugin-primary-emit-module.dia",
+    "pch" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactsPlugin-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactsPlugin-primary.swiftdeps"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor-community/contacts/ios/Sources/ContactsPlugin/BiMap.swift" : {
+    "index-unit-output-path" : "/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/BiMap.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/BiMap.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/BiMap.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor-community/contacts/ios/Sources/ContactsPlugin/ContactPayload.swift" : {
+    "index-unit-output-path" : "/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactPayload.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactPayload.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactPayload.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor-community/contacts/ios/Sources/ContactsPlugin/Contacts.swift" : {
+    "index-unit-output-path" : "/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/Contacts.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/Contacts.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/Contacts.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor-community/contacts/ios/Sources/ContactsPlugin/ContactsPlugin.swift" : {
+    "index-unit-output-path" : "/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactsPlugin.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactsPlugin.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/ContactsPlugin.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor-community/contacts/ios/Sources/ContactsPlugin/CreateContactInput.swift" : {
+    "index-unit-output-path" : "/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/CreateContactInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/CreateContactInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/CreateContactInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor-community/contacts/ios/Sources/ContactsPlugin/GetContactsProjectionInput.swift" : {
+    "index-unit-output-path" : "/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/GetContactsProjectionInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/GetContactsProjectionInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorCommunityContacts.build/Release-iphoneos/ContactsPlugin.build/Objects-normal/arm64/GetContactsProjectionInput.o"
+  }
+}

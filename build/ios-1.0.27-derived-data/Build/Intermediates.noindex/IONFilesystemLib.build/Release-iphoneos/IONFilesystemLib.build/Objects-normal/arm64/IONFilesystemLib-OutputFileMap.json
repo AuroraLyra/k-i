@@ -1,0 +1,46 @@
+{
+  "" : {
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib-primary.dia",
+    "emit-module-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib-primary-emit-module.dia",
+    "pch" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFilesystemLib-primary.swiftdeps"
+  },
+  "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/SourcePackages/checkouts/ion-ios-filesystem/IONFilesystemLib/IONFILEChunkPublisher.swift" : {
+    "index-unit-output-path" : "/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEChunkPublisher.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEChunkPublisher.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEChunkPublisher.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/SourcePackages/checkouts/ion-ios-filesystem/IONFilesystemLib/IONFILEItemAttributeModel.swift" : {
+    "index-unit-output-path" : "/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEItemAttributeModel.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEItemAttributeModel.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEItemAttributeModel.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/SourcePackages/checkouts/ion-ios-filesystem/IONFilesystemLib/IONFILEManager+Enums.swift" : {
+    "index-unit-output-path" : "/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager+Enums.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager+Enums.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager+Enums.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/SourcePackages/checkouts/ion-ios-filesystem/IONFilesystemLib/IONFILEManager+Errors.swift" : {
+    "index-unit-output-path" : "/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager+Errors.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager+Errors.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager+Errors.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/SourcePackages/checkouts/ion-ios-filesystem/IONFilesystemLib/IONFILEManager+Protocols.swift" : {
+    "index-unit-output-path" : "/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager+Protocols.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager+Protocols.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager+Protocols.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/SourcePackages/checkouts/ion-ios-filesystem/IONFilesystemLib/IONFILEManager.swift" : {
+    "index-unit-output-path" : "/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/IONFILEManager.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/SourcePackages/checkouts/ion-ios-filesystem/IONFilesystemLib/URL+Extension.swift" : {
+    "index-unit-output-path" : "/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/URL+Extension.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/URL+Extension.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/IONFilesystemLib.build/Release-iphoneos/IONFilesystemLib.build/Objects-normal/arm64/URL+Extension.o"
+  }
+}

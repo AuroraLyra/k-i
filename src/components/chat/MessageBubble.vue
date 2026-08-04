@@ -203,53 +203,10 @@
             </section>
           </template>
           <template v-else-if="message.mcpOperations?.length">
-            <p class="mcp-operation-text" aria-label="角色 MCP 行动">{{ mcpOperationText }}</p>
+            <OnlineChatCard kind="mcp-operation" :mcp-operations="message.mcpOperations" />
           </template>
           <template v-else-if="message.mcpResult">
-            <section class="mcp-result-card" aria-label="MCP 联网搜索结果">
-              <header class="mcp-result-head">
-                <span class="mcp-result-mark"><Globe2 :size="15" /></span>
-                <span><small>MCP SEARCH</small><strong>{{ message.mcpResult.serverName }}</strong></span>
-                <em>{{ message.mcpResult.toolName }}</em>
-              </header>
-              <div class="mcp-result-list">
-                <article v-for="(item, index) in message.mcpResult.items" :key="`${item.url || item.title}-${index}`" class="mcp-result-item" :class="{ 'has-image': item.imageUrl && !isBrokenImageSource(item.imageUrl) }">
-                  <img
-                    v-if="item.imageUrl && !isBrokenImageSource(item.imageUrl)"
-                    :src="item.imageUrl"
-                    :alt="item.title"
-                    loading="lazy"
-                    referrerpolicy="no-referrer"
-                    draggable="false"
-                    @error="markBrokenImageSource(item.imageUrl)"
-                  />
-                  <span class="mcp-result-copy">
-                    <small>{{ item.source || mcpResultKindLabel(item.kind) }}</small>
-                    <strong>{{ item.title }}</strong>
-                    <span v-if="item.description" class="mcp-result-description">{{ item.description }}</span>
-                    <span v-if="item.address" class="mcp-result-address">{{ item.address }}</span>
-                    <span v-if="item.price || item.distance || item.eta" class="mcp-result-meta">
-                      <em v-if="item.price" class="price">{{ item.price }}</em>
-                      <em v-if="item.distance">{{ item.distance }}</em>
-                      <em v-if="item.eta">{{ item.eta }}</em>
-                    </span>
-                    <a
-                      v-if="mcpResultItemUrl(item)"
-                      :href="mcpResultItemUrl(item)"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      referrerpolicy="no-referrer"
-                      @click.stop
-                      @pointerdown.stop
-                      @pointerup.stop
-                    >
-                      <span>{{ item.url ? '查看原始结果' : '在地图中查看' }}</span><ChevronRight :size="13" />
-                    </a>
-                  </span>
-                </article>
-              </div>
-              <footer>字段直接来自工具结构化响应</footer>
-            </section>
+            <OnlineChatCard kind="mcp-result" :mcp-result="message.mcpResult" />
           </template>
           <template v-else-if="message.musicListenInvite">
             <section class="listen-invite-card" :class="`listen-invite-card--${musicInviteStatus}`" aria-label="一起听邀请">
@@ -270,56 +227,19 @@
             </section>
           </template>
           <template v-else-if="message.linkPreview">
-            <section class="chat-link-preview-message" :class="`platform-${message.linkPreview.platform}`" aria-label="链接预览">
-              <p v-if="linkPreviewCaption" class="chat-link-preview-caption">{{ linkPreviewCaption }}</p>
-              <a
-                class="chat-link-preview-card"
-                :href="message.linkPreview.url"
-                target="_blank"
-                rel="noopener noreferrer"
-                referrerpolicy="no-referrer"
-                @click.stop
-                @pointerdown.stop
-                @pointerup.stop
-              >
-                <span class="chat-link-preview-visual">
-                  <img
-                    v-if="message.linkPreview.imageUrl && !isBrokenImageSource(message.linkPreview.imageUrl)"
-                    :src="message.linkPreview.imageUrl"
-                    :alt="message.linkPreview.title"
-                    loading="lazy"
-                    referrerpolicy="no-referrer"
-                    draggable="false"
-                    @error="markBrokenImageSource(message.linkPreview.imageUrl)"
-                  />
-                  <span v-else class="chat-link-preview-placeholder" aria-hidden="true">
-                    <Heart v-if="message.linkPreview.platform === 'xiaohongshu'" :size="24" />
-                    <Play v-else-if="message.linkPreview.platform === 'douyin'" :size="24" fill="currentColor" />
-                    <ShoppingBag v-else-if="message.linkPreview.platform === 'taobao'" :size="24" />
-                    <Globe2 v-else :size="24" />
-                  </span>
-                </span>
-                <span class="chat-link-preview-copy">
-                  <small>{{ linkPreviewPlatformLabel }}</small>
-                  <strong>{{ message.linkPreview.title }}</strong>
-                  <span>{{ message.linkPreview.description }}</span>
-                  <em>{{ linkPreviewHostname }} <ChevronRight :size="12" /></em>
-                </span>
-              </a>
-            </section>
+            <OnlineChatCard kind="link-preview" :link="message.linkPreview" :caption="linkPreviewCaption" />
           </template>
           <template v-else-if="message.theaterLink">
-            <section class="line-website-card" aria-label="网站链接">
-              <span class="line-website-thumb" aria-hidden="true">
-                <Globe2 :size="22" stroke-width="2.4" />
-              </span>
-              <span class="line-website-body">
-                <span class="line-website-kicker">Website Link</span>
-                <strong>{{ message.theaterLink.title }}</strong>
-                <small>{{ message.theaterLink.summary }}</small>
-                <em>{{ message.theaterLink.url }}</em>
-              </span>
-            </section>
+            <OnlineChatCard
+              kind="link-preview"
+              :link="{
+                platform: 'website',
+                url: message.theaterLink.url,
+                title: message.theaterLink.title,
+                description: message.theaterLink.summary,
+                siteName: 'LINK 小剧场'
+              }"
+            />
           </template>
           <template v-else-if="message.offlineInvitation">
             <section class="offline-invitation-message" :class="`offline-invitation-message--${message.offlineInvitation.status}`" aria-label="线下模块邀请">
@@ -404,10 +324,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { ChevronRight, DoorOpen, Globe2, Heart, LoaderCircle, Music2, Pause, Play, Quote, ShoppingBag, X } from 'lucide-vue-next';
+import { ChevronRight, DoorOpen, Heart, LoaderCircle, Music2, Pause, Play, Quote, X } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import GeneratedImageFlipViewer from '@/components/image/GeneratedImageFlipViewer.vue';
-import type { CharacterProfile, ChatAppearanceSettings, ChatImageCandidate, ChatMcpResultItem, ChatMessage, UserProfile } from '@/types/domain';
+import OnlineChatCard from '@/components/chat/OnlineChatCard.vue';
+import type { CharacterProfile, ChatAppearanceSettings, ChatImageCandidate, ChatMessage, UserProfile } from '@/types/domain';
 import { useAppStore } from '@/stores/appStore';
 import { normalizeLooseModelReply, parseModelJsonResponse } from '@/utils/aiResponse';
 import { getCharacterDisplayName } from '@/utils/character';
@@ -420,7 +341,6 @@ import { getStickerDisplayImageUrl } from '@/utils/stickers';
 import type { MessageGroupPosition } from '@/utils/messageGrouping';
 import { normalizeTranslationText, shouldShowChineseTranslation } from '@/utils/translation';
 import { gobangStoneForPlayer } from '@/utils/gobang';
-import { mcpOperationStateLabel } from '@/utils/mcpOperations';
 
 const props = withDefaults(defineProps<{
   message: ChatMessage;
@@ -601,25 +521,6 @@ const showVoiceTranslation = computed(() => props.message.sender === 'char'
 const linkPreviewCaption = computed(() => props.message.linkPreview
   ? props.message.content.replace(/https?:\/\/[^\s<>"']+/i, '').replace(/^[\s，。！？；：、…]+|[\s，。！？；：、…]+$/g, '').trim()
   : '');
-const linkPreviewPlatformLabel = computed(() => {
-  const platform = props.message.linkPreview?.platform;
-  const labels: Partial<Record<NonNullable<typeof platform>, string>> = {
-    xiaohongshu: '小红书 · 笔记分享', douyin: '抖音 · 视频分享', taobao: '淘宝 · 商品链接', pinduoduo: '拼多多 · 商品链接', jd: '京东 · 商品链接',
-    xianyu: '闲鱼 · 商品链接', bilibili: '哔哩哔哩 · 视频分享', weibo: '微博 · 内容分享', zhihu: '知乎 · 内容分享', kuaishou: '快手 · 视频分享',
-    wechat: '微信 · 文章分享', meituan: '美团 · 服务分享', dianping: '大众点评 · 门店分享', ctrip: '携程 · 旅行分享', eleme: '饿了么 · 商家分享', dewu: '得物 · 商品链接'
-  };
-  if (platform && labels[platform]) return labels[platform];
-  return props.message.linkPreview?.siteName || '网站链接';
-});
-const linkPreviewHostname = computed(() => {
-  const url = props.message.linkPreview?.url;
-  if (!url) return '';
-  try {
-    return new URL(url).hostname.replace(/^www\./, '');
-  } catch {
-    return props.message.linkPreview?.siteName || '网页';
-  }
-});
 
 const characterDisplayName = computed(() => getCharacterDisplayName(props.character));
 const userDisplayName = computed(() => {
@@ -760,26 +661,6 @@ const lineLocationMapLabel = computed(() => {
   const match = address.match(/([^市区县]+(?:街|路|巷|道)\d*[^\s,，。]*)/);
   return match?.[1] || lineLocationName.value;
 });
-
-function mcpResultKindLabel(kind: ChatMcpResultItem['kind']) {
-  return kind === 'product' ? '商品结果' : kind === 'place' ? '地点结果' : kind === 'media' ? '内容结果' : kind === 'link' ? '网页结果' : '搜索结果';
-}
-
-function mcpResultItemUrl(item: ChatMcpResultItem) {
-  if (item.url) return item.url;
-  if (item.longitude === undefined || item.latitude === undefined) return '';
-  const position = `${item.longitude},${item.latitude}`;
-  return `https://uri.amap.com/marker?position=${encodeURIComponent(position)}&name=${encodeURIComponent(item.title)}&src=BabyLink`;
-}
-
-const mcpOperationText = computed(() => props.message.mcpOperations?.map((operation) => {
-  const detail = [operation.receipt ? `回执 ${operation.receipt}` : '', operation.result]
-    .filter(Boolean)
-    .join(' · ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return `MCP · ${operation.serverName} · ${operation.toolName} · ${mcpOperationStateLabel(operation.state)}${detail ? `：${detail}` : ''}`;
-}).join('；') ?? '');
 
 const linePayAmount = computed(() => props.message.transfer?.amount || '0.00');
 const linePayStatus = computed(() => props.message.transfer?.status ?? 'pending');
@@ -1800,19 +1681,21 @@ onBeforeUnmount(() => {
 }
 
 .bubble.linkPreview {
-  width: min(236px, 70vw);
-  min-width: min(204px, 60vw);
-  background: #ffffff;
+  width: min(264px, 72vw);
+  min-width: 0;
+  max-width: min(264px, 72vw);
+  background: transparent;
   border: 0;
-  box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
+  box-shadow: none;
 }
 
 .bubble.theaterLink {
-  width: min(222px, 64vw);
-  min-width: min(189px, 55vw);
-  background: #ffffff;
+  width: min(264px, 72vw);
+  min-width: 0;
+  max-width: min(264px, 72vw);
+  background: transparent;
   border: 0;
-  box-shadow: 0 9px 22px rgba(22, 27, 33, 0.08);
+  box-shadow: none;
 }
 
 .bubble.offlineInvitation {
@@ -1883,6 +1766,13 @@ onBeforeUnmount(() => {
 .message-row.user .bubble.gobang,
 .message-row.char .bubble.gobang {
   background: #ffffff;
+}
+
+.message-row.user .bubble.linkPreview,
+.message-row.char .bubble.linkPreview,
+.message-row.user .bubble.theaterLink,
+.message-row.char .bubble.theaterLink {
+  background: transparent;
 }
 
 .gobang-message-card {
@@ -3646,23 +3536,25 @@ time,
 }
 
 .bubble.mcpResult {
-  width: min(306px, 78vw);
-  min-width: min(248px, 68vw);
-  max-width: min(306px, 78vw);
+  width: min(264px, 72vw);
+  min-width: 0;
+  max-width: min(264px, 72vw);
   padding: 0 !important;
   overflow: hidden;
-  border-radius: 17px !important;
+  border-radius: 18px !important;
   background: transparent !important;
-  box-shadow: 0 12px 30px rgba(29, 47, 43, 0.12) !important;
+  box-shadow: none !important;
 }
 
 .bubble.mcpOperation {
-  width: min(306px, 78vw);
-  max-width: min(306px, 78vw);
-  padding: 3px 4px !important;
-  border-radius: 0 !important;
+  width: min(254px, 70vw);
+  min-width: 0;
+  max-width: min(254px, 70vw);
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 18px !important;
   background: transparent !important;
-  color: #5f6872 !important;
+  color: inherit !important;
   box-shadow: none !important;
 }
 

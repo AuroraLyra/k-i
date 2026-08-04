@@ -1,0 +1,296 @@
+{
+  "" : {
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin-primary.dia",
+    "emit-module-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin-primary-emit-module.dia",
+    "pch" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin-primary.swiftdeps"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/CapacitorCalendarPlugin.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Implementation/CapacitorCalendar.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendar.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendar.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendar.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Enums/CAPPermissionState.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CAPPermissionState.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CAPPermissionState.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CAPPermissionState.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Enums/CalendarPermissionScope.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CalendarPermissionScope.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CalendarPermissionScope.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CalendarPermissionScope.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Enums/EventEditAction.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/EventEditAction.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/EventEditAction.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/EventEditAction.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/CheckPermissionInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CheckPermissionInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CheckPermissionInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CheckPermissionInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/CreateCalendarInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateCalendarInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateCalendarInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateCalendarInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/CreateEventInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/CreateEventWithPromptInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventWithPromptInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventWithPromptInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventWithPromptInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/CreateReminderInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateReminderInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateReminderInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateReminderInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/CreateRemindersListInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateRemindersListInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateRemindersListInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateRemindersListInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/DeleteCalendarInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteCalendarInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteCalendarInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteCalendarInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/DeleteEventInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/DeleteEventWithPromptInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventWithPromptInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventWithPromptInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventWithPromptInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/DeleteEventsByIdInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventsByIdInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventsByIdInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventsByIdInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/DeleteReminderInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteReminderInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteReminderInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteReminderInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/DeleteReminderWithPromptInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteReminderWithPromptInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteReminderWithPromptInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteReminderWithPromptInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/DeleteRemindersByIdInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteRemindersByIdInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteRemindersByIdInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteRemindersByIdInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/DeleteRemindersListInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteRemindersListInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteRemindersListInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteRemindersListInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/GetReminderByIdInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetReminderByIdInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetReminderByIdInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetReminderByIdInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/GetRemindersFromListsInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetRemindersFromListsInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetRemindersFromListsInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetRemindersFromListsInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/ListEventsInRangeInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ListEventsInRangeInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ListEventsInRangeInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ListEventsInRangeInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/ModifyCalendarInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyCalendarInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyCalendarInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyCalendarInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/ModifyEventInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyEventInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyEventInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyEventInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/ModifyEventWithPromptInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyEventWithPromptInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyEventWithPromptInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyEventWithPromptInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/ModifyReminderInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyReminderInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyReminderInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyReminderInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/OpenCalendarInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/OpenCalendarInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/OpenCalendarInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/OpenCalendarInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/RequestPermissionInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RequestPermissionInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RequestPermissionInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RequestPermissionInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/SelectCalendarsWithPromptInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/SelectCalendarsWithPromptInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/SelectCalendarsWithPromptInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/SelectCalendarsWithPromptInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Inputs/UpdateRemindersListInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/UpdateRemindersListInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/UpdateRemindersListInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/UpdateRemindersListInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/CheckAllPermissionsResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CheckAllPermissionsResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CheckAllPermissionsResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CheckAllPermissionsResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/CheckPermissionResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CheckPermissionResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CheckPermissionResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CheckPermissionResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/CreateCalendarResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateCalendarResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateCalendarResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateCalendarResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/CreateEventResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/CreateEventWithPromptResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventWithPromptResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventWithPromptResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateEventWithPromptResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/CreateReminderResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateReminderResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateReminderResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateReminderResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/CreateRemindersListResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateRemindersListResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateRemindersListResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CreateRemindersListResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/DeleteEventWithPromptResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventWithPromptResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventWithPromptResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventWithPromptResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/DeleteEventsByIdResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventsByIdResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventsByIdResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteEventsByIdResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/DeleteRemindersByIdResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteRemindersByIdResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteRemindersByIdResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/DeleteRemindersByIdResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/FetchAllCalendarSourcesResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/FetchAllCalendarSourcesResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/FetchAllCalendarSourcesResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/FetchAllCalendarSourcesResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/GetDefaultCalendarResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetDefaultCalendarResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetDefaultCalendarResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetDefaultCalendarResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/GetReminderByIdResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetReminderByIdResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetReminderByIdResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetReminderByIdResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/GetRemindersFromListsResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetRemindersFromListsResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetRemindersFromListsResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/GetRemindersFromListsResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/ListCalendarsResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ListCalendarsResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ListCalendarsResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ListCalendarsResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/ListEventsInRangeResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ListEventsInRangeResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ListEventsInRangeResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ListEventsInRangeResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/ModifyEventWithPromptResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyEventWithPromptResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyEventWithPromptResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ModifyEventWithPromptResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/RequestAllPermissionsResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RequestAllPermissionsResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RequestAllPermissionsResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RequestAllPermissionsResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/RequestPermissionResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RequestPermissionResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RequestPermissionResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RequestPermissionResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/SelectCalendarsWithPromptResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/SelectCalendarsWithPromptResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/SelectCalendarsWithPromptResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/SelectCalendarsWithPromptResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Results/UpdateRemindersListResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/UpdateRemindersListResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/UpdateRemindersListResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/UpdateRemindersListResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Structs/RecurrenceInput.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RecurrenceInput.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RecurrenceInput.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/RecurrenceInput.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Models/Templates/JSResult.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/JSResult.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/JSResult.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/JSResult.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/PluginConfig.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/PluginConfig.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/PluginConfig.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/PluginConfig.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/PluginError.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/PluginError.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/PluginError.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/PluginError.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Utils/ImplementationHelper.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ImplementationHelper.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ImplementationHelper.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/ImplementationHelper.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/Utils/UIColorFromHexExtension.swift" : {
+    "index-unit-output-path" : "/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/UIColorFromHexExtension.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/UIColorFromHexExtension.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/UIColorFromHexExtension.o"
+  }
+}

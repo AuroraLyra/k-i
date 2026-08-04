@@ -1,0 +1,12 @@
+{
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@ebarooni/capacitor-calendar/ios/Plugin/CapacitorCalendarPlugin.swift" : {
+    "abi-baseline-json" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin.abi.json",
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin-primary.dia",
+    "objc-header" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin-Swift.h",
+    "swiftdoc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin.swiftdoc",
+    "swiftmodule" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin.swiftmodule",
+    "swiftsourceinfo" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/EbarooniCapacitorCalendar.build/Release-iphoneos/CapacitorCalendarPlugin.build/Objects-normal/arm64/CapacitorCalendarPlugin.swiftsourceinfo"
+  }
+}

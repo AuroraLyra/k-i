@@ -1,0 +1,41 @@
+{
+  "" : {
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App-primary.dia",
+    "emit-module-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App-primary-emit-module.dia",
+    "pch" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App-primary.swiftdeps"
+  },
+  "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "index-unit-output-path" : "/App.build/Release-iphoneos/App.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/GeneratedAssetSymbols.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/ios/App/App/AppDelegate.swift" : {
+    "index-unit-output-path" : "/App.build/Release-iphoneos/App.build/Objects-normal/arm64/AppDelegate.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/AppDelegate.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/AppDelegate.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/ios/App/App/LinkBackupPlugin.swift" : {
+    "index-unit-output-path" : "/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkBackupPlugin.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkBackupPlugin.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkBackupPlugin.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/ios/App/App/LinkBridgeViewController.swift" : {
+    "index-unit-output-path" : "/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkBridgeViewController.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkBridgeViewController.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkBridgeViewController.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/ios/App/App/LinkMediaPlugin.swift" : {
+    "index-unit-output-path" : "/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkMediaPlugin.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkMediaPlugin.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkMediaPlugin.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/ios/App/App/LinkStoragePlugin.swift" : {
+    "index-unit-output-path" : "/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkStoragePlugin.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkStoragePlugin.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/LinkStoragePlugin.o"
+  }
+}

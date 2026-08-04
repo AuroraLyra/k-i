@@ -1,0 +1,4 @@
+module AppLauncherPlugin {
+header "AppLauncherPlugin-Swift.h"
+export *
+}

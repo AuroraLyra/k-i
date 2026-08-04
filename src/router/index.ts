@@ -37,6 +37,7 @@ const WorldBookEditorPage = () => import('@/pages/WorldBookEditorPage.vue');
 const FavoritesPage = () => import('@/pages/FavoritesPage.vue');
 const RingtoneSettingsPage = () => import('@/pages/RingtoneSettingsPage.vue');
 const ThemesPage = () => import('@/pages/ThemesPage.vue');
+const OnlineChatCardGalleryPage = () => import('@/pages/OnlineChatCardGalleryPage.vue');
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -64,6 +65,7 @@ export const router = createRouter({
     { path: '/favorites', name: 'favorites', component: FavoritesPage },
     { path: '/ringtones', name: 'ringtones', component: RingtoneSettingsPage },
     { path: '/themes', name: 'themes', component: ThemesPage },
+    { path: '/card-gallery', name: 'online-chat-card-gallery', component: OnlineChatCardGalleryPage },
     { path: '/stickers/manage', name: 'stickers-manage', component: StickerManagePage },
     { path: '/world-book', name: 'world-book', component: WorldBookPage },
     { path: '/world-book/new', name: 'world-book-new', component: WorldBookEditorPage },

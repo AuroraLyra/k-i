@@ -334,7 +334,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router';
 import { ArrowUpRight, ListChecks, PanelsTopLeft, Plus, Share2, SlidersHorizontal, Sparkles, Trash2, Upload } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
-import { pickNativePngFile, shareNativeDataUrl } from '@/services/nativeFile';
+import { pickNativePngFile } from '@/services/nativeFile';
 import { useAppStore } from '@/stores/appStore';
 import type { CharacterProfileHomepageAutoCleanupSettings, ProfileHomepageAutoCleanupPreset, ProfileHomepageRecord, ProfileTheme } from '@/types/domain';
 import { downloadDataUrl } from '@/utils/download';
@@ -842,7 +842,7 @@ async function exportSelectedThemes() {
   try {
     const dataUrl = await encodeProfileThemesToPng(selectedThemes);
     const fileName = getExportFileName(selectedThemes);
-    if (!await shareNativeDataUrl(dataUrl, fileName)) await downloadDataUrl(dataUrl, fileName);
+    await downloadDataUrl(dataUrl, fileName);
     showExporter.value = false;
   } catch (error) {
     exportError.value = error instanceof Error ? error.message : '主页主题导出失败。';

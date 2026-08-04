@@ -90,8 +90,7 @@ app.addHook('onRequest', async (request, reply) => {
   if (pathname.startsWith('/api/') || pathname.startsWith('/__')) {
     return await reply.code(401).send({ error: 'authentication_required', message: '请先通过 QQ 群验证登录。' });
   }
-  const acceptsHtml = String(request.headers.accept ?? '').includes('text/html');
-  if (request.method === 'GET' && acceptsHtml) return await reply.redirect('/access');
+  if (request.method === 'GET') return await reply.redirect('/access');
   return await reply.code(401).send({ error: 'authentication_required' });
 });
 

@@ -1,0 +1,21 @@
+{
+  "" : {
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/HapticsPlugin-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/HapticsPlugin-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/HapticsPlugin-primary.dia",
+    "emit-module-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/HapticsPlugin-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/HapticsPlugin-primary-emit-module.dia",
+    "pch" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/HapticsPlugin-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/HapticsPlugin-primary.swiftdeps"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/haptics/ios/Sources/HapticsPlugin/Haptics.swift" : {
+    "index-unit-output-path" : "/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/Haptics.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/Haptics.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/Haptics.o"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/haptics/ios/Sources/HapticsPlugin/HapticsPlugin.swift" : {
+    "index-unit-output-path" : "/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/HapticsPlugin.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/HapticsPlugin.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorHaptics.build/Release-iphoneos/HapticsPlugin.build/Objects-normal/arm64/HapticsPlugin.o"
+  }
+}

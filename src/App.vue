@@ -56,6 +56,7 @@ import { useAppStore } from '@/stores/appStore';
 import { useMusicPlayerStore } from '@/stores/musicPlayerStore';
 import type { ThemeFontEntry, ThemeStylePreset, ThemeStyleScopeSettings } from '@/types/domain';
 import { ensureOnlineThemeImageCompatibility, upgradeLegacyOnlineThemeCss } from '@/utils/themeCssCompatibility';
+import { defaultGlobalBottomBarOffset, normalizeGlobalBottomBarOffset } from '@/utils/themeBottomBar';
 import { normalizeGlobalThemeScale } from '@/utils/themeScale';
 import { defaultGlobalThemeCss, defaultGlobalThemePresetId, defaultOfflineThemeCss, defaultOfflineThemePresetId, defaultOnlineThemeCss, defaultOnlineThemePresetId } from '@/utils/themeStyles';
 
@@ -110,7 +111,7 @@ const cloudBackupScheduleKey = computed(() => {
   return [backup.provider, backup.workerUrl, backup.fileName, backup.intervalMinutes].join('|');
 });
 const themeFontSettings = computed(() => store.settings?.themeSettings.fonts ?? { activeFontId: '', entries: [] as ThemeFontEntry[] });
-const globalThemeSettings = computed(() => store.settings?.themeSettings.global ?? { scale: 1, fullscreen: true, style: { activePresetId: '', presets: [] } });
+const globalThemeSettings = computed(() => store.settings?.themeSettings.global ?? { scale: 1, bottomBarOffset: defaultGlobalBottomBarOffset, fullscreen: true, style: { activePresetId: '', presets: [] } });
 const globalThemeStyleSettings = computed(() => globalThemeSettings.value.style ?? { activePresetId: '', presets: [] });
 const onlineThemeSettings = computed(() => store.settings?.themeSettings.online ?? { activePresetId: '', presets: [] });
 const offlineThemeSettings = computed(() => store.settings?.themeSettings.offline ?? { activePresetId: '', presets: [] });
@@ -279,13 +280,15 @@ function setAppFontFamily(fontFamilyStack: string) {
   });
 }
 
-function applyGlobalThemeScale() {
+function applyGlobalThemeDisplaySettings() {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   const isIOSPwa = root.classList.contains('is-ios-pwa');
   const scale = normalizeGlobalThemeScale(globalThemeSettings.value.scale);
+  const bottomBarOffset = normalizeGlobalBottomBarOffset(globalThemeSettings.value.bottomBarOffset);
   root.classList.toggle('is-ios-pwa-scaled', isIOSPwa && scale !== 1);
   root.style.setProperty('--app-display-scale', scale.toFixed(3));
+  root.style.setProperty('--bottom-bar-offset', `${bottomBarOffset}px`);
   legacyGlobalScaleVariableNames.forEach((name) => root.style.removeProperty(name));
   document.body.style.setProperty('zoom', isIOSPwa ? '1' : scale.toFixed(3));
   window.dispatchEvent(new Event('link:theme-scale-change'));
@@ -514,7 +517,7 @@ watch(themeFontSettings, () => {
   applyThemeFonts();
   void cacheActiveThemeFontForStartup();
 }, { immediate: true, deep: true });
-watch(globalThemeSettings, applyGlobalThemeScale, { immediate: true, deep: true });
+watch(globalThemeSettings, applyGlobalThemeDisplaySettings, { immediate: true, deep: true });
 watch(
   () => store.ready ? globalThemeSettings.value.fullscreen : null,
   (enabled) => {
@@ -602,6 +605,7 @@ onBeforeUnmount(() => {
   runtimeWorkScheduler.stop();
   setAppFontFamily('');
   document.documentElement.style.removeProperty('--app-display-scale');
+  document.documentElement.style.removeProperty('--bottom-bar-offset');
   legacyGlobalScaleVariableNames.forEach((name) => document.documentElement.style.removeProperty(name));
   document.body.style.removeProperty('zoom');
   document.getElementById(themeFontStyleId)?.remove();

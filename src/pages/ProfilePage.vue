@@ -20,7 +20,6 @@
         :accounts="store.accounts"
         :active-user-id="store.user?.id || ''"
         :characters="store.characters"
-        @save="saveAccount"
         @switch="switchAccount"
         @delete="deleteAccount"
         @move-character="moveCharacter"
@@ -71,8 +70,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onBeforeUnmount, ref } from 'vue';
+import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import { Plus, Settings } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
 import AccountManagerPanel from '@/components/profile/AccountManagerPanel.vue';
@@ -85,12 +84,20 @@ const accountManagerRef = ref<InstanceType<typeof AccountManagerPanel> | null>(n
 const showAccountSettings = ref(false);
 const showAllFriends = computed(() => store.settings?.friendsDisplayScope === 'all-users');
 
+onBeforeRouteLeave(() => persistPendingAccounts());
+onBeforeUnmount(() => {
+  void persistPendingAccounts();
+});
+
 function goHome() {
   void router.push({ name: 'home' });
 }
 
-async function saveAccount(account: UserProfile) {
-  await store.saveAccountProfile(account);
+async function persistPendingAccounts() {
+  const accounts = accountManagerRef.value?.collectPendingAccounts() ?? [];
+  if (!accounts.length) return;
+  await Promise.all(accounts.map((account) => store.saveAccountProfile(account)));
+  accountManagerRef.value?.markAccountsSaved(accounts);
 }
 
 async function switchAccount(userId: string) {

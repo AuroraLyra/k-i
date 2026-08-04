@@ -1688,6 +1688,7 @@ export interface ThemeStyleScopeSettings {
 
 export interface ThemeGlobalSettings {
   scale: number;
+  bottomBarOffset: number;
   fullscreen: boolean;
   style: ThemeStyleScopeSettings;
 }

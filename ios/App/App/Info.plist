@@ -28,6 +28,8 @@
 	<string>BabyLink 需要使用摄像头，以便在视频通话中显示你的实时画面。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>BabyLink 需要使用麦克风，以便在语音和视频通话中识别你的语音。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>BabyLink 需要将你导出的图片保存到系统相册。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>BabyLink 只在你主动查询天气、地图或附近地点时读取当前位置。</string>
 	<key>NSCalendarsUsageDescription</key>

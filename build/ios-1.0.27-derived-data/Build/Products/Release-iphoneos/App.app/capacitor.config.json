@@ -1,0 +1,44 @@
+{
+	"appId": "top.babylink.app",
+	"appName": "BabyLink",
+	"webDir": "dist",
+	"server": {
+		"url": "https://babylink.top/home",
+		"cleartext": false,
+		"allowNavigation": [
+			"babylink.top"
+		]
+	},
+	"android": {
+		"allowMixedContent": false
+	},
+	"plugins": {
+		"Keyboard": {
+			"resize": "native",
+			"resizeOnFullScreen": true
+		},
+		"LocalNotifications": {
+			"presentationOptions": [
+				"badge",
+				"sound",
+				"banner",
+				"list"
+			]
+		}
+	},
+	"packageClassList": [
+		"ContactsPlugin",
+		"AppPlugin",
+		"AppLauncherPlugin",
+		"ClipboardPlugin",
+		"DevicePlugin",
+		"FilesystemPlugin",
+		"GeolocationPlugin",
+		"HapticsPlugin",
+		"KeyboardPlugin",
+		"LocalNotificationsPlugin",
+		"SharePlugin",
+		"FilePickerPlugin",
+		"CapacitorCalendarPlugin"
+	]
+}

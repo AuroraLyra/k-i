@@ -1,0 +1,16 @@
+{
+  "" : {
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorAppLauncher.build/Release-iphoneos/AppLauncherPlugin.build/Objects-normal/arm64/AppLauncherPlugin-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorAppLauncher.build/Release-iphoneos/AppLauncherPlugin.build/Objects-normal/arm64/AppLauncherPlugin-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorAppLauncher.build/Release-iphoneos/AppLauncherPlugin.build/Objects-normal/arm64/AppLauncherPlugin-primary.dia",
+    "emit-module-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorAppLauncher.build/Release-iphoneos/AppLauncherPlugin.build/Objects-normal/arm64/AppLauncherPlugin-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorAppLauncher.build/Release-iphoneos/AppLauncherPlugin.build/Objects-normal/arm64/AppLauncherPlugin-primary-emit-module.dia",
+    "pch" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorAppLauncher.build/Release-iphoneos/AppLauncherPlugin.build/Objects-normal/arm64/AppLauncherPlugin-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorAppLauncher.build/Release-iphoneos/AppLauncherPlugin.build/Objects-normal/arm64/AppLauncherPlugin-primary.swiftdeps"
+  },
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/app-launcher/ios/Sources/AppLauncherPlugin/AppLauncherPlugin.swift" : {
+    "index-unit-output-path" : "/CapacitorAppLauncher.build/Release-iphoneos/AppLauncherPlugin.build/Objects-normal/arm64/AppLauncherPlugin.o",
+    "llvm-bc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorAppLauncher.build/Release-iphoneos/AppLauncherPlugin.build/Objects-normal/arm64/AppLauncherPlugin.bc",
+    "object" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorAppLauncher.build/Release-iphoneos/AppLauncherPlugin.build/Objects-normal/arm64/AppLauncherPlugin.o"
+  }
+}

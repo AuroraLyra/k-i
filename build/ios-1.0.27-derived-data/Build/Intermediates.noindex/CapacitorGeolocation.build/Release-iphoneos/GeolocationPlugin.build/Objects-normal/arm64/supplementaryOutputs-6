@@ -1,0 +1,12 @@
+{
+  "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/geolocation/ios/Sources/GeolocationPlugin/GeolocationCallbackManager.swift" : {
+    "abi-baseline-json" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorGeolocation.build/Release-iphoneos/GeolocationPlugin.build/Objects-normal/arm64/GeolocationPlugin.abi.json",
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorGeolocation.build/Release-iphoneos/GeolocationPlugin.build/Objects-normal/arm64/GeolocationPlugin-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorGeolocation.build/Release-iphoneos/GeolocationPlugin.build/Objects-normal/arm64/GeolocationPlugin-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorGeolocation.build/Release-iphoneos/GeolocationPlugin.build/Objects-normal/arm64/GeolocationPlugin-primary.dia",
+    "objc-header" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorGeolocation.build/Release-iphoneos/GeolocationPlugin.build/Objects-normal/arm64/GeolocationPlugin-Swift.h",
+    "swiftdoc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorGeolocation.build/Release-iphoneos/GeolocationPlugin.build/Objects-normal/arm64/GeolocationPlugin.swiftdoc",
+    "swiftmodule" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorGeolocation.build/Release-iphoneos/GeolocationPlugin.build/Objects-normal/arm64/GeolocationPlugin.swiftmodule",
+    "swiftsourceinfo" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/CapacitorGeolocation.build/Release-iphoneos/GeolocationPlugin.build/Objects-normal/arm64/GeolocationPlugin.swiftsourceinfo"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "/Users/xiaomianbao/Documents/LINK/ios/App/App/AppDelegate.swift" : {
+    "abi-baseline-json" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App.abi.json",
+    "const-values" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App-primary.swiftconstvalues",
+    "dependencies" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App-primary.d",
+    "diagnostics" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App-primary.dia",
+    "objc-header" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App-Swift.h",
+    "swiftdoc" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App.swiftdoc",
+    "swiftmodule" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App.swiftmodule",
+    "swiftsourceinfo" : "/Users/xiaomianbao/Documents/LINK/build/ios-1.0.27-derived-data/Build/Intermediates.noindex/App.build/Release-iphoneos/App.build/Objects-normal/arm64/App.swiftsourceinfo"
+  }
+}

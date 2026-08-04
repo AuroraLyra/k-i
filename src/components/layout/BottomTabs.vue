@@ -290,8 +290,8 @@ const tabs = computed(() => [
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  height: calc(var(--tab-height) + var(--safe-bottom));
-  padding-bottom: var(--safe-bottom);
+  height: calc(var(--tab-height) + var(--bottom-bar-safe-bottom));
+  padding-bottom: var(--bottom-bar-safe-bottom);
   border-top: 1px solid transparent;
   background: #ffffff;
 }

@@ -16,7 +16,7 @@
 
       <article class="account-card" :class="{ active: currentAccount.id === activeUserId }">
         <header class="account-head">
-          <span class="active-pill">{{ currentAccount.id === activeUserId ? '当前使用中' : currentAccountPersisted ? '可切换' : '自动保存中' }}</span>
+          <span class="active-pill">{{ currentAccount.id === activeUserId ? '当前使用中' : currentAccountPersisted ? '可切换' : '离开页面时保存' }}</span>
 
           <div class="account-summary">
             <img :src="currentAccount.avatar" :alt="getAccountDisplayName(currentAccount)" />
@@ -136,7 +136,6 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  save: [user: UserProfile];
   switch: [userId: string];
   delete: [userId: string];
   'move-character': [payload: { characterId: string; userId: string }];
@@ -202,15 +201,6 @@ const canDeleteCurrent = computed(() => {
 watch(selectedAccountId, () => {
   boundListExpanded.value = false;
 });
-
-watch(
-  draftAccounts,
-  () => {
-    if (!currentAccount.value) return;
-    saveAccount(currentAccount.value.id);
-  },
-  { deep: true }
-);
 
 function cloneAccount(account: UserProfile): UserProfile {
   return JSON.parse(JSON.stringify(account)) as UserProfile;
@@ -280,22 +270,31 @@ function switchAccount(userId: string) {
   emit('switch', userId);
 }
 
-function saveAccount(userId: string) {
-  const account = draftAccounts.find((entry) => entry.id === userId);
-  if (!account) return;
+function normalizeAccountForSave(account: UserProfile) {
   const name = account.name.trim();
-  if (!name) return;
-  const normalizedAccount = normalizeUserProfile({
+  if (!name) return null;
+  return normalizeUserProfile({
     ...account,
     name,
     nickname: account.nickname.trim(),
     signature: account.signature.trim(),
     description: account.description.trim()
   });
-  const snapshot = serializeAccount(normalizedAccount);
-  if (savedAccountSnapshots.get(normalizedAccount.id) === snapshot) return;
-  savedAccountSnapshots.set(normalizedAccount.id, snapshot);
-  emit('save', normalizedAccount);
+}
+
+function collectPendingAccounts() {
+  return draftAccounts.flatMap((account) => {
+    const normalizedAccount = normalizeAccountForSave(account);
+    if (!normalizedAccount) return [];
+    const snapshot = serializeAccount(normalizedAccount);
+    return savedAccountSnapshots.get(normalizedAccount.id) === snapshot ? [] : [cloneAccount(normalizedAccount)];
+  });
+}
+
+function markAccountsSaved(accounts: UserProfile[]) {
+  accounts.forEach((account) => {
+    savedAccountSnapshots.set(account.id, serializeAccount(account));
+  });
 }
 
 function removeDraftAccount(userId: string) {
@@ -363,7 +362,9 @@ function applyEditedAvatar(value: string) {
 }
 
 defineExpose({
-  createAccount
+  createAccount,
+  collectPendingAccounts,
+  markAccountsSaved
 });
 </script>
 

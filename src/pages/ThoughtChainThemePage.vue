@@ -133,7 +133,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ArrowLeft, ArrowUpRight, Eraser, Plus, Share2, Sparkles, Upload } from 'lucide-vue-next';
 import AppModal from '@/components/common/AppModal.vue';
-import { pickNativePngFile, shareNativeDataUrl } from '@/services/nativeFile';
+import { pickNativePngFile } from '@/services/nativeFile';
 import { useAppStore } from '@/stores/appStore';
 import type { ThoughtChainTheme } from '@/types/domain';
 import { downloadDataUrl } from '@/utils/download';
@@ -290,7 +290,7 @@ async function exportSelectedThemes() {
     const dataUrl = await encodeThoughtChainThemesToPng(selectedThemes);
     const firstName = selectedThemes[0]?.name.replace(/[^\u4e00-\u9fa5\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'thought-chain';
     const fileName = `link-thought-chain-${firstName}-${Date.now()}.png`;
-    if (!await shareNativeDataUrl(dataUrl, fileName)) await downloadDataUrl(dataUrl, fileName);
+    await downloadDataUrl(dataUrl, fileName);
     showExporter.value = false;
   } catch (error) {
     exportError.value = error instanceof Error ? error.message : '思维链主题导出失败。';

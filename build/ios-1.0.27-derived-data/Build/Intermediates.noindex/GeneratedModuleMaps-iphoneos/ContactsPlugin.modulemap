@@ -1,0 +1,4 @@
+module ContactsPlugin {
+header "ContactsPlugin-Swift.h"
+export *
+}

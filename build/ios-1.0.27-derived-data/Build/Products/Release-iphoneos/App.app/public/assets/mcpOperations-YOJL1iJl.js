@@ -1,0 +1,4 @@
+var e={running:`正在调用`,completed:`已完成`,initiated:`已发起`,"awaiting-user":`等待你在系统中确认`,"requires-permission":`需要系统授权`,cancelled:`已取消`,unsupported:`当前设备不支持`,unknown:`结果未知`,failed:`调用失败`};function t(t){return e[t]}function n(e,n={}){let r=[`【MCP 行动 · ${t(e.state)}】`,`服务：${e.serverName}`,`工具：${e.toolName}`];return n.includeArguments!==!1&&Object.keys(e.arguments).length&&r.push(`参数：${JSON.stringify(e.arguments)}`),e.receipt&&r.push(`回执：${e.receipt}`),n.includeResult!==!1&&e.result.trim()&&r.push(`结果：${e.result.trim()}`),r.join(`
+`)}function r(e,t={}){return e.map(e=>n(e,t)).join(`
+
+`)}export{r as n,t as r,n as t};

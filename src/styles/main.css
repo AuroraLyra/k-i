@@ -38,6 +38,8 @@
   --safe-top: calc(max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px)) / var(--app-display-scale));
   --safe-right: calc(max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px)) / var(--app-display-scale));
   --safe-bottom: calc(max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px)) / var(--app-display-scale));
+  --bottom-bar-offset: 0px;
+  --bottom-bar-safe-bottom: var(--safe-bottom);
   --keyboard-raw-inset: 0px;
   --keyboard-inset: calc(var(--keyboard-raw-inset) / var(--app-display-scale));
   --safe-left: calc(max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px)) / var(--app-display-scale));
@@ -74,6 +76,11 @@ html.is-link-fullscreen {
   --safe-right: calc(max(env(safe-area-inset-right, 0px), var(--link-cutout-right)) / var(--app-display-scale));
   --safe-bottom: calc(max(env(safe-area-inset-bottom, 0px), var(--link-cutout-bottom)) / var(--app-display-scale));
   --safe-left: calc(max(env(safe-area-inset-left, 0px), var(--link-cutout-left)) / var(--app-display-scale));
+}
+
+html.is-ios[data-layout-environment='web'],
+html.is-ios-pwa {
+  --bottom-bar-safe-bottom: max(0px, calc(var(--safe-bottom) - var(--bottom-bar-offset)));
 }
 
 html.is-ios.keyboard-open {
@@ -269,7 +276,7 @@ a {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   background: var(--surface);
-  padding-bottom: calc(var(--tab-height) + var(--safe-bottom));
+  padding-bottom: calc(var(--tab-height) + var(--bottom-bar-safe-bottom));
 }
 
 .screen.no-tabs {

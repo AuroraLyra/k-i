@@ -1,0 +1,4 @@
+module KeyboardPlugin {
+umbrella header "/Users/xiaomianbao/Documents/LINK/node_modules/@capacitor/keyboard/ios/Sources/KeyboardPlugin/include/KeyboardPlugin.h"
+export *
+}

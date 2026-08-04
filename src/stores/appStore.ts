@@ -15,6 +15,7 @@ import { createDefaultProfileTheme, extractProfileThemeContent, isDefaultProfile
 import { createThoughtChainTheme as createDefaultThoughtChainTheme, normalizeThoughtChainTheme, normalizeThoughtChainThemes, selectRandomEnabledThoughtChainTheme } from '@/utils/thoughtChainThemes';
 import { getSmallTheaterVisibleText } from '@/utils/smallTheaterHtml';
 import { RECENT_STICKER_GROUP_NAME, cacheStickerImageUrl, createStickerFromDraft, createStickerGroup, getStickerDisplayImageUrl, isLegacyGanadiSticker, isLegacyGanadiStickerGroup, isRecentStickerGroupId, normalizeSticker, normalizeStickerGroup, shouldLocalizeStickerImageUrl, sortRecentStickers, type StickerImportDraft } from '@/utils/stickers';
+import type { StickerSharePackage } from '@/utils/stickerShare';
 import { getConversationActiveMessages, getConversationFloorCount, getConversationFloors, getMessageFloorMap, getRecentCompleteFloorMessages, normalizeConversationSettings } from '@/utils/memory';
 import { applyCurrentChatMemoryDefaults, chatMemoryDefaultsMigrationVersion } from '@/utils/memorySettings';
 import { resolveMemoryEpisodeFloorRange } from '@/utils/memoryFloors';
@@ -4299,6 +4300,52 @@ export const useAppStore = defineStore('app', () => {
     return createdStickers;
   }
 
+  async function importStickerSharePackage(stickerPackage: StickerSharePackage) {
+    const groupIdBySourceId = new Map<string, string>();
+    const existingGroupsByName = new Map(stickerGroups.value.map((group) => [group.name.trim().toLocaleLowerCase(), group]));
+    const createdGroups: StickerGroup[] = [];
+    for (const sourceGroup of stickerPackage.groups) {
+      const sourceId = sourceGroup.sourceId.trim();
+      if (!sourceId) continue;
+      const sourceName = sourceGroup.name.trim();
+      const groupName = sourceName === RECENT_STICKER_GROUP_NAME ? `${sourceName}（导入）` : sourceName;
+      const existingGroup = existingGroupsByName.get(groupName.toLocaleLowerCase());
+      if (existingGroup) {
+        groupIdBySourceId.set(sourceId, existingGroup.id);
+        continue;
+      }
+      const createdGroup = createStickerGroup(groupName);
+      stickerGroups.value.push(createdGroup);
+      createdGroups.push(createdGroup);
+      existingGroupsByName.set(createdGroup.name.trim().toLocaleLowerCase(), createdGroup);
+      groupIdBySourceId.set(sourceId, createdGroup.id);
+    }
+    if (!groupIdBySourceId.size) throw new Error('分享包中没有可用的贴纸分组。');
+    if (createdGroups.length) await Promise.all(createdGroups.map((group) => putEntity('stickerGroups', group)));
+
+    const fallbackGroupId = groupIdBySourceId.values().next().value ?? stickerGroups.value[0]?.id ?? '';
+    const existingKeys = new Set(stickers.value.map((sticker) => `${sticker.description.toLocaleLowerCase()}::${sticker.imageUrl}`));
+    const createdStickers: Sticker[] = [];
+    for (const sourceSticker of stickerPackage.stickers) {
+      const groupIds = [...new Set(sourceSticker.groupSourceIds.map((sourceId) => groupIdBySourceId.get(sourceId) ?? '').filter(Boolean))];
+      const draft: StickerImportDraft = {
+        description: sourceSticker.description,
+        imageUrl: sourceSticker.imageUrl,
+        sourceType: 'local-image'
+      };
+      const sourceStickerRecord = createStickerFromDraft(draft, groupIds.length ? groupIds : [fallbackGroupId]);
+      const key = `${sourceStickerRecord.description.toLocaleLowerCase()}::${sourceStickerRecord.imageUrl}`;
+      if (existingKeys.has(key)) continue;
+      existingKeys.add(key);
+      createdStickers.push(await prepareImportedSticker(draft, sourceStickerRecord.groupIds));
+    }
+    if (createdStickers.length) {
+      stickers.value.unshift(...createdStickers);
+      await Promise.all(createdStickers.map((sticker) => putEntity('stickers', sticker)));
+    }
+    return { createdGroups, createdStickers };
+  }
+
   function queueMissingStickerImageCaches(targetStickers = stickers.value) {
     targetStickers
       .filter((sticker) => !sticker.cachedImageUrl && shouldLocalizeStickerImageUrl(sticker.imageUrl))
@@ -5126,15 +5173,45 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  function accountProfileChangeContext(previousUser: UserProfile | null | undefined, nextUser: UserProfile) {
+    if (!previousUser) return '';
+    const changes: string[] = [];
+    if (previousUser.nickname !== nextUser.nickname) {
+      changes.push(nextUser.nickname ? `修改自己的网名为「${nextUser.nickname}」` : '清空了自己的网名');
+    }
+    if (previousUser.signature !== nextUser.signature) {
+      changes.push(nextUser.signature ? `修改自己的个性签名为「${nextUser.signature}」` : '清空了自己的个性签名');
+    }
+    return changes.length ? `${getUserAiName(nextUser)}${changes.join('，并')}。` : '';
+  }
+
+  function conversationIncludesBoundCharacter(conversation: Conversation, characterIds: Set<string>) {
+    if (characterIds.has(conversation.charId)) return true;
+    return conversation.kind === 'group' && Boolean(conversation.groupMembers?.some((member) => member.identityType === 'character' && typeof member.identityId === 'string' && characterIds.has(member.identityId)));
+  }
+
   async function saveAccountProfile(nextUser: UserProfile) {
+    const previousUser = userById(nextUser.id);
     const actualBoundCharacterIds = characters.value
       .filter((character) => character.boundUserId === nextUser.id)
       .map((character) => character.id);
-
-    await saveUserProfile({
+    const savedUser = normalizeUserProfile({
       ...nextUser,
       boundCharacterIds: actualBoundCharacterIds
     });
+    const profileChangeContext = accountProfileChangeContext(previousUser, savedUser);
+
+    await saveUserProfile(savedUser);
+    if (!profileChangeContext) return;
+
+    const boundCharacterIds = new Set(actualBoundCharacterIds);
+    if (!boundCharacterIds.size) return;
+    const targetConversations = conversations.value.filter((conversation) => conversation.userId === savedUser.id && conversationIncludesBoundCharacter(conversation, boundCharacterIds));
+    const changedAt = Date.now();
+    await Promise.all(targetConversations.map((conversation, index) => appendConversationEvent(conversation.id, profileChangeContext, {
+      contextOnly: true,
+      createdAt: changedAt + index
+    })));
   }
 
   async function deleteUserProfile(userId: string) {
@@ -11539,6 +11616,7 @@ export const useAppStore = defineStore('app', () => {
     moveStickerGroup,
     saveSticker,
     importStickers,
+    importStickerSharePackage,
     deleteSticker,
     deleteStickers,
     moveStickersToGroup,

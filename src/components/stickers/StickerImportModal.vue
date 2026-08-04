@@ -119,7 +119,7 @@ const modeLabelMap: Record<StickerImportTab, string> = {
 
 const helperMap: Record<StickerImportTab, string> = {
   url: '支持逐行或连续粘贴，描述和图片链接之间可用中文/英文分号、空格或多空格分隔。',
-  file: '支持 TXT、DOC、DOCX、JSON 与本地图片；文本类文件可包含连续多条“描述 + 图片链接”或 JSON。'
+  file: '支持 TXT、DOC、DOCX、JSON 与本地图片；收到的 BabyLink Stickers 分享 PNG 可直接选择，分组和图片会一并导入。'
 };
 
 const fileAccept = 'image/*,.txt,.json,.doc,.docx,text/plain,application/json,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
